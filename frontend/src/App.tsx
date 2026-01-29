@@ -24,11 +24,10 @@ const App = () => {
                 {/* Landing Page */}
                 <Route path="/" element={<Landing />} />
                 
-                {/* Login Page */}
-                <Route path="/login" element={<Auth />} />
-                
-                {/* Register Page */}
-                <Route path="/register" element={<Auth />} />
+                {/* Auth Page (Login/Register) */}
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
+                <Route path="/register" element={<Navigate to="/auth?mode=register" replace />} />
                 
                 {/* Dashboard - Protected Route */}
                 <Route 
