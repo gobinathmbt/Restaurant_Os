@@ -25,6 +25,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   /**
+   * Set authentication credentials and start sync service
+   * @param {string} token - JWT authentication token
+   * @param {string} companyId - Company identifier
+   * @returns {Promise<Object>} Result of authentication setup
+   */
+  setAuth: (token, companyId) => {
+    return ipcRenderer.invoke('set-auth', { token, companyId });
+  },
+
+  /**
+   * Logout and stop sync service
+   * @returns {Promise<Object>} Result of logout operation
+   */
+  logout: () => {
+    return ipcRenderer.invoke('logout');
+  },
+
+  /**
+   * Get current sync service status
+   * @returns {Promise<Object>} Sync service status information
+   */
+  getSyncStatus: () => {
+    return ipcRenderer.invoke('get-sync-status');
+  },
+
+  /**
    * Register callback for sync completion events
    * @param {Function} callback - Function to call when sync completes
    */
