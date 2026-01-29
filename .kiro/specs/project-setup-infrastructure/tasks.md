@@ -240,7 +240,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Create src/App.jsx (wrap app with AuthProvider, set up BrowserRouter with Routes, define placeholder routes: /, /login, /register)
     - _Requirements: 0.2, Module 1: App Structure_
 
-- [ ] 14. Checkpoint - Frontend foundation complete
+- [x] 14. Checkpoint - Frontend foundation complete
   - Verify Vite dev server starts on port 5173
   - Verify Tailwind CSS is working (check styles)
   - Verify API client is configured
@@ -281,7 +281,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Add placeholder route: /dashboard -> "Dashboard Coming Soon"
     - _Requirements: Module 1: Routing_
 
-- [ ] 16. Create protected route component (Optional)
+- [ ] 16. Create protected route component
   - Create src/components/ProtectedRoute.jsx
   - Check if user is authenticated using useAuth()
   - Show loading spinner while checking auth
