@@ -27,40 +27,33 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
   - Create logger utility for structured logging
   - _Requirements: 0.1_
 
-- [ ] 2. Implement Platform Database models
-  - [ ] 2.1 Create PlatformAdmin model with password hashing
+- [x] 2. Implement Platform Database models
+  - [x] 2.1 Create PlatformAdmin model with password hashing
     - Define schema with name, email, password, role, isActive fields
     - Implement pre-save hook for bcrypt password hashing
     - Add comparePassword method for password verification
     - _Requirements: 0.1, 1.1_
 
-  - [ ] 2.2 Write property test for password hashing
-    - **Property 11: Password Hashing Round-Trip**
-    - **Validates: Requirements 4.1, 4.2, 4.3**
 
-  - [ ] 2.3 Create Company model with subscription management
+  - [x] 2.3 Create Company model with subscription management
     - Define schema with company details, database info, subscription fields
     - Add indexes on companyId, email, subscription.status
     - Implement validation for subscription status transitions
     - _Requirements: 0.1, 1.1_
 
-  - [ ] 2.4 Create User model for initial company registration
+  - [x] 2.4 Create User model for initial company registration
     - Define schema for company_super_admin_primary role
     - Implement password hashing and comparison methods
     - Add unique index on email
     - _Requirements: 0.1, 1.1_
 
-  - [ ] 2.5 Create EnvironmentConfig model with encryption
+  - [x] 2.5 Create EnvironmentConfig model with encryption
     - Define schema for environment variables storage
     - Implement pre-save hook for encrypting sensitive fields (JWT_SECRET, GOOGLE_CLIENT_SECRET)
     - Add getDecryptedConfig method using AES-256-CBC decryption
     - _Requirements: 0.1, 3.1, 3.2_
 
-  - [ ] 2.6 Write property test for environment config encryption
-    - **Property 12: Environment Configuration Encryption Round-Trip**
-    - **Validates: Requirements 3.1, 3.2**
-
-  - [ ] 2.7 Create RefreshToken model
+  - [x] 2.7 Create RefreshToken model
     - Define schema with userId, token, expiresAt, isRevoked fields
     - Add TTL index on expiresAt for automatic cleanup
     - _Requirements: 1.1_
@@ -86,19 +79,12 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Add fallback to .env file if DB config not found
     - _Requirements: 0.2, 3.1, 3.2_
 
-  - [ ] 4.2 Write property test for environment config override
-    - **Property 13: Environment Configuration Database Override**
-    - **Validates: Requirements 0.2**
-
   - [ ] 4.3 Implement getCompanyDB function for dynamic connections
     - Create connection to company_<companyId> database
     - Implement connection pooling and caching
     - Return existing connection if already created
     - _Requirements: 0.3, 2.1_
 
-  - [ ] 4.4 Write property test for company database connections
-    - **Property 3: Company Database Connection Retrieval**
-    - **Validates: Requirements 0.3**
 
 - [ ] 5. Checkpoint - Verify database setup
   - Ensure all tests pass, ask the user if questions arise.
@@ -110,9 +96,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Store refresh tokens in database
     - _Requirements: 1.3, 5.1, 5.2_
 
-  - [ ] 6.2 Write property test for JWT token round-trip
-    - **Property 7: JWT Token Round-Trip**
-    - **Validates: Requirements 5.1, 5.2**
 
   - [ ] 6.3 Implement registerCompany controller function
     - Validate input data (email, password, company name, etc.)
@@ -126,9 +109,7 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Return user, company, and tokens
     - _Requirements: 1.1, 1.2, 2.1_
 
-  - [ ] 6.4 Write property test for company registration
-    - **Property 1: Company Registration Creates Complete Infrastructure**
-    - **Validates: Requirements 1.1, 1.2, 2.1**
+
 
   - [ ] 6.5 Implement login controller function
     - Find user by email with password field
@@ -139,13 +120,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Return user data and tokens
     - _Requirements: 1.3_
 
-  - [ ] 6.6 Write property test for valid authentication
-    - **Property 4: Authentication with Valid Credentials**
-    - **Validates: Requirements 1.3**
-
-  - [ ] 6.7 Write property test for invalid authentication
-    - **Property 5: Authentication Rejection for Invalid Credentials**
-    - **Validates: Requirements 1.4, 1.5, 1.8**
 
   - [ ] 6.8 Implement googleLogin controller function
     - Verify Google token using OAuth2Client
@@ -157,9 +131,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Return user data and tokens
     - _Requirements: 1.6_
 
-  - [ ] 6.9 Write property test for Google OAuth authentication
-    - **Property 6: Google OAuth Authentication**
-    - **Validates: Requirements 1.6**
 
   - [ ] 6.10 Implement getMe controller function
     - Fetch user by ID from req.user (set by auth middleware)
@@ -172,9 +143,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Return success response
     - _Requirements: 1.10_
 
-  - [ ] 6.12 Write property test for refresh token revocation
-    - **Property 10: Refresh Token Revocation**
-    - **Validates: Requirements 1.10**
 
 - [ ] 7. Implement authentication middleware
   - [ ] 7.1 Create authenticate middleware
@@ -186,9 +154,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Return 401 if token invalid or user inactive
     - _Requirements: 1.7, 1.8_
 
-  - [ ] 7.2 Write property test for JWT middleware authentication
-    - **Property 8: JWT Middleware Authentication**
-    - **Validates: Requirements 1.7**
 
   - [ ] 7.3 Create authorize middleware factory
     - Accept array of allowed roles as parameter
@@ -197,9 +162,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Call next() if authorized
     - _Requirements: 1.9_
 
-  - [ ] 7.4 Write property test for role-based authorization
-    - **Property 9: Role-Based Authorization**
-    - **Validates: Requirements 1.9**
 
 - [ ] 8. Create authentication routes
   - Define POST /api/auth/register-company route (public)
@@ -255,13 +217,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Call checkAuth on context initialization
     - _Requirements: 1.1, 1.3, 1.6, 1.7, 1.10, 6.1, 6.2, 6.3, 6.4_
 
-  - [ ] 13.2 Write property test for frontend auth state management
-    - **Property 15: Frontend Authentication State Management**
-    - **Validates: Requirements 6.1, 6.2**
-
-  - [ ] 13.3 Write property test for frontend auth check
-    - **Property 16: Frontend Authentication Check**
-    - **Validates: Requirements 6.3, 6.4**
 
 - [ ] 14. Create landing page component
   - Design hero section with ROS branding and value proposition
@@ -331,9 +286,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - Render children if authorized
     - _Requirements: 8.1, 8.2_
 
-  - [ ] 17.2 Write property test for protected route authentication
-    - **Property 14: Protected Route Authentication Check**
-    - **Validates: Requirements 8.1, 8.2**
 
 - [ ] 18. Set up React Router with routes
   - Wrap app with AuthProvider
@@ -369,9 +321,7 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
     - _Requirements: 0.3_
 
 - [ ] 21. Implement data isolation tests
-  - [ ] 21.1 Write property test for company database isolation
-    - **Property 2: Company Database Isolation**
-    - **Validates: Requirements 2.2, 2.3**
+
 
 - [ ] 22. Write integration tests for authentication flow
   - [ ] 22.1 Test complete registration flow
@@ -399,7 +349,6 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
 
 - Each task references specific requirements for traceability
 - Checkpoints ensure incremental validation
-- Property tests validate universal correctness properties (minimum 100 iterations each)
 - Unit tests validate specific examples and edge cases
 - All authentication flows include proper error handling
 - Database isolation is enforced at the architecture level
