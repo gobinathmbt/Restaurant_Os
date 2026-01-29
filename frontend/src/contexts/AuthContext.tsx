@@ -84,8 +84,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const response = await authServices.getMe();
         
         if (response.data.success) {
-          setUser(response.data.user);
-          setCompany(response.data.company || null);
+          setUser(response.data.data.user);
+          setCompany(response.data.data.company || null);
           setIsAuthenticated(true);
         } else {
           // Invalid token, clear storage
@@ -111,7 +111,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await authServices.login(email, password);
       
       if (response.data.success) {
-        const { token, user: userData, company: companyData } = response.data;
+        const { token, user: userData } = response.data.data;
         
         // Store token in sessionStorage
         sessionStorage.setItem('token', token);
@@ -119,14 +119,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         // Update state
         setUser(userData);
-        setCompany(companyData || null);
         setIsAuthenticated(true);
+        
+        // Fetch company data if user has companyId
+        if (userData.companyId) {
+          try {
+            const meResponse = await authServices.getMe();
+            if (meResponse.data.success && meResponse.data.data.company) {
+              setCompany(meResponse.data.data.company);
+            }
+          } catch (err) {
+            console.error('Failed to fetch company data:', err);
+          }
+        }
       } else {
         throw new Error(response.data.message || 'Login failed');
       }
     } catch (error: any) {
       console.error('Login error:', error);
-      throw new Error(error.message || 'Login failed');
+      throw error;
     }
   };
 
@@ -161,7 +172,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await authServices.registerCompany(data);
       
       if (response.data.success) {
-        const { token, user: userData, company: companyData } = response.data;
+        const { token, user: userData, company: companyData } = response.data.data;
         
         // Store token in sessionStorage
         sessionStorage.setItem('token', token);
@@ -176,7 +187,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } catch (error: any) {
       console.error('Registration error:', error);
-      throw new Error(error.message || 'Registration failed');
+      throw error;
     }
   };
 

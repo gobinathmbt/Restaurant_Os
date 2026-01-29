@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useGoogleLogin } from '@react-oauth/google';
-import {
-  Mail,
-  Lock,
-  User,
-  Building2,
-  Phone,
+import { 
+  Mail, 
+  Lock, 
+  User, 
+  Building2, 
+  Phone, 
   MapPin,
   FileText,
   ChefHat,
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { authServices } from '@/api/services';
+import { useToast } from '@/hooks/use-toast';
 
 interface LoginData {
   email: string;
@@ -40,12 +41,12 @@ const Auth = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { login, register } = useAuth();
-
+  const { toast } = useToast();
+  
   const [mode, setMode] = useState<'login' | 'register'>(
     searchParams.get('mode') === 'register' ? 'register' : 'login'
   );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const [loginData, setLoginData] = useState<LoginData>({
     email: '',
@@ -65,14 +66,25 @@ const Auth = () => {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
 
     try {
       await login(loginData.email, loginData.password);
-      navigate('/dashboard');
+      
+      toast({
+        title: "Login Successful",
+        description: "Welcome back! Redirecting to dashboard...",
+      });
+      
+      setTimeout(() => navigate('/dashboard'), 500);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      const errorMessage = err.response?.data?.message || err.message || 'Login failed. Please try again.';
+      
+      toast({
+        title: "Login Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -80,14 +92,35 @@ const Auth = () => {
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
 
     try {
       await register(registerData);
-      navigate('/dashboard');
+      
+      toast({
+        title: "Registration Successful",
+        description: "Your account has been created. 30-day trial activated!",
+      });
+      
+      setTimeout(() => navigate('/dashboard'), 500);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      const errorMessage = err.response?.data?.message || err.message || 'Registration failed. Please try again.';
+      
+      // Check for validation errors
+      if (err.response?.data?.errors && Array.isArray(err.response.data.errors)) {
+        const validationErrors = err.response.data.errors.map((e: any) => e.msg).join(', ');
+        toast({
+          title: "Validation Error",
+          description: validationErrors,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Registration Failed",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -95,7 +128,6 @@ const Auth = () => {
 
   const handleGoogleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
-      setError('');
       setLoading(true);
 
       try {
@@ -105,52 +137,69 @@ const Auth = () => {
             Authorization: `Bearer ${tokenResponse.access_token}`,
           },
         });
-
+        
         const userInfo = await userInfoResponse.json();
-
-        // Get ID token for backend verification
-        const idTokenResponse = await fetch('https://oauth2.googleapis.com/tokeninfo', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: `access_token=${tokenResponse.access_token}`,
-        });
-
-        const tokenInfo = await idTokenResponse.json();
-
+        
         // Try to login with Google using access token
         try {
           const response = await authServices.googleLogin(tokenResponse.access_token);
-
-          // Store tokens
-          sessionStorage.setItem('token', response.data.data.token);
-          sessionStorage.setItem('user', JSON.stringify(response.data.data.user));
-
-          navigate('/dashboard');
+          
+          // Check backend response structure
+          if (response.data.success) {
+            // Store tokens from backend response
+            sessionStorage.setItem('token', response.data.data.token);
+            sessionStorage.setItem('user', JSON.stringify(response.data.data.user));
+            
+            toast({
+              title: "Google Login Successful",
+              description: `Welcome back, ${response.data.data.name}!`,
+            });
+            
+            setTimeout(() => navigate('/dashboard'), 1000);
+          }
         } catch (loginError: any) {
-          // If user doesn't exist, show registration form with pre-filled data
-          if (loginError.response?.status === 404) {
+          console.log(loginError)
+          // If user doesn't exist (404), show registration form with pre-filled data
+          if (loginError.status === 404) {
             setMode('register');
             setRegisterData({
               ...registerData,
               adminName: userInfo.name || '',
               email: userInfo.email || '',
             });
-            setError('Please complete your registration to continue.');
+            
+            toast({
+              title: "Account Not Found",
+              description: "Please complete your registration to continue.",
+              variant: "destructive",
+            });
           } else {
-            setError(loginError.response?.data?.message || 'Google login failed. Please try again.');
+            console.log(loginError)
+            const errorMessage = loginError.response?.message || 'Google login failed. Please try again.';
+            toast({
+              title: "Google Login Failed",
+              description: errorMessage,
+              variant: "destructive",
+            });
           }
         }
       } catch (err: any) {
         console.error('Google login error:', err);
-        setError('Failed to authenticate with Google. Please try again.');
+        toast({
+          title: "Authentication Error",
+          description: "Failed to authenticate with Google. Please try again.",
+          variant: "destructive",
+        });
       } finally {
         setLoading(false);
       }
     },
     onError: () => {
-      setError('Google login was cancelled or failed.');
+      toast({
+        title: "Google Login Cancelled",
+        description: "Google login was cancelled or failed.",
+        variant: "destructive",
+      });
       setLoading(false);
     },
   });
@@ -212,7 +261,7 @@ const Auth = () => {
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-6">
             {[
               { icon: CheckCircle2, title: 'Smart Billing & KOT', desc: 'Lightning-fast billing with kitchen order tracking' },
               { icon: CheckCircle2, title: 'Inventory Management', desc: 'Real-time stock tracking and automated alerts' },
@@ -236,7 +285,6 @@ const Auth = () => {
               </motion.div>
             ))}
           </div>
-
 
           <motion.div
             initial={{ y: 20, opacity: 0 }}
@@ -301,24 +349,11 @@ const Auth = () => {
                 {mode === 'login' ? 'Welcome Back' : 'Get Started'}
               </h2>
               <p className="text-muted-foreground">
-                {mode === 'login'
-                  ? 'Sign in to your account to continue'
+                {mode === 'login' 
+                  ? 'Sign in to your account to continue' 
                   : 'Create your account and start your free trial'}
               </p>
             </motion.div>
-
-            <AnimatePresence mode="wait">
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm"
-                >
-                  {error}
-                </motion.div>
-              )}
-            </AnimatePresence>
 
             {/* Login Form */}
             {mode === 'login' && (
@@ -395,10 +430,10 @@ const Auth = () => {
                   className="w-full border-2 border-border text-foreground py-3 rounded-lg hover:bg-muted transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
                   Sign in with Google
                 </button>
@@ -595,10 +630,10 @@ const Auth = () => {
                   className="w-full border-2 border-border text-foreground py-3 rounded-lg hover:bg-muted transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
                   Sign up with Google
                 </button>
