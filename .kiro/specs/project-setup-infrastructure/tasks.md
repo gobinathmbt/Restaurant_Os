@@ -221,8 +221,8 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - All methods use apiClient from axios.js
     - _Requirements: 0.2, Module 1: API Services_
 
-- [ ] 13. Create frontend auth context and app structure
-  - [ ] 13.1 Create auth context (src/context/AuthContext.jsx)
+- [x] 13. Create frontend auth context and app structure
+  - [x] 13.1 Create auth context (src/context/AuthContext.jsx)
     - Create AuthContext with createContext
     - Create AuthProvider component
     - Implement state: user, company, loading, isAuthenticated
@@ -235,7 +235,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Export useAuth() custom hook
     - _Requirements: Module 1: State Management, Authentication_
   
-  - [ ] 13.2 Create main app structure (src/main.jsx, src/App.jsx)
+  - [x] 13.2 Create main app structure (src/main.jsx, src/App.jsx)
     - Create src/main.jsx as entry point (import React, ReactDOM, App, globals.css, render App wrapped in React.StrictMode)
     - Create src/App.jsx (wrap app with AuthProvider, set up BrowserRouter with Routes, define placeholder routes: /, /login, /register)
     - _Requirements: 0.2, Module 1: App Structure_
