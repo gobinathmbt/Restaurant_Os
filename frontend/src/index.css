@@ -11,6 +11,11 @@
 
 @layer base {
   :root {
+    /* ROS Custom Properties */
+    --primary-green: #22c55e;
+    --primary-black: #0a0a0a;
+    --primary-white: #ffffff;
+    
     /* Core brand colors - Forest Green palette */
     --forest: 152 81% 12%;
     --forest-light: 152 60% 18%;
@@ -242,5 +247,21 @@
       opacity: 1;
       transform: translateX(0);
     }
+  }
+
+  /* ROS Theme Utility Classes */
+  .theme-green {
+    background-color: var(--primary-green);
+    color: var(--primary-white);
+  }
+
+  .theme-black {
+    background-color: var(--primary-black);
+    color: var(--primary-white);
+  }
+
+  .theme-white {
+    background-color: var(--primary-white);
+    color: var(--primary-black);
   }
 }
