@@ -301,7 +301,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
   - Verify logout clears tokens
   - Ask the user if questions arise
 
-- [-] 18. Initialize Electron project structure
+- [x] 18. Initialize Electron project structure
   - Create electron-app/ directory
   - Initialize package.json with electron main entry point
   - Install dependencies: electron, electron-store
@@ -311,14 +311,14 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
   - Create .gitignore with node_modules, dist, build
   - _Requirements: 0.3, Module 0: Electron Setup_
 
-- [ ] 19. Create Electron main process and preload script
-  - [ ] 19.1 Create Electron main process (src/main/main.js)
+- [x] 19. Create Electron main process and preload script
+  - [x] 19.1 Create Electron main process (src/main/main.js)
     - Import electron modules: app, BrowserWindow, ipcMain
     - Implement createWindow() function (set window dimensions: 1280x720, configure webPreferences: preload script/contextIsolation: true/nodeIntegration: false/sandbox: true, load React app URL: dev http://localhost:5173/prod file path)
     - Register app.whenReady(), app.on('window-all-closed'), app.on('activate') handlers
     - _Requirements: 0.3, Module 0: Electron Main Process_
   
-  - [ ] 19.2 Create preload script (src/main/preload.js)
+  - [x] 19.2 Create preload script (src/main/preload.js)
     - Import contextBridge, ipcRenderer from electron
     - Expose electronAPI to window object
     - Add IPC methods: syncData(), getLocalData(collection), onSyncComplete(callback), onSyncError(callback)
