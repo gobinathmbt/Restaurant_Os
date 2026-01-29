@@ -38,164 +38,8 @@ This document provides comprehensive module-by-module specifications for the Res
 - **Sync**: Bidirectional with server every 5 minutes
 
 ### Database Architecture
-
-#### Platform Database (Separate)
-- **Purpose**: Stores platform-level data and metadata
-- **Contains**:
-  - Platform Super Admin users (separate table)
-  - Company registry and metadata
-  - Subscription management
-  - Platform-wide configurations
-- **Database Name**: `ros_platform`
-- **Access**: Only Platform Super Admins have access
-
-#### Company Databases (Separate per Company)
-- **Purpose**: Each company gets a dedicated isolated database
-- **Contains**:
-  - Company-specific users (Company Super Admins, Admins, Employees)
-  - All operational data (branches, menu, inventory, orders, etc.)
-  - Company settings and configurations
-- **Database Name Pattern**: `company_<companyId>`
-- **Access**: Only users belonging to that company can access
-- **Creation**: Automatically created during company registration
-
-#### User Management Architecture
-1. **Platform Super Admin**:
-   - Stored in Platform Database
-   - Has access to all companies
-   - Manages subscriptions and platform settings
-   - Separate authentication flow
-
-2. **Company Users** (Super Admin, Admin, Employee):
-   - Stored in respective Company Database
-   - Can only access their own company data
-   - Created within company context
-   - Separate authentication flow from platform admin
-
----
-
-## Frontend Layout Architecture
-
-### Layout Declaration Based on User Role
-
-The frontend layout and navigation menu structure changes dynamically based on the logged-in user's role:
-
-#### Platform Super Admin Layout
-**Access**: Platform-level management interface
-
-**Menu Structure**:
-- Dashboard (Platform Overview)
-  - Total companies registered
-  - Active subscriptions
-  - Revenue analytics
-  - System health
-- Companies Management
-  - View all companies
-  - Company details
-  - Subscription management
-  - Enable/disable companies
-- Subscriptions & Billing
-  - Subscription plans
-  - Payment history
-  - Invoice management
-  - Grace period management
-- Platform Settings
-  - System configurations
-  - Feature flags
-  - Pricing management
-  - Platform users
-- Reports & Analytics
-  - Platform-wide analytics
-  - Revenue reports
-  - Usage statistics
-  - Growth metrics
-
-**Layout Characteristics**:
-- Dark theme with platform branding
-- Full-width admin interface
-- Advanced data tables and filters
-- System monitoring widgets
-
-#### Company User Layout (Super Admin, Admin, Employee)
-**Access**: Company-specific operational interface
-
-**Menu Structure**:
-- Dashboard (Company Overview)
-  - Today's sales
-  - Active orders
-  - Quick actions
-  - Branch performance
-- Billing & POS
-  - New order
-  - Order history
-  - Invoice management
-- Menu Management
-  - Categories
-  - Items
-  - Modifiers
-  - Pricing
-- Inventory
-  - Raw materials
-  - Finished goods
-  - Stock alerts
-  - Purchase orders
-- Staff Management
-  - Employees
-  - Attendance
-  - Shifts
-  - Roles & permissions
-- Customers & CRM
-  - Customer database
-  - Loyalty programs
-  - Feedback
-- Reports & Analytics
-  - Sales reports
-  - Inventory reports
-  - Staff performance
-  - Financial reports
-- Settings
-  - Company profile
-  - Branch management
-  - Tax settings
-  - Integrations
-  - Subscription status
-
-**Layout Characteristics**:
-- Green, white, and black theme
-- Sidebar navigation
-- Role-based menu visibility
-- Branch selector (if multi-branch)
-
-### Application Entry Points
-
-#### Website (Web Application)
-**Landing Page**: Public marketing website
-- Features showcase
-- Pricing information
-- Testimonials
-- Contact information
-- Login/Register buttons
-
-**Flow**:
-1. User visits website → Sees landing page
-2. Clicks "Login" → Redirected to login page
-3. After authentication → Redirected to appropriate dashboard based on role
-
-#### Electron Desktop Application
-**Landing Page**: Direct login screen (NO marketing pages)
-- Immediate login form
-- Company selection (if applicable)
-- Offline mode indicator
-- No marketing content
-
-**Flow**:
-1. User opens desktop app → Sees login screen directly
-2. After authentication → Redirected to appropriate dashboard based on role
-3. Offline mode → Works with local database, syncs when online
-
-**Key Difference**:
-- **Website**: Marketing landing page → Login → Dashboard
-- **Electron App**: Login screen directly → Dashboard
+- **Platform Database**: Single database storing all platform metadata, company registry, subscriptions
+- **Company Databases**: Each company gets a dedicated database created upon registration
 
 ---
 
@@ -312,77 +156,9 @@ export const connectPlatformDB = async () => {
       useUnifiedTopology: true,
     });
     console.log(`✅ Platform Database Connected: ${conn.connection.host}`);
-    
-    // After connecting, load environment configs from database
-    await loadEnvironmentConfigsFromDB();
   } catch (error) {
     console.error(`❌ Database Connection Error: ${error.message}`);
     process.exit(1);
-  }
-};
-
-// Load environment configurations from Platform Admin Database
-export const loadEnvironmentConfigsFromDB = async () => {
-  try {
-    // Import models (avoid circular dependency)
-    const EnvironmentConfig = (await import('../models/platform/EnvironmentConfig.js')).default;
-    const PlatformAdmin = (await import('../models/platform/PlatformAdmin.js')).default;
-    
-    // Find Platform Admin Primary user
-    const platformAdminPrimary = await PlatformAdmin.findOne({ 
-      role: 'platform_super_admin',
-      isActive: true 
-    }).sort({ createdAt: 1 }).limit(1); // Get the first/primary admin
-    
-    if (!platformAdminPrimary) {
-      console.warn('⚠️  No Platform Admin Primary user found. Using .env file configurations.');
-      return;
-    }
-    
-    // Fetch environment configurations for this primary admin
-    const envConfig = await EnvironmentConfig.findOne({
-      platformAdminPrimaryId: platformAdminPrimary._id,
-      isActive: true,
-    }).select('+configs.JWT_SECRET +configs.GOOGLE_CLIENT_SECRET');
-    
-    if (!envConfig) {
-      console.warn('⚠️  No environment configurations found in database. Using .env file configurations.');
-      return;
-    }
-    
-    // Override process.env with database values
-    console.log('📦 Loading environment configurations from Platform Admin Database...');
-    
-    // Decrypt and set sensitive configs
-    if (envConfig.configs.JWT_SECRET) {
-      process.env.JWT_SECRET = envConfig.getDecryptedConfig('JWT_SECRET');
-    }
-    if (envConfig.configs.GOOGLE_CLIENT_SECRET) {
-      process.env.GOOGLE_CLIENT_SECRET = envConfig.getDecryptedConfig('GOOGLE_CLIENT_SECRET');
-    }
-    
-    // Set non-sensitive configs
-    if (envConfig.configs.PORT) process.env.PORT = envConfig.configs.PORT.toString();
-    if (envConfig.configs.NODE_ENV) process.env.NODE_ENV = envConfig.configs.NODE_ENV;
-    if (envConfig.configs.COMPANY_DB_BASE_URI) process.env.COMPANY_DB_BASE_URI = envConfig.configs.COMPANY_DB_BASE_URI;
-    if (envConfig.configs.JWT_EXPIRE) process.env.JWT_EXPIRE = envConfig.configs.JWT_EXPIRE;
-    if (envConfig.configs.GOOGLE_CLIENT_ID) process.env.GOOGLE_CLIENT_ID = envConfig.configs.GOOGLE_CLIENT_ID;
-    if (envConfig.configs.GOOGLE_CALLBACK_URL) process.env.GOOGLE_CALLBACK_URL = envConfig.configs.GOOGLE_CALLBACK_URL;
-    if (envConfig.configs.FRONTEND_URL) process.env.FRONTEND_URL = envConfig.configs.FRONTEND_URL;
-    
-    // Load custom configs
-    if (envConfig.configs.customConfigs) {
-      for (const [key, value] of envConfig.configs.customConfigs) {
-        process.env[key] = value;
-      }
-    }
-    
-    console.log('✅ Environment configurations loaded from database successfully');
-    console.log(`   Managed by: ${platformAdminPrimary.name} (${platformAdminPrimary.email})`);
-    
-  } catch (error) {
-    console.error('❌ Error loading environment configs from database:', error.message);
-    console.warn('⚠️  Falling back to .env file configurations');
   }
 };
 
@@ -440,31 +216,6 @@ GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
 FRONTEND_URL=http://localhost:5173
 ```
 
-**IMPORTANT: Environment Configuration Strategy**
-
-All backend environment variables should be sourced from the **Platform Admin Database** for centralized configuration management:
-
-1. **Platform Admin Primary User**: 
-   - There will be one Platform Admin Primary user in the platform admin database
-   - This user's record will contain all backend environment configuration values
-   - All other platform admin users will be normal platform admin users without environment configuration access
-
-2. **Configuration Storage**:
-   - Environment variables (JWT secrets, OAuth credentials, database URIs, etc.) will be stored in the Platform Admin Primary user's document
-   - On application startup, the backend will fetch these values from the database
-   - This allows dynamic configuration updates without server restarts
-
-3. **Implementation Approach**:
-   - Create a `PlatformConfig` collection in the platform admin database
-   - Store environment variables as key-value pairs linked to the Platform Admin Primary user
-   - Backend initialization will query this configuration before starting services
-   - Fallback to `.env` file only for initial bootstrap (first-time setup)
-
-4. **Security Considerations**:
-   - Only Platform Admin Primary user can view/modify environment configurations
-   - Sensitive values (secrets, passwords) should be encrypted in the database
-   - Configuration changes should be logged for audit purposes
-
 **src/middlewares/errorHandler.js**
 ```javascript
 export const errorHandler = (err, req, res, next) => {
@@ -502,59 +253,6 @@ export const logger = {
 ```
 
 #### Platform Database Models
-
-**src/models/platform/PlatformAdmin.js** (Platform DB - Separate table for Platform Super Admins)
-```javascript
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-
-const platformAdminSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    lowercase: true,
-  },
-  password: {
-    type: String,
-    required: true,
-    select: false,
-  },
-  role: {
-    type: String,
-    default: 'platform_super_admin',
-    immutable: true,
-  },
-  profilePicture: String,
-  isActive: {
-    type: Boolean,
-    default: true,
-  },
-  lastLogin: Date,
-}, {
-  timestamps: true,
-});
-
-// Hash password before saving
-platformAdminSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
-
-// Compare password method
-platformAdminSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
-
-export default mongoose.model('PlatformAdmin', platformAdminSchema);
-```
 
 **src/models/platform/Company.js** (Platform DB)
 ```javascript
@@ -645,13 +343,11 @@ const companySchema = new mongoose.Schema({
 export default mongoose.model('Company', companySchema);
 ```
 
-**src/models/platform/User.js** (Platform DB - Only for initial company registration)
+**src/models/platform/User.js** (Platform DB)
 ```javascript
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
-// This model is used ONLY during company registration to create the primary admin
-// After registration, all company users are stored in their respective company databases
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -675,7 +371,7 @@ const userSchema = new mongoose.Schema({
   // Role
   role: {
     type: String,
-    enum: ['company_super_admin_primary'],
+    enum: ['platform_super_admin', 'company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'employee'],
     required: true,
   },
   
@@ -683,8 +379,12 @@ const userSchema = new mongoose.Schema({
   companyId: {
     type: String,
     ref: 'Company',
-    required: true,
   },
+  
+  // Branch Access (for company_admin and employee)
+  branchIds: [{
+    type: String,
+  }],
   
   isActive: {
     type: Boolean,
@@ -711,83 +411,6 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 export default mongoose.model('User', userSchema);
 ```
 
-**src/models/company/CompanyUser.js** (Company DB - All company users stored here)
-```javascript
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-
-// This model is used in each company's database to store all company users
-const companyUserSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-  },
-  email: {
-    type: String,
-    required: true,
-    lowercase: true,
-  },
-  password: {
-    type: String,
-    select: false,
-  },
-  
-  // Google OAuth
-  googleId: String,
-  profilePicture: String,
-  
-  // Role within company
-  role: {
-    type: String,
-    enum: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'employee'],
-    required: true,
-  },
-  
-  // Company Reference
-  companyId: {
-    type: String,
-    required: true,
-  },
-  
-  // Branch Access (for company_admin and employee)
-  branchIds: [{
-    type: String,
-  }],
-  
-  // Employee specific fields
-  employeeCode: String,
-  department: String,
-  designation: String,
-  joiningDate: Date,
-  
-  isActive: {
-    type: Boolean,
-    default: true,
-  },
-}, {
-  timestamps: true,
-});
-
-// Create compound index for email uniqueness within company
-companyUserSchema.index({ email: 1, companyId: 1 }, { unique: true });
-
-// Hash password before saving
-companyUserSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
-
-// Compare password method
-companyUserSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
-
-export default companyUserSchema; // Export schema, not model (will be created per company DB)
-```
-
 **src/models/platform/PlatformConfig.js** (Platform DB)
 ```javascript
 import mongoose from 'mongoose';
@@ -802,108 +425,8 @@ const platformConfigSchema = new mongoose.Schema({
   description: String,
   category: {
     type: String,
-    enum: ['subscription', 'pricing', 'features', 'system', 'environment'],
+    enum: ['subscription', 'pricing', 'features', 'system'],
   },
-  isActive: {
-    type: Boolean,
-    default: true,
-  },
-  // Link to Platform Admin Primary user who manages this config
-  managedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'PlatformAdmin',
-  },
-  isEncrypted: {
-    type: Boolean,
-    default: false,
-  },
-}, {
-  timestamps: true,
-});
-
-export default mongoose.model('PlatformConfig', platformConfigSchema);
-```
-
-**src/models/platform/EnvironmentConfig.js** (Platform DB - Dedicated for Environment Variables)
-```javascript
-import mongoose from 'mongoose';
-import crypto from 'crypto';
-
-const environmentConfigSchema = new mongoose.Schema({
-  // Reference to Platform Admin Primary user
-  platformAdminPrimaryId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'PlatformAdmin',
-    required: true,
-  },
-  
-  // Environment configurations
-  configs: {
-    // Server configs
-    PORT: {
-      type: Number,
-      default: 5000,
-    },
-    NODE_ENV: {
-      type: String,
-      enum: ['development', 'production', 'staging'],
-      default: 'development',
-    },
-    
-    // Database configs
-    PLATFORM_DB_URI: {
-      type: String,
-      required: true,
-    },
-    COMPANY_DB_BASE_URI: {
-      type: String,
-      required: true,
-    },
-    
-    // JWT configs (encrypted)
-    JWT_SECRET: {
-      type: String,
-      required: true,
-      select: false, // Don't return by default
-    },
-    JWT_EXPIRE: {
-      type: String,
-      default: '7d',
-    },
-    
-    // Google OAuth (encrypted)
-    GOOGLE_CLIENT_ID: {
-      type: String,
-      select: false,
-    },
-    GOOGLE_CLIENT_SECRET: {
-      type: String,
-      select: false,
-    },
-    GOOGLE_CALLBACK_URL: {
-      type: String,
-    },
-    
-    // Frontend URL
-    FRONTEND_URL: {
-      type: String,
-      default: 'http://localhost:5173',
-    },
-    
-    // Additional custom configs
-    customConfigs: {
-      type: Map,
-      of: String,
-    },
-  },
-  
-  // Audit trail
-  lastModifiedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'PlatformAdmin',
-  },
-  lastModifiedAt: Date,
-  
   isActive: {
     type: Boolean,
     default: true,
@@ -912,52 +435,7 @@ const environmentConfigSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// Encrypt sensitive fields before saving
-environmentConfigSchema.pre('save', function(next) {
-  if (this.isModified('configs.JWT_SECRET')) {
-    this.configs.JWT_SECRET = encrypt(this.configs.JWT_SECRET);
-  }
-  if (this.isModified('configs.GOOGLE_CLIENT_SECRET')) {
-    this.configs.GOOGLE_CLIENT_SECRET = encrypt(this.configs.GOOGLE_CLIENT_SECRET);
-  }
-  this.lastModifiedAt = new Date();
-  next();
-});
-
-// Helper function to encrypt sensitive data
-function encrypt(text) {
-  const algorithm = 'aes-256-cbc';
-  const key = crypto.scryptSync(process.env.ENCRYPTION_KEY || 'default-key', 'salt', 32);
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(algorithm, key, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
-}
-
-// Helper function to decrypt sensitive data
-function decrypt(text) {
-  const algorithm = 'aes-256-cbc';
-  const key = crypto.scryptSync(process.env.ENCRYPTION_KEY || 'default-key', 'salt', 32);
-  const parts = text.split(':');
-  const iv = Buffer.from(parts.shift(), 'hex');
-  const encrypted = parts.join(':');
-  const decipher = crypto.createDecipheriv(algorithm, key, iv);
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-}
-
-// Method to get decrypted config
-environmentConfigSchema.methods.getDecryptedConfig = function(configKey) {
-  const value = this.configs[configKey];
-  if (['JWT_SECRET', 'GOOGLE_CLIENT_SECRET'].includes(configKey)) {
-    return decrypt(value);
-  }
-  return value;
-};
-
-export default mongoose.model('EnvironmentConfig', environmentConfigSchema);
+export default mongoose.model('PlatformConfig', platformConfigSchema);
 ```
 
 ---
@@ -2782,6 +2260,4 @@ export default App;
 ```
 
 ---
-
-
 

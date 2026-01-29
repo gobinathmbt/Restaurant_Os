@@ -1,0 +1,24 @@
+{
+  "name": "restaurant-os-electron",
+  "version": "1.0.0",
+  "description": "Electron desktop application for Restaurant Operating System",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "package": "electron-builder --dir"
+  },
+  "keywords": [
+    "restaurant",
+    "pos",
+    "electron",
+    "desktop"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "electron": "^40.1.0",
+    "electron-builder": "^26.4.0"
+  }
+}
