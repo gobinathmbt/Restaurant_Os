@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useGoogleLogin } from '@react-oauth/google';
 import { 
   Mail, 
   Lock, 
@@ -17,6 +18,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { authServices } from '@/api/services';
 
 interface LoginData {
   email: string;
@@ -91,19 +93,67 @@ const Auth = () => {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setError('');
-    setLoading(true);
+  const handleGoogleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setError('');
+      setLoading(true);
 
-    try {
-      // TODO: Implement Google OAuth flow
-      setError('Google OAuth integration coming soon!');
-    } catch (err) {
-      setError('Google login failed. Please try again.');
-    } finally {
+      try {
+        // Get user info from Google
+        const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: {
+            Authorization: `Bearer ${tokenResponse.access_token}`,
+          },
+        });
+        
+        const userInfo = await userInfoResponse.json();
+        
+        // Get ID token for backend verification
+        const idTokenResponse = await fetch('https://oauth2.googleapis.com/tokeninfo', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: `access_token=${tokenResponse.access_token}`,
+        });
+        
+        const tokenInfo = await idTokenResponse.json();
+        
+        // Try to login with Google using access token
+        try {
+          const response = await authServices.googleLogin(tokenResponse.access_token);
+          
+          // Store tokens
+          sessionStorage.setItem('token', response.data.data.token);
+          sessionStorage.setItem('user', JSON.stringify(response.data.data.user));
+          
+          navigate('/dashboard');
+        } catch (loginError: any) {
+          // If user doesn't exist, show registration form with pre-filled data
+          if (loginError.response?.status === 404) {
+            setMode('register');
+            setRegisterData({
+              ...registerData,
+              adminName: userInfo.name || '',
+              email: userInfo.email || '',
+            });
+            setError('Please complete your registration to continue.');
+          } else {
+            setError(loginError.response?.data?.message || 'Google login failed. Please try again.');
+          }
+        }
+      } catch (err: any) {
+        console.error('Google login error:', err);
+        setError('Failed to authenticate with Google. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    onError: () => {
+      setError('Google login was cancelled or failed.');
       setLoading(false);
-    }
-  };
+    },
+  });
 
   return (
     <div className="min-h-screen h-screen flex overflow-hidden">
@@ -339,7 +389,7 @@ const Auth = () => {
 
                 <button
                   type="button"
-                  onClick={handleGoogleLogin}
+                  onClick={() => handleGoogleLogin()}
                   disabled={loading}
                   className="w-full border-2 border-border text-foreground py-3 rounded-lg hover:bg-muted transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -539,7 +589,7 @@ const Auth = () => {
 
                 <button
                   type="button"
-                  onClick={handleGoogleLogin}
+                  onClick={() => handleGoogleLogin()}
                   disabled={loading}
                   className="w-full border-2 border-border text-foreground py-3 rounded-lg hover:bg-muted transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >

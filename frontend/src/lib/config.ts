@@ -7,7 +7,7 @@
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 // Google OAuth Client ID
-export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '140715848718-0scehakngdbco0cdmb8m1p7f3h20em08.apps.googleusercontent.com';
 
 // Application Configuration
 export const APP_CONFIG = {

@@ -271,27 +271,42 @@ export const login = async (req, res, next) => {
 
 /**
  * Google OAuth Login
- * Authenticates user via Google OAuth token
+ * Authenticates user via Google OAuth access token
  */
 export const googleLogin = async (req, res, next) => {
   try {
-    const { token: googleToken } = req.body;
+    const { token: accessToken } = req.body;
 
-    if (!googleToken) {
+    if (!accessToken) {
       return res.status(400).json({
         success: false,
-        message: 'Google token is required',
+        message: 'Google access token is required',
       });
     }
 
-    // Verify Google token
-    const ticket = await googleClient.verifyIdToken({
-      idToken: googleToken,
-      audience: ENV.GOOGLE_CLIENT_ID,
+    // Verify access token by fetching user info from Google
+    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     });
 
-    const payload = ticket.getPayload();
-    const { sub: googleId, email, name, picture } = payload;
+    if (!userInfoResponse.ok) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid Google access token',
+      });
+    }
+
+    const userInfo = await userInfoResponse.json();
+    const { sub: googleId, email, name, picture } = userInfo;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email not provided by Google',
+      });
+    }
 
     // Find user by email or googleId
     let user = await CompanyUser.findOne({ $or: [{ email }, { googleId }] });

@@ -11,8 +11,8 @@ export const authServices = {
     apiClient.post("/api/auth/register-company", data),
 
   // Google OAuth login
-  googleLogin: (googleToken: string) =>
-    apiClient.post("/api/auth/google", { token: googleToken }),
+  googleLogin: (accessToken: string) =>
+    apiClient.post("/api/auth/google", { token: accessToken }),
 
   // Get current user
   getMe: () => apiClient.get("/api/auth/me"),
