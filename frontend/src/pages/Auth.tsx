@@ -78,7 +78,9 @@ const Auth = () => {
       
       setTimeout(() => navigate('/dashboard'), 500);
     } catch (err: any) {
-      const errorMessage = err.response?.data?.message || err.message || 'Login failed. Please try again.';
+      console.log('Login error:', err);
+      
+      const errorMessage = err.message || err.data?.message || 'Login failed. Please try again.';
       
       toast({
         title: "Login Failed",
@@ -104,17 +106,24 @@ const Auth = () => {
       
       setTimeout(() => navigate('/dashboard'), 500);
     } catch (err: any) {
-      const errorMessage = err.response?.data?.message || err.message || 'Registration failed. Please try again.';
+      console.log('Registration error:', err);
       
-      // Check for validation errors
-      if (err.response?.data?.errors && Array.isArray(err.response.data.errors)) {
-        const validationErrors = err.response.data.errors.map((e: any) => e.msg).join(', ');
+      // Check for validation errors from backend
+      if (err.status === 400 && err.data?.errors && Array.isArray(err.data.errors)) {
+        // Map validation errors to readable format
+        const validationErrors = err.data.errors
+          .map((error: any) => `${error.path}: ${error.msg}`)
+          .join('\n');
+        
         toast({
           title: "Validation Error",
           description: validationErrors,
           variant: "destructive",
         });
       } else {
+        // General error
+        const errorMessage = err.message || err.data?.message || 'Registration failed. Please try again.';
+        
         toast({
           title: "Registration Failed",
           description: errorMessage,
