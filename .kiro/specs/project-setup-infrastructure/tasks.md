@@ -207,8 +207,8 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Add other common utility functions
     - _Requirements: 0.2, Utilities_
 
-- [ ] 12. Implement frontend API layer
-  - [ ] 12.1 Create Axios API client (src/api/axios.js)
+- [x] 12. Implement frontend API layer
+  - [x] 12.1 Create Axios API client (src/api/axios.js)
     - Create Axios instance with BASE_URL and timeout
     - Add request interceptor to inject JWT token from sessionStorage
     - Add response interceptor for 401 errors (redirect to login, clear tokens)
@@ -216,7 +216,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Export configured apiClient
     - _Requirements: 0.2, Module 1: API Layer_
   
-  - [ ] 12.2 Create auth service (src/api/services.js)
+  - [x] 12.2 Create auth service (src/api/services.js)
     - Export authServices object with methods: login(email, password) POST /api/auth/login, registerCompany(data) POST /api/auth/register-company, googleLogin(googleToken) POST /api/auth/google, getMe() GET /api/auth/me, logout() POST /api/auth/logout
     - All methods use apiClient from axios.js
     - _Requirements: 0.2, Module 1: API Services_
