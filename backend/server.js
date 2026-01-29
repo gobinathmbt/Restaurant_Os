@@ -1,0 +1,110 @@
+/**
+ * Restaurant Operating System (ROS) - Backend Server
+ * Main entry point for the Express application
+ * 
+ * This server:
+ * 1. Connects to the platform database
+ * 2. Loads configuration from PlatformConfig collection
+ * 3. Sets up routes and middleware
+ * 4. Handles graceful shutdown
+ */
+
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { connectPlatformDB, setupGracefulShutdown } from './src/config/database.js';
+import { initializeConfig, ENV } from './src/config/env.js';
+import { errorHandler } from './src/middlewares/errorHandler.js';
+import { logger } from './src/utils/logger.js';
+import authRoutes from './src/routes/authRoutes.js';
+
+// Load environment variables from .env file
+dotenv.config();
+
+// Create Express application
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Configure middleware
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true,
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+/**
+ * Start the server
+ * Initializes database connection, loads configuration, and starts listening
+ */
+const startServer = async () => {
+  try {
+    logger.info('Starting Restaurant Operating System Backend...');
+
+    // Step 1: Connect to Platform Database
+    logger.info('Step 1: Connecting to Platform Database...');
+    await connectPlatformDB();
+
+    // Step 2: Initialize configuration from PlatformConfig collection
+    logger.info('Step 2: Loading platform configuration...');
+    await initializeConfig();
+
+    // Step 3: Setup routes
+    logger.info('Step 3: Setting up routes...');
+    app.use('/api/auth', authRoutes);
+
+    // Health check endpoint
+    app.get('/health', (req, res) => {
+      res.status(200).json({
+        success: true,
+        status: 'OK',
+        message: 'ROS Backend is running',
+        timestamp: new Date().toISOString(),
+        environment: ENV.NODE_ENV,
+      });
+    });
+
+    // Root endpoint
+    app.get('/', (req, res) => {
+      res.status(200).json({
+        success: true,
+        message: 'Welcome to Restaurant Operating System API',
+        version: '1.0.0',
+        endpoints: {
+          health: '/health',
+          auth: '/api/auth',
+        },
+      });
+    });
+
+    // 404 handler for undefined routes
+    app.use((req, res) => {
+      res.status(404).json({
+        success: false,
+        message: 'Route not found',
+        path: req.path,
+      });
+    });
+
+    // Error handler middleware (must be last)
+    app.use(errorHandler);
+
+    // Step 4: Start server
+    app.listen(PORT, () => {
+      logger.info(`Server running on port ${PORT}`);
+      logger.info(`Environment: ${ENV.NODE_ENV}`);
+      logger.info(`Health check: http://localhost:${PORT}/health`);
+      logger.info('Restaurant Operating System Backend is ready! 🚀');
+    });
+
+    // Setup graceful shutdown handlers
+    setupGracefulShutdown();
+
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Start the server
+startServer();
