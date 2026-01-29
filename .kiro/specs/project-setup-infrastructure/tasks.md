@@ -24,7 +24,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
   - Create directory structure: src/{config,models,controllers,routes,middlewares,services,utils}
   - _Requirements: 0.1, Module 0: Backend Setup_
 
-- [ ] 2. Implement backend core utilities
+- [-] 2. Implement backend core utilities
   - [ ] 2.1 Create logger utility (src/utils/logger.js)
     - Implement info, error, warn, debug methods
     - Add emoji indicators for different log levels
