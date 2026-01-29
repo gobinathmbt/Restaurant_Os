@@ -312,9 +312,77 @@ export const connectPlatformDB = async () => {
       useUnifiedTopology: true,
     });
     console.log(`✅ Platform Database Connected: ${conn.connection.host}`);
+    
+    // After connecting, load environment configs from database
+    await loadEnvironmentConfigsFromDB();
   } catch (error) {
     console.error(`❌ Database Connection Error: ${error.message}`);
     process.exit(1);
+  }
+};
+
+// Load environment configurations from Platform Admin Database
+export const loadEnvironmentConfigsFromDB = async () => {
+  try {
+    // Import models (avoid circular dependency)
+    const EnvironmentConfig = (await import('../models/platform/EnvironmentConfig.js')).default;
+    const PlatformAdmin = (await import('../models/platform/PlatformAdmin.js')).default;
+    
+    // Find Platform Admin Primary user
+    const platformAdminPrimary = await PlatformAdmin.findOne({ 
+      role: 'platform_super_admin',
+      isActive: true 
+    }).sort({ createdAt: 1 }).limit(1); // Get the first/primary admin
+    
+    if (!platformAdminPrimary) {
+      console.warn('⚠️  No Platform Admin Primary user found. Using .env file configurations.');
+      return;
+    }
+    
+    // Fetch environment configurations for this primary admin
+    const envConfig = await EnvironmentConfig.findOne({
+      platformAdminPrimaryId: platformAdminPrimary._id,
+      isActive: true,
+    }).select('+configs.JWT_SECRET +configs.GOOGLE_CLIENT_SECRET');
+    
+    if (!envConfig) {
+      console.warn('⚠️  No environment configurations found in database. Using .env file configurations.');
+      return;
+    }
+    
+    // Override process.env with database values
+    console.log('📦 Loading environment configurations from Platform Admin Database...');
+    
+    // Decrypt and set sensitive configs
+    if (envConfig.configs.JWT_SECRET) {
+      process.env.JWT_SECRET = envConfig.getDecryptedConfig('JWT_SECRET');
+    }
+    if (envConfig.configs.GOOGLE_CLIENT_SECRET) {
+      process.env.GOOGLE_CLIENT_SECRET = envConfig.getDecryptedConfig('GOOGLE_CLIENT_SECRET');
+    }
+    
+    // Set non-sensitive configs
+    if (envConfig.configs.PORT) process.env.PORT = envConfig.configs.PORT.toString();
+    if (envConfig.configs.NODE_ENV) process.env.NODE_ENV = envConfig.configs.NODE_ENV;
+    if (envConfig.configs.COMPANY_DB_BASE_URI) process.env.COMPANY_DB_BASE_URI = envConfig.configs.COMPANY_DB_BASE_URI;
+    if (envConfig.configs.JWT_EXPIRE) process.env.JWT_EXPIRE = envConfig.configs.JWT_EXPIRE;
+    if (envConfig.configs.GOOGLE_CLIENT_ID) process.env.GOOGLE_CLIENT_ID = envConfig.configs.GOOGLE_CLIENT_ID;
+    if (envConfig.configs.GOOGLE_CALLBACK_URL) process.env.GOOGLE_CALLBACK_URL = envConfig.configs.GOOGLE_CALLBACK_URL;
+    if (envConfig.configs.FRONTEND_URL) process.env.FRONTEND_URL = envConfig.configs.FRONTEND_URL;
+    
+    // Load custom configs
+    if (envConfig.configs.customConfigs) {
+      for (const [key, value] of envConfig.configs.customConfigs) {
+        process.env[key] = value;
+      }
+    }
+    
+    console.log('✅ Environment configurations loaded from database successfully');
+    console.log(`   Managed by: ${platformAdminPrimary.name} (${platformAdminPrimary.email})`);
+    
+  } catch (error) {
+    console.error('❌ Error loading environment configs from database:', error.message);
+    console.warn('⚠️  Falling back to .env file configurations');
   }
 };
 
@@ -371,6 +439,31 @@ GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
 # Frontend URL
 FRONTEND_URL=http://localhost:5173
 ```
+
+**IMPORTANT: Environment Configuration Strategy**
+
+All backend environment variables should be sourced from the **Platform Admin Database** for centralized configuration management:
+
+1. **Platform Admin Primary User**: 
+   - There will be one Platform Admin Primary user in the platform admin database
+   - This user's record will contain all backend environment configuration values
+   - All other platform admin users will be normal platform admin users without environment configuration access
+
+2. **Configuration Storage**:
+   - Environment variables (JWT secrets, OAuth credentials, database URIs, etc.) will be stored in the Platform Admin Primary user's document
+   - On application startup, the backend will fetch these values from the database
+   - This allows dynamic configuration updates without server restarts
+
+3. **Implementation Approach**:
+   - Create a `PlatformConfig` collection in the platform admin database
+   - Store environment variables as key-value pairs linked to the Platform Admin Primary user
+   - Backend initialization will query this configuration before starting services
+   - Fallback to `.env` file only for initial bootstrap (first-time setup)
+
+4. **Security Considerations**:
+   - Only Platform Admin Primary user can view/modify environment configurations
+   - Sensitive values (secrets, passwords) should be encrypted in the database
+   - Configuration changes should be logged for audit purposes
 
 **src/middlewares/errorHandler.js**
 ```javascript
@@ -709,8 +802,108 @@ const platformConfigSchema = new mongoose.Schema({
   description: String,
   category: {
     type: String,
-    enum: ['subscription', 'pricing', 'features', 'system'],
+    enum: ['subscription', 'pricing', 'features', 'system', 'environment'],
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  // Link to Platform Admin Primary user who manages this config
+  managedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlatformAdmin',
+  },
+  isEncrypted: {
+    type: Boolean,
+    default: false,
+  },
+}, {
+  timestamps: true,
+});
+
+export default mongoose.model('PlatformConfig', platformConfigSchema);
+```
+
+**src/models/platform/EnvironmentConfig.js** (Platform DB - Dedicated for Environment Variables)
+```javascript
+import mongoose from 'mongoose';
+import crypto from 'crypto';
+
+const environmentConfigSchema = new mongoose.Schema({
+  // Reference to Platform Admin Primary user
+  platformAdminPrimaryId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlatformAdmin',
+    required: true,
+  },
+  
+  // Environment configurations
+  configs: {
+    // Server configs
+    PORT: {
+      type: Number,
+      default: 5000,
+    },
+    NODE_ENV: {
+      type: String,
+      enum: ['development', 'production', 'staging'],
+      default: 'development',
+    },
+    
+    // Database configs
+    PLATFORM_DB_URI: {
+      type: String,
+      required: true,
+    },
+    COMPANY_DB_BASE_URI: {
+      type: String,
+      required: true,
+    },
+    
+    // JWT configs (encrypted)
+    JWT_SECRET: {
+      type: String,
+      required: true,
+      select: false, // Don't return by default
+    },
+    JWT_EXPIRE: {
+      type: String,
+      default: '7d',
+    },
+    
+    // Google OAuth (encrypted)
+    GOOGLE_CLIENT_ID: {
+      type: String,
+      select: false,
+    },
+    GOOGLE_CLIENT_SECRET: {
+      type: String,
+      select: false,
+    },
+    GOOGLE_CALLBACK_URL: {
+      type: String,
+    },
+    
+    // Frontend URL
+    FRONTEND_URL: {
+      type: String,
+      default: 'http://localhost:5173',
+    },
+    
+    // Additional custom configs
+    customConfigs: {
+      type: Map,
+      of: String,
+    },
+  },
+  
+  // Audit trail
+  lastModifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlatformAdmin',
+  },
+  lastModifiedAt: Date,
+  
   isActive: {
     type: Boolean,
     default: true,
@@ -719,7 +912,52 @@ const platformConfigSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-export default mongoose.model('PlatformConfig', platformConfigSchema);
+// Encrypt sensitive fields before saving
+environmentConfigSchema.pre('save', function(next) {
+  if (this.isModified('configs.JWT_SECRET')) {
+    this.configs.JWT_SECRET = encrypt(this.configs.JWT_SECRET);
+  }
+  if (this.isModified('configs.GOOGLE_CLIENT_SECRET')) {
+    this.configs.GOOGLE_CLIENT_SECRET = encrypt(this.configs.GOOGLE_CLIENT_SECRET);
+  }
+  this.lastModifiedAt = new Date();
+  next();
+});
+
+// Helper function to encrypt sensitive data
+function encrypt(text) {
+  const algorithm = 'aes-256-cbc';
+  const key = crypto.scryptSync(process.env.ENCRYPTION_KEY || 'default-key', 'salt', 32);
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+// Helper function to decrypt sensitive data
+function decrypt(text) {
+  const algorithm = 'aes-256-cbc';
+  const key = crypto.scryptSync(process.env.ENCRYPTION_KEY || 'default-key', 'salt', 32);
+  const parts = text.split(':');
+  const iv = Buffer.from(parts.shift(), 'hex');
+  const encrypted = parts.join(':');
+  const decipher = crypto.createDecipheriv(algorithm, key, iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// Method to get decrypted config
+environmentConfigSchema.methods.getDecryptedConfig = function(configKey) {
+  const value = this.configs[configKey];
+  if (['JWT_SECRET', 'GOOGLE_CLIENT_SECRET'].includes(configKey)) {
+    return decrypt(value);
+  }
+  return value;
+};
+
+export default mongoose.model('EnvironmentConfig', environmentConfigSchema);
 ```
 
 ---
