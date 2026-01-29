@@ -290,7 +290,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
   - Wrap dashboard and other protected routes with ProtectedRoute
   - _Requirements: Module 1: Authorization_
 
-- [ ] 17. Checkpoint - Authentication UI complete
+- [x] 17. Checkpoint - Authentication UI complete
   - Verify landing page displays correctly
   - Verify auth page switches between login/register modes
   - Verify form validation works
@@ -301,7 +301,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
   - Verify logout clears tokens
   - Ask the user if questions arise
 
-- [ ] 18. Initialize Electron project structure
+- [-] 18. Initialize Electron project structure
   - Create electron-app/ directory
   - Initialize package.json with electron main entry point
   - Install dependencies: electron, electron-store
