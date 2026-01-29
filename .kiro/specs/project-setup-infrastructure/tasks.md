@@ -281,7 +281,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Add placeholder route: /dashboard -> "Dashboard Coming Soon"
     - _Requirements: Module 1: Routing_
 
-- [ ] 16. Create protected route component
+- [x] 16. Create protected route component
   - Create src/components/ProtectedRoute.jsx
   - Check if user is authenticated using useAuth()
   - Show loading spinner while checking auth

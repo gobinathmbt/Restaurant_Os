@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -29,8 +30,15 @@ const App = () => {
                 {/* Register Page */}
                 <Route path="/register" element={<Auth />} />
                 
-                {/* Dashboard - Placeholder */}
-                <Route path="/dashboard" element={<div className="p-8 text-center text-2xl">Dashboard Coming Soon</div>} />
+                {/* Dashboard - Protected Route */}
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    <ProtectedRoute>
+                      <div className="p-8 text-center text-2xl">Dashboard Coming Soon</div>
+                    </ProtectedRoute>
+                  } 
+                />
                 
                 {/* Catch all - redirect to home */}
                 <Route path="*" element={<Navigate to="/" replace />} />
