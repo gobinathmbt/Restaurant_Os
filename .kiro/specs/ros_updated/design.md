@@ -12,6 +12,100 @@ The Restaurant Operating System (ROS) is a comprehensive full-stack web and desk
 4. **Modular Design**: Features organized into independent modules that can be enabled/disabled per company
 5. **Scalability**: Architecture supports multiple branches per company and unlimited transactions
 
+### Critical Design Decisions
+
+#### 1. Database Isolation Strategy
+
+**Decision**: Use separate MongoDB databases per company instead of a single shared database with tenant filtering.
+
+**Rationale**:
+- **Security**: Complete data isolation prevents accidental cross-company data access
+- **Scalability**: Each company database can be scaled independently
+- **Performance**: Queries don't need tenant filtering, reducing complexity and improving speed
+- **Compliance**: Easier to meet data residency and privacy requirements
+- **Backup/Recovery**: Can backup and restore individual company data without affecting others
+
+**Trade-offs**:
+- More complex connection management (mitigated with connection pooling)
+- Slightly higher resource usage (acceptable for security benefits)
+
+#### 2. Dual User Storage (Platform DB + Company DB)
+
+**Decision**: Store primary admin in both Platform Database (User model) and Company Database (CompanyUser model).
+
+**Rationale**:
+- **Platform Operations**: Platform DB User enables company lookup, subscription management, and platform-level operations
+- **Company Operations**: Company DB CompanyUser enables normal company operations without cross-database queries
+- **Consistency**: Primary admin can operate within their company context seamlessly
+- **Audit Trail**: Maintains clear link between company and its creator at platform level
+
+**Implementation**:
+- User created in Platform DB during registration
+- Automatically copied to Company DB as CompanyUser
+- Both records kept in sync for critical fields (email, name, status)
+
+#### 3. Environment Configuration in Database
+
+**Decision**: Store backend environment variables in Platform Database instead of relying solely on .env files.
+
+**Rationale**:
+- **Centralized Management**: Single source of truth for all environment configs
+- **Dynamic Updates**: Change configurations without server restart or redeployment
+- **Security**: Sensitive values encrypted at rest in database
+- **Multi-Environment**: Easy to manage different configs for dev/staging/production
+- **Audit Trail**: Track who changed what configuration and when
+
+**Implementation**:
+- .env file used for initial bootstrap only
+- Database values override .env values after Platform DB connection
+- Fallback to .env if database config not found
+- Encryption for sensitive values (JWT secrets, OAuth credentials)
+
+#### 4. JWT Token Strategy
+
+**Decision**: Use short-lived access tokens (7 days) with long-lived refresh tokens (30 days).
+
+**Rationale**:
+- **Security**: Limits exposure window if access token is compromised
+- **User Experience**: Refresh tokens prevent frequent re-authentication
+- **Revocation**: Can revoke refresh tokens on logout or security events
+- **Scalability**: Stateless access tokens don't require database lookup on every request
+
+**Trade-offs**:
+- More complex token management (acceptable for security benefits)
+- Refresh token storage in database (minimal overhead)
+
+#### 5. Subscription Validation on Login
+
+**Decision**: Check subscription status on every login attempt, not just during API requests.
+
+**Rationale**:
+- **Early Rejection**: Prevents unauthorized access before user enters system
+- **Clear Messaging**: User immediately knows why they can't access system
+- **Resource Efficiency**: Avoids loading dashboard and making API calls for expired subscriptions
+- **Security**: Ensures subscription status is always current
+
+**Implementation**:
+- Login controller fetches company and validates subscription.status
+- Rejects with 403 if status is 'suspended' or 'expired'
+- Returns appropriate error message about subscription renewal
+
+#### 6. Offline-First Desktop Architecture
+
+**Decision**: Electron app with local MongoDB instance and bidirectional sync.
+
+**Rationale**:
+- **Reliability**: Restaurant operations continue during internet outages
+- **Performance**: Local database provides instant response times
+- **User Experience**: No loading delays or connection errors
+- **Data Safety**: Local copy serves as backup
+
+**Implementation**:
+- Local MongoDB instance embedded in Electron app
+- Sync every 5 minutes when online
+- Conflict resolution strategy for concurrent edits
+- Visual indicator of sync status
+
 ### Technology Stack
 
 **Backend**:
@@ -182,6 +276,56 @@ sequenceDiagram
 | View reports | ✓ (all) | ✓ (company) | ✓ (branch) | ✗ |
 | Manage inventory | ✗ | ✓ | ✓ (branch only) | ✗ |
 
+### Subscription Management
+
+**Subscription Lifecycle**:
+
+1. **Trial Period** (30 days):
+   - Status: `trial`
+   - Activated automatically on company registration
+   - Full access to all features
+   - No payment required
+   - trialUsed flag set to true (prevents multiple trials)
+
+2. **Active Subscription**:
+   - Status: `active`
+   - Requires payment of ₹3,999/month + 18% GST (₹4,718.82 total)
+   - Billing cycle: Monthly
+   - Auto-renewal if enabled
+   - Full access to all features
+
+3. **Grace Period** (7 days):
+   - Status: `grace_period`
+   - Triggered when payment fails or subscription expires
+   - Limited access (read-only mode)
+   - User notified to renew subscription
+   - Can still access data but cannot create new records
+
+4. **Suspended**:
+   - Status: `suspended`
+   - Triggered after grace period expires without payment
+   - No access to system (login blocked with 403 error)
+   - Data preserved but inaccessible
+   - Can be reactivated upon payment
+
+5. **Expired**:
+   - Status: `expired`
+   - Permanent expiration (manual intervention required)
+   - No access to system
+   - Data preserved for recovery
+
+**Subscription Validation**:
+- Checked on every login attempt
+- Checked on API requests for critical operations
+- Background job checks subscription status daily
+- Automatic status transitions based on dates and payment status
+
+**Payment Flow** (Future Implementation):
+- Integration with payment gateway (Razorpay/Stripe)
+- Automatic invoice generation
+- Payment reminder emails
+- Subscription renewal notifications
+
 ---
 
 ## Components and Interfaces
@@ -196,33 +340,78 @@ sequenceDiagram
 ```javascript
 // Register new company with trial subscription
 registerCompany(req, res, next)
-  Input: { companyName, email, password, phone, address, adminName, ... }
+  Input: { companyName, email, password, phone, address, adminName, gstNumber, fssaiLicense }
   Output: { user, company, token, refreshToken }
   Side Effects: 
-    - Creates user in Platform DB
-    - Creates company in Platform DB
-    - Creates dedicated company database
-    - Initializes company settings
-    - Activates 30-day trial
+    - Validates email uniqueness across platform
+    - Generates unique companyId in format: COMP_<timestamp>_<random>
+    - Creates user in Platform DB (User model) with role 'company_super_admin_primary'
+    - Creates company in Platform DB with generated companyId
+    - Creates dedicated company database named 'company_<companyId>'
+    - Initializes CompanySettings in new company database
+    - Copies primary admin to company database (CompanyUser model)
+    - Activates 30-day trial subscription (status: 'trial', trialUsed: true)
+    - Sets trialStartDate to current date and trialEndDate to 30 days later
+    - Generates JWT access token and refresh token
+    - Returns complete user and company data with tokens
+  Validations:
+    - Email must be unique (not already registered)
+    - All required fields must be present
+    - Password must meet minimum requirements
 
 // Login with email/password
 login(req, res, next)
   Input: { email, password }
   Output: { user, token, refreshToken }
   Validations:
-    - User exists and is active
-    - Password matches
-    - Company subscription is active
-    - Company is not suspended
+    - User exists in Platform DB
+    - User account is active (isActive: true)
+    - Password matches hashed password
+    - Company exists and is active (if user is company user)
+    - Company subscription is active (not 'suspended' or 'expired')
+  Process:
+    1. Find user by email with password field
+    2. Verify user exists and is active
+    3. Compare provided password with hashed password
+    4. If company user, fetch company and validate subscription status
+    5. Reject if subscription is suspended or expired (403 Forbidden)
+    6. Generate JWT access token (7 days expiry)
+    7. Generate refresh token (30 days expiry)
+    8. Store refresh token in database
+    9. Return user data, company data (if applicable), and tokens
+  Error Responses:
+    - 401: Invalid email or password
+    - 403: Account deactivated, company inactive, or subscription expired
+    - 500: Server error
 
 // Google OAuth login
 googleLogin(req, res, next)
   Input: { token: googleToken }
   Output: { user, token, refreshToken }
   Side Effects:
-    - Verifies Google token
-    - Creates user if not exists
-    - Updates Google ID and profile picture
+    - Verifies Google token with Google OAuth API
+    - Creates user if not exists (requires company registration first)
+    - Updates Google ID and profile picture if not set
+  Process:
+    1. Verify Google token with Google OAuth client
+    2. Extract user profile (googleId, email, name, picture) from token
+    3. Search for user by email or googleId in Platform DB
+    4. If user not found, return 404 with message to register company first
+    5. If user found, update googleId and profilePicture if not already set
+    6. Verify user account is active
+    7. If company user, validate company subscription status
+    8. Reject if subscription is suspended or expired (403 Forbidden)
+    9. Generate JWT access and refresh tokens
+    10. Return user data, company data, and tokens
+  Error Responses:
+    - 404: No account found (user must register company first)
+    - 403: Account deactivated or subscription expired
+    - 502: Google token verification failed
+    - 500: Server error
+  Security:
+    - Token verified server-side with Google OAuth client
+    - Validates token audience matches GOOGLE_CLIENT_ID
+    - Prevents token replay attacks
 
 // Get current user profile
 getMe(req, res, next)
@@ -242,6 +431,16 @@ logout(req, res, next)
 authenticate(req, res, next)
   Input: Authorization header with Bearer token
   Output: req.user = { userId, email, role, companyId, branchIds }
+  Process:
+    1. Extract token from Authorization header (format: "Bearer <token>")
+    2. Verify token signature and expiration using JWT_SECRET
+    3. Decode token to get userId
+    4. Fetch user from Platform DB by userId
+    5. Verify user exists and is active
+    6. Attach user information to req.user object
+    7. Call next() to proceed to route handler
+  Error Responses:
+    - 401: No token provided, invalid token, expired token, or user not found/inactive
   Throws: 401 if token invalid or expired
 
 // Check if user has required role
@@ -267,10 +466,12 @@ connectPlatformDB()
 // Load environment variables from Platform Admin DB
 loadEnvironmentConfigsFromDB()
   Side Effects:
-    - Finds Platform Admin Primary user
-    - Fetches EnvironmentConfig document
-    - Decrypts sensitive values (JWT_SECRET, etc.)
-    - Updates process.env
+    - Finds Platform Admin Primary user (first created, active)
+    - Fetches EnvironmentConfig document for that admin
+    - Decrypts sensitive values (JWT_SECRET, GOOGLE_CLIENT_SECRET)
+    - Updates process.env with database values
+    - Falls back to .env file if no config found
+    - Logs configuration source and admin details
 
 // Get connection to specific company database
 getCompanyDB(companyId)
@@ -278,6 +479,29 @@ getCompanyDB(companyId)
   Output: Mongoose connection to company_<companyId>
   Side Effects: Creates connection if doesn't exist
 ```
+
+**Environment Configuration Loading Strategy**:
+
+The system implements a database-first configuration approach:
+
+1. **Initial Bootstrap**: On first startup, the system uses `.env` file values to connect to the Platform Database
+2. **Configuration Loading**: After Platform DB connection, the system queries for environment configurations stored in the database
+3. **Override Process**: Database values override `.env` file values for all matching keys
+4. **Fallback Mechanism**: If no database configuration exists, the system continues with `.env` values and logs a warning
+5. **Security**: Sensitive values (JWT_SECRET, GOOGLE_CLIENT_SECRET) are encrypted in the database using AES-256-CBC
+6. **Ownership**: Configuration is linked to the Platform Admin Primary user (first created admin)
+
+**Configuration Priority** (highest to lowest):
+1. Database EnvironmentConfig (if exists and active)
+2. .env file values
+3. Default values in code
+
+This approach enables:
+- Centralized configuration management
+- Dynamic updates without server restart
+- Secure storage of sensitive credentials
+- Audit trail of configuration changes
+- Multi-environment support
 
 #### 3. Environment Configuration Module
 
@@ -540,7 +764,13 @@ POST /api/auth/logout
 }
 ```
 
-**Note**: This model is only used during company registration. After registration, all company users are stored in their respective company databases.
+**Purpose**: This model is ONLY used during company registration to create the initial primary admin user. It serves as the entry point for company creation and links the admin to their company in the Platform Database.
+
+**Important Notes**: 
+- After registration, the primary admin is also copied to the company's database as a CompanyUser
+- All subsequent company users (secondary admins, admins, employees) are created directly in the company database
+- This model maintains the link between the primary admin and their company at the platform level
+- Used for platform-level operations like subscription management and company lookup
 
 **Indexes**: `email` (unique)
 
@@ -577,7 +807,25 @@ POST /api/auth/logout
 **Hooks**:
 - `pre('save')`: Encrypt JWT_SECRET and GOOGLE_CLIENT_SECRET before saving
 
-**Encryption**: AES-256-CBC with scrypt key derivation
+**Encryption Details**:
+- **Algorithm**: AES-256-CBC (Advanced Encryption Standard with Cipher Block Chaining)
+- **Key Derivation**: scrypt with salt for secure key generation
+- **Encrypted Fields**: JWT_SECRET, GOOGLE_CLIENT_SECRET
+- **Storage Format**: `<iv>:<encrypted_data>` where iv is the initialization vector
+- **Key Source**: ENCRYPTION_KEY environment variable (must be set in .env)
+- **Security**: Each encrypted value has a unique IV for maximum security
+
+**Encryption Process**:
+1. Generate 32-byte key from ENCRYPTION_KEY using scrypt
+2. Generate random 16-byte initialization vector (IV)
+3. Encrypt plaintext using AES-256-CBC with key and IV
+4. Store as `iv:encrypted_data` in hex format
+
+**Decryption Process**:
+1. Split stored value into IV and encrypted data
+2. Generate same 32-byte key from ENCRYPTION_KEY
+3. Decrypt using AES-256-CBC with key and IV
+4. Return original plaintext value
 
 #### RefreshToken
 
@@ -625,6 +873,20 @@ POST /api/auth/logout
   updatedAt: Date
 }
 ```
+
+**Purpose**: Stores all users within a company's isolated database. This includes the primary admin (copied from Platform DB during registration), secondary admins, branch admins, and employees.
+
+**Usage**:
+- Primary admin is automatically created during company registration (copied from Platform DB User)
+- All other users are created directly in the company database
+- Each company has its own isolated set of users
+- Users can only access data within their company's database
+
+**Role Hierarchy**:
+1. `company_super_admin_primary`: Created during registration, full access, cannot be deleted
+2. `company_super_admin_secondary`: Additional super admins with full access
+3. `company_admin`: Branch-level admin with access to assigned branches only
+4. `employee`: Basic user with limited access to assigned branches
 
 **Indexes**: 
 - Compound index: `{ email: 1, companyId: 1 }` (unique)
@@ -752,6 +1014,30 @@ POST /api/auth/logout
 *For any* valid JWT token in sessionStorage, calling checkAuth should fetch current user data from the API and set isAuthenticated to true. For any invalid or missing token, checkAuth should clear sessionStorage and set isAuthenticated to false.
 
 **Validates: Requirements 6.3, 6.4**
+
+### Property 17: Trial Subscription Activation
+
+*For any* newly registered company, the system should automatically activate a 30-day trial subscription with status 'trial', set trialStartDate to the current date, set trialEndDate to 30 days from registration, and mark trialUsed as true.
+
+**Validates: Requirements 1.1, 2.1**
+
+### Property 18: Subscription Status Validation on Login
+
+*For any* login attempt by a company user, if the company's subscription status is 'suspended' or 'expired', the system should reject authentication with 403 Forbidden status and return an appropriate error message about subscription expiration.
+
+**Validates: Requirements 1.5, 1.8**
+
+### Property 19: Company Database Naming Convention
+
+*For any* companyId in format `COMP_<timestamp>_<random>`, the corresponding database name should be `company_<companyId>`, and the database should be automatically created during company registration.
+
+**Validates: Requirements 0.3, 1.2**
+
+### Property 20: Primary Admin Immutability
+
+*For any* company, the primary admin user (role: 'company_super_admin_primary') created during registration should be stored in both the Platform Database (User model) and the Company Database (CompanyUser model), and should be referenced in the Company document's primaryAdmin field.
+
+**Validates: Requirements 1.1, 2.1**
 
 ---
 
