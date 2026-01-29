@@ -152,30 +152,32 @@ const Auth = () => {
             
             toast({
               title: "Google Login Successful",
-              description: `Welcome back, ${response.data.data.name}!`,
+              description: `Welcome back, ${response.data.data.user.name}!`,
             });
             
-            setTimeout(() => navigate('/dashboard'), 1000);
+            setTimeout(() => navigate('/dashboard'), 500);
           }
         } catch (loginError: any) {
-          console.log(loginError)
+          
           // If user doesn't exist (404), show registration form with pre-filled data
           if (loginError.status === 404) {
+            // Access the nested data from error response
+            const errorData = loginError.data?.data;
+            
             setMode('register');
             setRegisterData({
               ...registerData,
-              adminName: userInfo.name || '',
-              email: userInfo.email || '',
+              adminName: errorData?.name || userInfo.name || '',
+              email: errorData?.email || userInfo.email || '',
             });
             
             toast({
               title: "Account Not Found",
               description: "Please complete your registration to continue.",
-              variant: "destructive",
+                 variant: "destructive",
             });
           } else {
-            console.log(loginError)
-            const errorMessage = loginError.response?.message || 'Google login failed. Please try again.';
+            const errorMessage = loginError.message || loginError.data?.message || 'Google login failed. Please try again.';
             toast({
               title: "Google Login Failed",
               description: errorMessage,
