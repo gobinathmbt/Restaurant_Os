@@ -1,329 +1,484 @@
-# Implementation Plan: Project Setup & Infrastructure
+# Implementation Plan: Project Setup & Infrastructure (Updated)
 
 ## Overview
 
 This implementation plan breaks down the Project Setup & Infrastructure module into discrete, incremental coding tasks. The approach follows a bottom-up strategy: establish the backend foundation first, then build the frontend, and finally integrate the Electron desktop application. Each task builds on previous work, ensuring no orphaned code.
 
+**Key Architecture Changes:**
+- **Separate User Tables**: Platform admins (PlatformAdmin) and company users (CompanyUser) are stored in separate collections
+- **Database-Driven Configuration**: Most environment configuration is stored in PlatformConfig collection, loaded at runtime
+- **Configuration Priority**: PlatformConfig DB > Environment Variables > Defaults
+- **Two-Database Architecture**: Platform database for company registry and subscriptions, individual databases for each company's operational data
+
 ## Tasks
 
-- [x] 1. Initialize project structure and dependencies
-  - Create root directory structure with backend/, frontend/, and electron/ folders
-  - Initialize backend Node.js project with package.json (type: "module" for ES6)
-  - Initialize frontend React project with Vite
-  - Initialize Electron project structure
-  - Install backend dependencies: express, mongoose, bcrypt, jsonwebtoken, dotenv, cors
-  - Install frontend dependencies: react, react-dom, react-router-dom, axios, tailwindcss, @radix-ui/react-*
-  - Install Electron dependencies: electron, electron-builder
-  - Install testing dependencies: jest, @testing-library/react, fast-check
-  - Create .gitignore files for each project
-  - Create .env.example files with template variables
-  - _Requirements: 1.1, 1.2, 5.1, 7.1, 9.1_
+- [ ] 1. Initialize backend project structure and dependencies
+  - Create backend/ directory with MVC folder structure
+  - Initialize package.json with type: "module" for ES6 imports
+  - Install core dependencies: express, mongoose, bcryptjs, jsonwebtoken, dotenv, cors
+  - Install middleware dependencies: express-validator
+  - Install OAuth dependencies: passport, passport-google-oauth20, google-auth-library
+  - Install dev dependencies: nodemon
+  - Create .gitignore with node_modules, .env, logs
+  - Create .env.example with documented template variables
+  - Create directory structure: src/{config,models,controllers,routes,middlewares,services,utils}
+  - _Requirements: 0.1, Module 0: Backend Setup_
 
-- [x] 2. Implement backend core utilities
-  - [x] 2.1 Create logger utility with info, error, warn, debug methods
-    - Implement logger.js with configurable log levels
-    - Add timestamp and formatting to log messages
-    - Support LOG_LEVEL environment variable
-    - _Requirements: 3.1, 3.4_
+- [ ] 2. Implement backend core utilities
+  - [ ] 2.1 Create logger utility (src/utils/logger.js)
+    - Implement info, error, warn, debug methods
+    - Add emoji indicators for different log levels
+    - Support NODE_ENV for conditional debug logging
+    - _Requirements: 0.1, Logging_
   
-  - [ ]* 2.2 Write unit tests for logger utility
-    - Test all four log level methods exist and work
-    - Test log level filtering based on environment variable
-    - Test message formatting includes timestamp
-    - _Requirements: 3.1_
+  - [ ] 2.2 Create helper utilities (src/utils/helpers.js)
+    - Implement generateCompanyId() function
+    - Implement generateDatabaseName() function
+    - Add common utility functions
+    - _Requirements: 0.1, Company Registration_
   
-  - [x] 2.3 Create database connection utilities
-    - Implement connectPlatformDB function in config/database.js
-    - Implement getCompanyDB function with connection caching
-    - Implement closeAllConnections for graceful shutdown
-    - Add error handling and logging for connection failures
-    - _Requirements: 2.1, 2.2, 2.3, 2.5_
+  - [ ] 2.3 Create database configuration (src/config/database.js)
+    - Implement connectPlatformDB() - connects to platform database
+    - Implement getCompanyDB(companyId) - creates/returns company-specific connection
+    - Add connection pooling and error handling
+    - Add graceful shutdown handling
+    - Use logger for connection status messages
+    - _Requirements: 0.1, Module 0: Database Architecture_
   
-  - [ ]* 2.4 Write property test for company database connections
-    - **Property 2: Company Database Connection**
-    - **Validates: Requirements 2.2**
-  
-  - [ ]* 2.5 Write unit tests for database utilities
-    - Test platform database connection success
-    - Test connection failure error handling
-    - Test graceful shutdown closes all connections
-    - _Requirements: 2.1, 2.3, 2.5_
+  - [ ] 2.4 Create environment configuration with database fallback (src/config/env.js)
+    - Implement loadPlatformConfig() - loads config from PlatformConfig collection
+    - Implement getConfig(key, envKey, defaultValue) - gets config with fallback chain
+    - Implement initializeConfig() - loads runtime configuration after DB connection
+    - Implement configuration caching with 5-minute TTL
+    - Export ENV object with all configuration values
+    - _Requirements: 0.1, Module 0: Database Architecture, Platform Config_
 
-- [x] 3. Implement backend middleware
-  - [x] 3.1 Create error handler middleware
-    - Implement errorHandler middleware in middleware/errorHandler.js
-    - Create AppError custom error class
+- [ ] 3. Implement backend middleware
+  - [ ] 3.1 Create error handler middleware (src/middlewares/errorHandler.js)
+    - Implement errorHandler middleware function
     - Format error responses with status code and message
-    - Hide stack traces in production environment
-    - _Requirements: 1.4, 10.1, 10.2, 10.3_
+    - Hide stack traces in production (show in development)
+    - Log errors using logger utility
+    - _Requirements: 0.1, Error Handling_
   
-  - [ ]* 3.2 Write property test for error handling consistency
-    - **Property 1: Error Handling Consistency**
-    - **Validates: Requirements 1.4, 10.1, 10.2**
-  
-  - [ ]* 3.3 Write property test for error logging
-    - **Property 4: Error Logging with Context**
-    - **Validates: Requirements 3.2, 10.4**
-  
-  - [x] 3.4 Create request logger middleware
-    - Implement requestLogger middleware in middleware/requestLogger.js
-    - Log method, path, status code, and response time for all requests
-    - _Requirements: 3.3_
-  
-  - [ ]* 3.5 Write property test for request logging
-    - **Property 3: Request Logging Completeness**
-    - **Validates: Requirements 3.3**
+  - [ ] 3.2 Create validation middleware (src/middlewares/validation.js)
+    - Implement validation error formatter
+    - Create common validation schemas (email, password, phone, etc.)
+    - Export validation helpers for use in routes
+    - _Requirements: 0.1, Input Validation_
 
-- [ ] 4. Implement database models
-  - [ ] 4.1 Create User model
-    - Define User schema with all required fields (name, email, password, googleId, role, companyId, branchIds)
+- [ ] 4. Implement platform database models
+  - [ ] 4.1 Create PlatformAdmin model (src/models/platform/PlatformAdmin.js)
+    - Define schema: name, email, password, role (default: 'platform_super_admin'), permissions array, isActive, lastLogin
     - Implement pre-save hook for password hashing with bcrypt
-    - Implement comparePassword method
-    - Implement toJSON method to exclude password from responses
-    - Add timestamps option to schema
-    - _Requirements: 4.1, 4.2, 4.3, 4.6_
+    - Implement comparePassword() instance method
+    - Implement toJSON() to exclude password from responses
+    - Add timestamps: true
+    - Add { select: false } to password field
+    - _Requirements: Module 0: Platform Database Models, Authentication_
   
-  - [ ]* 4.2 Write property test for password hashing
-    - **Property 5: Password Hashing on Save**
-    - **Validates: Requirements 4.2**
+  - [ ] 4.2 Create CompanyUser model (src/models/platform/CompanyUser.js)
+    - Define schema: name, email, password, googleId, profilePicture, role (company roles only), companyId (required), branchIds array, isActive, lastLogin
+    - Implement pre-save hook for password hashing
+    - Implement comparePassword() instance method
+    - Implement toJSON() to exclude password
+    - Add role enum validation (no 'platform_super_admin')
+    - Add required validation for companyId
+    - Add timestamps: true
+    - Add { select: false } to password field
+    - _Requirements: Module 0: Platform Database Models, User Management_
   
-  - [ ]* 4.3 Write property test for password comparison
-    - **Property 6: Password Comparison Round Trip**
-    - **Validates: Requirements 4.3**
+  - [ ] 4.3 Create Company model (src/models/platform/Company.js)
+    - Define schema: companyId, companyName, email, phone, address, gstNumber, fssaiLicense
+    - Add database info: databaseName, databaseConnectionString
+    - Add subscription object with status, plan, dates, autoRenewal
+    - Add primaryAdmin object referencing CompanyUser
+    - Add modules object with boolean flags for each module
+    - Add isActive field
+    - Add timestamps: true
+    - Add unique index on companyId and email
+    - _Requirements: Module 0: Platform Database Models, Company Registration_
   
-  - [ ]* 4.4 Write unit tests for User model
-    - Test User model has all required fields
-    - Test password is excluded from JSON responses
-    - Test googleId users don't require password
-    - _Requirements: 4.1_
+  - [ ] 4.4 Create PlatformConfig model (src/models/platform/PlatformConfig.js)
+    - Define schema: configKey (unique), configValue (Mixed type), description, category (enum), isSecret, isActive, lastModifiedBy
+    - Add timestamps: true
+    - Add unique index on configKey
+    - Add comments documenting example configurations (JWT_SECRET, GOOGLE_CLIENT_ID, etc.)
+    - _Requirements: Module 0: Platform Database Models, Configuration Management_
   
-  - [ ] 4.5 Create Company model
-    - Define Company schema with all required fields (companyId, companyName, email, subscriptionPlan, subscriptionStatus, modules, primaryAdmin)
-    - Add timestamps option to schema
-    - Add indexes for companyId and email
-    - _Requirements: 4.4, 4.6_
-  
-  - [ ] 4.6 Create PlatformConfig model
-    - Define PlatformConfig schema with fields (configKey, configValue, description, category)
-    - Add timestamps option to schema
-    - Add index for configKey
-    - _Requirements: 4.5, 4.6_
-  
-  - [ ]* 4.7 Write property test for model timestamps
-    - **Property 7: Model Timestamps**
-    - **Validates: Requirements 4.6**
-  
-  - [ ]* 4.8 Write unit tests for Company and PlatformConfig models
-    - Test Company model has all required fields
-    - Test PlatformConfig model has all required fields
-    - Test enum validations work correctly
-    - _Requirements: 4.4, 4.5_
+  - [ ] 4.5 Create RefreshToken model (src/models/platform/RefreshToken.js)
+    - Define schema: userId (ref to CompanyUser), token, expiresAt, isRevoked
+    - Add timestamps: true
+    - Add index on token for fast lookups
+    - _Requirements: Module 1: Authentication, JWT Token Management_
 
-- [ ] 5. Set up Express server
-  - [ ] 5.1 Create main server file
-    - Implement server.js with Express app initialization
-    - Configure middleware (cors, json, urlencoded)
-    - Add request logger middleware
-    - Add health check endpoint at /health
-    - Add error handler middleware (must be last)
-    - Implement server startup with database connection
-    - Use configurable PORT from environment (default 5000)
-    - _Requirements: 1.1, 1.2, 1.3, 1.5, 9.2_
+- [ ] 5. Implement authentication controller and routes
+  - [ ] 5.1 Create authentication controller (src/controllers/authController.js)
+    - Implement registerCompany() - registers new company with primary admin (validate input, check email exists, generate companyId, create CompanyUser with role 'company_super_admin_primary', create Company entry with 30-day trial, create dedicated company database, initialize CompanySettings, generate JWT and refresh tokens, return user/company/tokens)
+    - Implement login() - login with email/password (find user in CompanyUser collection, verify password, check isActive status, check company subscription status, generate tokens, update lastLogin, return user/tokens)
+    - Implement googleLogin() - Google OAuth login (verify Google token, extract user info, find or return "need registration", update googleId/profilePicture, check account/subscription status, generate tokens, return user/tokens)
+    - Implement getMe() - get current user info (find user by ID from JWT, get company details if user belongs to company, return user/company info)
+    - Implement logout() - revoke refresh token (mark refresh token as revoked, log logout event)
+    - Helper: generateToken(userId) - creates JWT
+    - Helper: generateRefreshToken(userId) - creates and stores refresh token
+    - _Requirements: Module 1: Authentication, Company Registration_
   
-  - [ ]* 5.2 Write unit tests for server setup
-    - Test server runs on default port 5000
-    - Test server runs on custom port from environment
-    - Test health check endpoint returns correct response
-    - Test environment variables are loaded
-    - _Requirements: 1.1, 1.2, 1.5_
+  - [ ] 5.2 Create authentication middleware (src/middlewares/auth.js)
+    - Implement authenticate() middleware (extract token from Authorization header, verify JWT token using ENV.JWT_SECRET, find user in CompanyUser collection, check if user exists and isActive, attach user info to req.user, handle token errors)
+    - Implement authorize(...allowedRoles) middleware (check if req.user.role is in allowedRoles array, return 403 if not authorized)
+    - _Requirements: Module 1: Authentication, Authorization_
   
-  - [ ]* 5.3 Write property test for configuration defaults
-    - **Property 12: Configuration Defaults**
-    - **Validates: Requirements 9.2**
+  - [ ] 5.3 Create authentication routes (src/routes/authRoutes.js)
+    - Define POST /api/auth/register-company (public)
+    - Define POST /api/auth/login (public)
+    - Define POST /api/auth/google (public)
+    - Define GET /api/auth/me (protected - requires authenticate)
+    - Define POST /api/auth/logout (protected - requires authenticate)
+    - Add validation middleware where needed
+    - _Requirements: Module 1: Authentication Routes_
 
-- [ ] 6. Checkpoint - Backend foundation complete
-  - Ensure all backend tests pass
-  - Verify server starts successfully and connects to database
-  - Test health check endpoint manually
+- [ ] 6. Create main server file and setup
+  - Create server.js as main entry point
+  - Import and configure Express app
+  - Load environment variables with dotenv
+  - Configure middleware: cors, express.json, express.urlencoded
+  - Implement startServer() async function (connect to platform database, initialize configuration from PlatformConfig, setup routes, add health check route GET /health, add error handler middleware must be last, start server on configured PORT)
+  - Add graceful shutdown handling
+  - Use logger for all status messages
+  - _Requirements: 0.1, Module 0: Backend Setup_
+
+- [ ] 7. Create initial seed script (Optional)
+  - Create backend/scripts/seed-platform-config.js
+  - Implement script to populate PlatformConfig collection with initial values
+  - Add default configs for: JWT_SECRET, JWT_EXPIRE, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+  - Make script idempotent (check if config exists before inserting)
+  - Add script to package.json: "seed:config"
+  - _Requirements: Platform Configuration Management_
+
+- [ ] 8. Checkpoint - Backend foundation complete
+  - Verify server.js runs without errors
+  - Verify platform database connection works
+  - Verify all models are properly exported
+  - Verify configuration loading works
+  - Test health check endpoint manually: `curl http://localhost:5000/health`
+  - Review code structure and organization
   - Ask the user if questions arise
 
-- [ ] 7. Set up frontend project structure
-  - [ ] 7.1 Configure Vite and Tailwind CSS
-    - Create vite.config.js with React plugin and path aliases
-    - Configure proxy for /api requests to backend
-    - Create tailwind.config.js with custom green theme colors
-    - Set up PostCSS configuration
-    - Create main CSS file with Tailwind directives
-    - _Requirements: 5.1, 5.2_
-  
-  - [ ] 7.2 Create basic React app structure
-    - Set up main.jsx entry point
-    - Create App.jsx with React Router
-    - Create basic folder structure (components/, services/, utils/, contexts/, hooks/)
-    - _Requirements: 5.4, 5.5_
-  
-  - [ ]* 7.3 Write unit tests for frontend setup
-    - Test Vite dev server runs on port 5173
-    - Test Radix UI components can be imported
-    - Test React Router is configured
-    - _Requirements: 5.1, 5.3, 5.4_
+- [ ] 9. Initialize frontend project structure and dependencies
+  - Create frontend/ directory
+  - Initialize React project with Vite: `npm create vite@latest frontend -- --template react`
+  - Install core dependencies: react, react-dom, react-router-dom
+  - Install API dependencies: axios
+  - Install UI dependencies: @radix-ui/react-dialog, @radix-ui/react-dropdown-menu, @radix-ui/react-select, @radix-ui/react-tabs, @radix-ui/react-toast
+  - Install styling: tailwindcss, autoprefixer, postcss
+  - Install icons: lucide-react
+  - Install state management: zustand
+  - Create .gitignore with node_modules, dist, .env
+  - Create .env.example with VITE_API_BASE_URL, VITE_GOOGLE_CLIENT_ID
+  - _Requirements: 0.2, Module 0: Frontend Setup_
 
-- [ ] 8. Implement frontend API layer
-  - [ ] 8.1 Create Axios client with interceptors
-    - Implement services/api.js with Axios instance
-    - Configure base URL and timeout
-    - Add request interceptor to inject JWT token from localStorage
-    - Add response interceptor to handle 401 errors and redirect to login
-    - Add response interceptor to format error messages
-    - _Requirements: 6.1, 6.2, 6.3, 6.5_
+- [ ] 10. Configure frontend build tools and styling
+  - [ ] 10.1 Configure Vite (vite.config.js)
+    - Add React plugin
+    - Configure path aliases: '@' -> './src'
+    - Set dev server port to 5173
+    - Configure proxy for /api requests to backend (http://localhost:5000)
+    - _Requirements: 0.2, Development Configuration_
   
-  - [ ]* 8.2 Write property test for JWT token injection
-    - **Property 8: JWT Token Injection**
-    - **Validates: Requirements 6.2**
-  
-  - [ ]* 8.3 Write property test for API error formatting
-    - **Property 9: API Error Formatting**
-    - **Validates: Requirements 6.5**
-  
-  - [ ]* 8.4 Write unit tests for Axios configuration
-    - Test base URL is configured correctly
-    - Test 401 response triggers redirect to login
-    - Test request interceptor adds Authorization header when token exists
-    - _Requirements: 6.1, 6.2, 6.3_
-  
-  - [ ] 8.5 Create auth service layer
-    - Implement services/authService.js with login, register, getCurrentUser, logout methods
-    - Use Axios client for all API calls
-    - _Requirements: 6.4_
-  
-  - [ ]* 8.6 Write unit tests for auth service
-    - Test login method calls correct endpoint
-    - Test register method calls correct endpoint
-    - Test logout clears token from localStorage
-    - _Requirements: 6.4_
+  - [ ] 10.2 Configure Tailwind CSS (tailwind.config.js, postcss.config.js)
+    - Configure content paths: "./index.html", "./src/**/*.{js,jsx}"
+    - Extend theme with custom green color palette (primary shades 50-900)
+    - Add neutral-950 for near-black
+    - Create postcss.config.js with tailwindcss and autoprefixer
+    - Create src/styles/globals.css (add Tailwind directives, add CSS custom properties for colors, add utility classes: .theme-green, .theme-black, .theme-white)
+    - _Requirements: 0.2, Design System_
 
-- [ ] 9. Checkpoint - Frontend foundation complete
-  - Ensure all frontend tests pass
-  - Verify Vite dev server starts successfully
-  - Test API client configuration manually
+- [ ] 11. Create frontend configuration and utilities
+  - [ ] 11.1 Create configuration utilities (src/lib/config.js)
+    - Export BASE_URL from VITE_API_BASE_URL env variable (default: http://localhost:5000)
+    - Export GOOGLE_CLIENT_ID from VITE_GOOGLE_CLIENT_ID
+    - Add other frontend configuration constants
+    - _Requirements: 0.2, Configuration Management_
+  
+  - [ ] 11.2 Create helper utilities (src/lib/utils.js)
+    - Add cn() function for className merging (using clsx)
+    - Add formatDate() helper
+    - Add formatCurrency() helper
+    - Add other common utility functions
+    - _Requirements: 0.2, Utilities_
+
+- [ ] 12. Implement frontend API layer
+  - [ ] 12.1 Create Axios API client (src/api/axios.js)
+    - Create Axios instance with BASE_URL and timeout
+    - Add request interceptor to inject JWT token from sessionStorage
+    - Add response interceptor for 401 errors (redirect to login, clear tokens)
+    - Add response interceptor for error formatting
+    - Export configured apiClient
+    - _Requirements: 0.2, Module 1: API Layer_
+  
+  - [ ] 12.2 Create auth service (src/api/services.js)
+    - Export authServices object with methods: login(email, password) POST /api/auth/login, registerCompany(data) POST /api/auth/register-company, googleLogin(googleToken) POST /api/auth/google, getMe() GET /api/auth/me, logout() POST /api/auth/logout
+    - All methods use apiClient from axios.js
+    - _Requirements: 0.2, Module 1: API Services_
+
+- [ ] 13. Create frontend auth context and app structure
+  - [ ] 13.1 Create auth context (src/context/AuthContext.jsx)
+    - Create AuthContext with createContext
+    - Create AuthProvider component
+    - Implement state: user, company, loading, isAuthenticated
+    - Implement useEffect to check auth on mount (call authServices.getMe)
+    - Implement login(email, password) method
+    - Implement googleLogin(googleToken) method
+    - Implement register(data) method
+    - Implement logout() method
+    - Store/clear tokens in sessionStorage
+    - Export useAuth() custom hook
+    - _Requirements: Module 1: State Management, Authentication_
+  
+  - [ ] 13.2 Create main app structure (src/main.jsx, src/App.jsx)
+    - Create src/main.jsx as entry point (import React, ReactDOM, App, globals.css, render App wrapped in React.StrictMode)
+    - Create src/App.jsx (wrap app with AuthProvider, set up BrowserRouter with Routes, define placeholder routes: /, /login, /register)
+    - _Requirements: 0.2, Module 1: App Structure_
+
+- [ ] 14. Checkpoint - Frontend foundation complete
+  - Verify Vite dev server starts on port 5173
+  - Verify Tailwind CSS is working (check styles)
+  - Verify API client is configured
+  - Verify Auth context is accessible
+  - Test routing navigation
   - Ask the user if questions arise
 
-- [ ] 10. Set up Electron application structure
-  - [ ] 10.1 Create Electron main process
-    - Implement electron/main.js with BrowserWindow creation
-    - Configure webPreferences with security settings (contextIsolation: true, nodeIntegration: false, sandbox: true)
-    - Load React app in development (localhost:5173) and production (dist/index.html)
-    - Add basic IPC handler for app version
-    - _Requirements: 7.1, 7.2, 7.4_
+- [ ] 15. Create frontend authentication UI pages
+  - [ ] 15.1 Create landing page component (src/pages/Landing.jsx)
+    - Implement header with logo, navigation (Features, Pricing, About, Contact), Login/Register buttons
+    - Implement hero section with CTA buttons (Start Free Trial, Watch Demo)
+    - Implement features section with grid of feature cards (use lucide-react icons)
+    - Implement pricing section showing ₹3,999/month plan with benefits list
+    - Implement testimonials section with customer quotes
+    - Implement CTA section encouraging signup
+    - Implement footer with links and company info
+    - Use Tailwind CSS with green/white/black theme
+    - Make responsive (mobile, tablet, desktop)
+    - _Requirements: Module 1: Landing Page, UI/UX_
   
-  - [ ] 10.2 Create preload script
-    - Implement electron/preload.js with contextBridge
-    - Expose electronAPI with getAppVersion method
-    - Expose sync-related IPC methods (syncData, onSyncComplete, onSyncError)
-    - _Requirements: 7.3, 7.5_
+  - [ ] 15.2 Create authentication page component (src/pages/Auth.jsx)
+    - Implement two-column layout: 70% left (green info section), 30% right (form section)
+    - Left section: Company branding, benefits list, testimonials
+    - Right section: Login/Register form switcher
+    - Implement login form (email input with icon, password input with icon, Google OAuth button, submit button with loading state, link to switch to register mode)
+    - Implement register form (admin name/email/password inputs, company name/phone/address inputs, GST number/FSSAI license inputs optional, Google OAuth button, submit button with loading state, link to switch to login mode)
+    - Display error messages
+    - Use useAuth hook for login/register/googleLogin
+    - Redirect to /dashboard on success
+    - Make responsive
+    - _Requirements: Module 1: Authentication UI, Forms_
   
-  - [ ]* 10.3 Write unit tests for Electron setup
-    - Test main window launches successfully
-    - Test context isolation is enabled
-    - Test Node.js integration is disabled in renderer
-    - Test exposed APIs are accessible via window.electronAPI
-    - _Requirements: 7.1, 7.2, 7.4, 7.5_
-  
-  - [ ]* 10.4 Write integration test for IPC communication
-    - Test IPC messages can be sent from renderer to main
-    - Test IPC responses are received in renderer
-    - _Requirements: 7.3_
+  - [ ] 15.3 Update app routes (src/App.jsx)
+    - Import Landing and Auth pages
+    - Define route: / -> Landing
+    - Define route: /login -> Auth
+    - Define route: /register -> Auth (with ?mode=register query param)
+    - Add placeholder route: /dashboard -> "Dashboard Coming Soon"
+    - _Requirements: Module 1: Routing_
 
-- [ ] 11. Implement Electron sync service
-  - [ ] 11.1 Create local database connection utility
-    - Implement electron/services/localDB.js for local MongoDB connection
-    - Add methods: getPendingChanges, markAsSynced, getLastSyncTime, setLastSyncTime, upsert, findById
-    - _Requirements: 8.1_
-  
-  - [ ] 11.2 Create sync service
-    - Implement electron/services/syncService.js with SyncService class
-    - Implement start/stop methods with 5-minute interval timer
-    - Implement performSync method that calls upload and download
-    - Implement uploadLocalChanges to send pending changes to server
-    - Implement downloadServerChanges to fetch and apply server changes
-    - Implement conflict resolution (server wins)
-    - Add comprehensive logging
-    - _Requirements: 8.2, 8.3, 8.4, 8.5_
-  
-  - [ ]* 11.3 Write property test for sync upload
-    - **Property 10: Sync Upload Completeness**
-    - **Validates: Requirements 8.3**
-  
-  - [ ]* 11.4 Write property test for sync download
-    - **Property 11: Sync Download Application**
-    - **Validates: Requirements 8.4**
-  
-  - [ ]* 11.5 Write unit tests for sync service
-    - Test sync service runs every 5 minutes
-    - Test local MongoDB connection is established
-    - Test conflict resolution uses server data
-    - _Requirements: 8.1, 8.2, 8.5_
-  
-  - [ ] 11.6 Integrate sync service with main process
-    - Initialize sync service in main.js
-    - Add IPC handlers for manual sync trigger
-    - Emit sync events to renderer process
-    - _Requirements: 8.2_
+- [ ] 16. Create protected route component (Optional)
+  - Create src/components/ProtectedRoute.jsx
+  - Check if user is authenticated using useAuth()
+  - Show loading spinner while checking auth
+  - Redirect to /login if not authenticated
+  - Render children if authenticated
+  - Wrap dashboard and other protected routes with ProtectedRoute
+  - _Requirements: Module 1: Authorization_
 
-- [ ] 12. Create environment configuration files
-  - [ ] 12.1 Create backend environment configuration
-    - Create backend/.env.example with all required variables
-    - Document each variable with comments
+- [ ] 17. Checkpoint - Authentication UI complete
+  - Verify landing page displays correctly
+  - Verify auth page switches between login/register modes
+  - Verify form validation works
+  - Test registration flow (creates company + user)
+  - Test login flow (returns JWT token)
+  - Test Google OAuth button (placeholder for now)
+  - Verify auth state persists across page reloads
+  - Verify logout clears tokens
+  - Ask the user if questions arise
+
+- [ ] 18. Initialize Electron project structure
+  - Create electron-app/ directory
+  - Initialize package.json with electron main entry point
+  - Install dependencies: electron, electron-store
+  - Install MongoDB driver: mongodb
+  - Install dev dependencies: electron-builder
+  - Create folder structure: src/main/, src/renderer/, src/shared/
+  - Create .gitignore with node_modules, dist, build
+  - _Requirements: 0.3, Module 0: Electron Setup_
+
+- [ ] 19. Create Electron main process and preload script
+  - [ ] 19.1 Create Electron main process (src/main/main.js)
+    - Import electron modules: app, BrowserWindow, ipcMain
+    - Implement createWindow() function (set window dimensions: 1280x720, configure webPreferences: preload script/contextIsolation: true/nodeIntegration: false/sandbox: true, load React app URL: dev http://localhost:5173/prod file path)
+    - Register app.whenReady(), app.on('window-all-closed'), app.on('activate') handlers
+    - _Requirements: 0.3, Module 0: Electron Main Process_
+  
+  - [ ] 19.2 Create preload script (src/main/preload.js)
+    - Import contextBridge, ipcRenderer from electron
+    - Expose electronAPI to window object
+    - Add IPC methods: syncData(), getLocalData(collection), onSyncComplete(callback), onSyncError(callback)
+    - _Requirements: 0.3, Module 0: Electron Preload Script_
+
+- [ ] 20. Implement Electron local database and sync service
+  - [ ] 20.1 Create local database utility (src/main/localDB.js)
+    - Import mongodb
+    - Implement connectLocalDB() - connects to local MongoDB instance
+    - Implement getPendingChanges(collection) - retrieves unsynced changes
+    - Implement markAsSynced(collection, ids) - marks records as synced
+    - Implement getLastSyncTime() - retrieves last sync timestamp
+    - Implement setLastSyncTime(timestamp) - updates last sync timestamp
+    - Implement upsert(collection, data) - inserts or updates local records
+    - Implement findById(collection, id) - retrieves record by ID
+    - _Requirements: 0.3, Module 0: Electron Local Database_
+  
+  - [ ] 20.2 Create sync service (src/main/syncService.js)
+    - Import localDB utilities and axios for API calls
+    - Implement SyncService class with start(), stop(), performSync() methods
+    - Implement start() - begins sync interval timer (every 5 minutes)
+    - Implement stop() - clears sync interval timer
+    - Implement performSync() - orchestrates upload and download
+    - Implement uploadLocalChanges() - sends pending changes to server API
+    - Implement downloadServerChanges() - fetches and applies server changes since last sync
+    - Implement conflict resolution (server wins strategy)
+    - Add comprehensive logging for sync operations
+    - _Requirements: 0.3, Module 0: Electron Sync Service_
+  
+  - [ ] 20.3 Integrate sync service with main process
+    - Initialize SyncService in main.js after window creation
+    - Add IPC handler for 'sync-data' to trigger manual sync
+    - Emit 'sync-complete' event to renderer on successful sync
+    - Emit 'sync-error' event to renderer on sync failure
+    - Start automatic sync service after user authentication
+    - _Requirements: 0.3, Module 0: Electron Sync Integration_
+
+- [ ] 21. Create environment configuration for all platforms
+  - [ ] 21.1 Document backend environment variables
+    - Update backend/.env.example with all required variables (PLATFORM_DB_URI, COMPANY_DB_BASE_URI, PORT, NODE_ENV, JWT_SECRET, JWT_EXPIRE, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
+    - Add comments explaining each variable and PlatformConfig priority
     - Add validation for required environment variables in server.js
-    - _Requirements: 9.1, 9.3_
+    - _Requirements: 0.1, Environment Configuration_
   
-  - [ ] 12.2 Create frontend environment configuration
-    - Create frontend/.env.example with VITE_API_BASE_URL
+  - [ ] 21.2 Document frontend environment variables
+    - Update frontend/.env.example with VITE_API_BASE_URL, VITE_GOOGLE_CLIENT_ID
     - Document environment-specific configurations
-    - _Requirements: 9.1_
+    - _Requirements: 0.2, Environment Configuration_
   
-  - [ ]* 12.3 Write unit test for environment validation
-    - Test server fails to start when required env vars are missing
-    - Test appropriate error message is shown
-    - _Requirements: 9.3_
+  - [ ] 21.3 Document Electron environment variables
+    - Create electron-app/.env.example with LOCAL_DB_URI, API_BASE_URL
+    - Document sync configuration and local storage paths
+    - _Requirements: 0.3, Environment Configuration_
 
-- [ ] 13. Final integration and documentation
-  - [ ] 13.1 Create README files
-    - Create backend/README.md with setup and run instructions
-    - Create frontend/README.md with setup and run instructions
-    - Create electron/README.md with build and distribution instructions
-    - Create root README.md with project overview and architecture
-    - _Requirements: All_
+- [ ] 22. Create documentation and setup guides
+  - [ ] 22.1 Create backend README
+    - Document project structure and architecture
+    - Add setup instructions (npm install, environment variables, database setup)
+    - Add run instructions (npm run dev, npm start)
+    - Document API endpoints
+    - Add troubleshooting section
+    - _Requirements: 0.1, Documentation_
   
-  - [ ] 13.2 Create package.json scripts
-    - Add backend scripts: start, dev, test, test:watch
-    - Add frontend scripts: dev, build, preview, test
-    - Add Electron scripts: start, build, package
-    - Add root scripts to run all projects concurrently
-    - _Requirements: All_
+  - [ ] 22.2 Create frontend README
+    - Document project structure and component organization
+    - Add setup instructions (npm install, environment variables)
+    - Add run instructions (npm run dev, npm run build, npm run preview)
+    - Document routing and state management
+    - Add troubleshooting section
+    - _Requirements: 0.2, Documentation_
   
-  - [ ] 13.3 Verify all components work together
-    - Test backend server starts and connects to database
-    - Test frontend connects to backend API
-    - Test Electron app launches and loads frontend
-    - Test sync service runs in Electron app
-    - _Requirements: All_
+  - [ ] 22.3 Create Electron README
+    - Document project structure and IPC communication
+    - Add setup instructions (npm install, local MongoDB setup)
+    - Add run instructions (npm start, npm run build)
+    - Document sync service and local storage
+    - Add build and distribution instructions
+    - Add troubleshooting section
+    - _Requirements: 0.3, Documentation_
+  
+  - [ ] 22.4 Create root README
+    - Provide project overview and architecture diagram
+    - Document technology stack
+    - Add getting started guide for all three platforms
+    - Document database architecture (platform DB + company DBs)
+    - Add contribution guidelines
+    - _Requirements: All, Overview_
 
-- [ ] 14. Final checkpoint - Complete system verification
-  - Run all tests (backend, frontend, Electron) and ensure they pass
+- [ ] 23. Create package.json scripts for development workflow
+  - Add backend scripts: "start": "node server.js", "dev": "nodemon server.js", "seed:config": "node scripts/seed-platform-config.js"
+  - Add frontend scripts: "dev": "vite", "build": "vite build", "preview": "vite preview"
+  - Add Electron scripts: "start": "electron .", "build": "electron-builder", "dev": "electron . --dev"
+  - Add root scripts to run all projects: "dev:backend": "cd backend && npm run dev", "dev:frontend": "cd frontend && npm run dev", "dev:electron": "cd electron-app && npm run dev", "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+  - Install concurrently in root for parallel execution
+  - _Requirements: All, Development Workflow_
+
+- [ ] 24. Final integration testing and verification
+  - [ ] 24.1 Test backend integration
+    - Start backend server and verify health check endpoint responds
+    - Test platform database connection
+    - Test configuration loading from PlatformConfig collection
+    - Test company registration flow end-to-end
+    - Test login flow with email/password
+    - Test JWT token generation and validation
+    - Test company database creation
+    - _Requirements: 0.1, Module 1: Backend_
+  
+  - [ ] 24.2 Test frontend integration
+    - Start Vite dev server and verify it runs on port 5173
+    - Test landing page displays correctly across devices
+    - Test navigation between pages
+    - Test registration form validation
+    - Test registration flow creates user and redirects
+    - Test login form validation
+    - Test login flow authenticates and redirects
+    - Test auth state persistence across page reloads
+    - Test logout clears tokens and redirects
+    - _Requirements: 0.2, Module 1: Frontend_
+  
+  - [ ] 24.3 Test Electron integration
+    - Build and launch Electron app
+    - Verify app window opens with correct dimensions
+    - Test React app loads inside Electron window
+    - Test local MongoDB connection
+    - Test sync service starts automatically
+    - Test manual sync trigger via IPC
+    - Test data syncs between local and server
+    - Test conflict resolution (server wins)
+    - Test offline mode and sync when online
+    - _Requirements: 0.3, Module 0: Electron_
+  
+  - [ ] 24.4 Test end-to-end workflow
+    - Register new company via web interface
+    - Verify company database created
+    - Login to web app and verify dashboard access
+    - Login to Electron app with same credentials
+    - Create data in Electron app (offline)
+    - Trigger sync and verify data appears on server
+    - Create data on web app
+    - Verify data syncs to Electron app
+    - Test subscription trial period display
+    - _Requirements: All, End-to-End_
+
+- [ ] 25. Final checkpoint - Complete system verification
+  - Run all manual tests and verify they pass
   - Start all three applications and verify they work together
-  - Test health check endpoint
+  - Test health check endpoint: `curl http://localhost:5000/health`
   - Test database connections (platform and company)
   - Test Electron sync service
+  - Review all code for consistency and best practices
+  - Verify all documentation is complete and accurate
   - Ask the user if questions arise or if ready for next module
 
 ## Notes
 
-- Tasks marked with `*` are optional test tasks and can be skipped for faster MVP
-- Each task references specific requirements for traceability
-- The implementation follows a bottom-up approach: backend → frontend → Electron
-- Checkpoints ensure incremental validation at key milestones
-- Property tests validate universal correctness properties with 100+ iterations
-- Unit tests validate specific examples, edge cases, and integration points
+- Each task builds incrementally on previous work
+- Checkpoints ensure validation at key milestones before proceeding
 - All code uses ES6 module syntax (import/export)
-- Security best practices are followed throughout (context isolation, no hardcoded secrets, password hashing)
+- Security best practices followed: context isolation, password hashing, JWT tokens, no hardcoded secrets
+- Configuration priority: PlatformConfig DB > Environment Variables > Defaults
+- Separate PlatformAdmin and CompanyUser collections for security and clarity
+- Each company gets dedicated database created during registration
+- All timestamps managed automatically by Mongoose

@@ -39,7 +39,17 @@ This document provides comprehensive module-by-module specifications for the Res
 
 ### Database Architecture
 - **Platform Database**: Single database storing all platform metadata, company registry, subscriptions
+  - **PlatformAdmin Collection**: Stores platform super admins (separate from company users)
+  - **CompanyUser Collection**: Stores all company-related users (company admins, employees)
+  - **Company Collection**: Stores company information and subscription details
+  - **PlatformConfig Collection**: Stores platform-wide configuration (JWT secrets, OAuth credentials, API keys)
 - **Company Databases**: Each company gets a dedicated database created upon registration
+
+**IMPORTANT ARCHITECTURE NOTES:**
+1. **Separate User Tables**: Platform admins and company users are stored in separate collections for security and clarity
+2. **Database-Driven Configuration**: Most environment configuration (JWT secrets, OAuth credentials) is stored in PlatformConfig collection
+3. **Configuration Priority**: PlatformConfig DB > Environment Variables > Defaults
+4. **Platform Admin Management**: Platform admins can update configuration through admin panel without server restart
 
 ---
 
@@ -113,6 +123,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectPlatformDB } from './src/config/database.js';
+import { initializeConfig } from './src/config/env.js';
 import { errorHandler } from './src/middlewares/errorHandler.js';
 
 dotenv.config();
@@ -125,23 +136,37 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database Connection
-connectPlatformDB();
+// Initialize Application
+const startServer = async () => {
+  try {
+    // 1. Connect to Platform Database
+    await connectPlatformDB();
+    
+    // 2. Load configuration from PlatformConfig collection
+    await initializeConfig();
+    
+    // 3. Setup routes (after config is loaded)
+    // app.use('/api/auth', authRoutes);
+    
+    // Health Check
+    app.get('/health', (req, res) => {
+      res.json({ status: 'OK', message: 'ROS Backend is running' });
+    });
+    
+    // Error Handler (must be last)
+    app.use(errorHandler);
+    
+    // 4. Start server
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
 
-// Health Check
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'ROS Backend is running' });
-});
-
-// Routes will be imported here as modules are built
-// app.use('/api/auth', authRoutes);
-
-// Error Handler
-app.use(errorHandler);
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+startServer();
 ```
 
 **src/config/database.js**
@@ -178,16 +203,99 @@ export const getCompanyDB = (companyId) => {
 
 **src/config/env.js**
 ```javascript
+import PlatformConfig from '../models/platform/PlatformConfig.js';
+
+// Cache for platform configuration
+let configCache = null;
+let cacheTimestamp = null;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Load configuration from PlatformConfig database
+ * Falls back to environment variables if database is not available
+ */
+export const loadPlatformConfig = async () => {
+  try {
+    // Return cached config if still valid
+    if (configCache && cacheTimestamp && (Date.now() - cacheTimestamp < CACHE_TTL)) {
+      return configCache;
+    }
+
+    // Load all active configs from database
+    const configs = await PlatformConfig.find({ isActive: true });
+    
+    const configMap = {};
+    configs.forEach(config => {
+      configMap[config.configKey] = config.configValue;
+    });
+
+    // Cache the configuration
+    configCache = configMap;
+    cacheTimestamp = Date.now();
+
+    return configMap;
+  } catch (error) {
+    console.warn('⚠️  Failed to load platform config from database, using environment variables:', error.message);
+    return null;
+  }
+};
+
+/**
+ * Get configuration value with fallback to environment variables
+ */
+export const getConfig = async (key, envKey = null, defaultValue = null) => {
+  const platformConfig = await loadPlatformConfig();
+  
+  // Try platform config first
+  if (platformConfig && platformConfig[key] !== undefined) {
+    return platformConfig[key];
+  }
+  
+  // Fall back to environment variable
+  if (envKey && process.env[envKey]) {
+    return process.env[envKey];
+  }
+  
+  // Return default value
+  return defaultValue;
+};
+
+/**
+ * Environment configuration with database fallback
+ * Priority: PlatformConfig DB > Environment Variables > Defaults
+ */
 export const ENV = {
   PORT: process.env.PORT || 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
   PLATFORM_DB_URI: process.env.PLATFORM_DB_URI,
   COMPANY_DB_BASE_URI: process.env.COMPANY_DB_BASE_URI,
-  JWT_SECRET: process.env.JWT_SECRET,
-  JWT_EXPIRE: process.env.JWT_EXPIRE || '7d',
-  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-  GOOGLE_CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL,
+  
+  // These will be loaded from PlatformConfig database at runtime
+  // Fallback to environment variables if database is unavailable
+  JWT_SECRET: null, // Loaded from PlatformConfig
+  JWT_EXPIRE: null, // Loaded from PlatformConfig
+  GOOGLE_CLIENT_ID: null, // Loaded from PlatformConfig
+  GOOGLE_CLIENT_SECRET: null, // Loaded from PlatformConfig
+  GOOGLE_CALLBACK_URL: null, // Loaded from PlatformConfig
+};
+
+/**
+ * Initialize runtime configuration from database
+ * Call this after database connection is established
+ */
+export const initializeConfig = async () => {
+  try {
+    ENV.JWT_SECRET = await getConfig('JWT_SECRET', 'JWT_SECRET', 'default_jwt_secret_change_me');
+    ENV.JWT_EXPIRE = await getConfig('JWT_EXPIRE', 'JWT_EXPIRE', '7d');
+    ENV.GOOGLE_CLIENT_ID = await getConfig('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_ID');
+    ENV.GOOGLE_CLIENT_SECRET = await getConfig('GOOGLE_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET');
+    ENV.GOOGLE_CALLBACK_URL = await getConfig('GOOGLE_CALLBACK_URL', 'GOOGLE_CALLBACK_URL', 'http://localhost:5000/api/auth/google/callback');
+    
+    console.log('✅ Platform configuration loaded successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize platform configuration:', error.message);
+    throw error;
+  }
 };
 ```
 
@@ -203,17 +311,24 @@ PLATFORM_DB_URI=mongodb://localhost:27017/ros_platform
 # Company Database Base URI (each company gets: company_<companyId>)
 COMPANY_DB_BASE_URI=mongodb://localhost:27017/<dbname>
 
-# JWT
+# IMPORTANT: Most configuration is stored in PlatformConfig database collection
+# The following environment variables are FALLBACK ONLY if database is unavailable
+# Platform admins should configure these values in the PlatformConfig collection
+
+# JWT (Fallback - Primary source: PlatformConfig.JWT_SECRET)
 JWT_SECRET=your_super_secret_jwt_key_here_change_in_production
 JWT_EXPIRE=7d
 
-# Google OAuth
+# Google OAuth (Fallback - Primary source: PlatformConfig.GOOGLE_CLIENT_ID, etc.)
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
 
 # Frontend URL
 FRONTEND_URL=http://localhost:5173
+
+# NOTE: Platform admins can manage all configuration through the admin panel
+# Configuration priority: PlatformConfig DB > Environment Variables > Defaults
 ```
 
 **src/middlewares/errorHandler.js**
@@ -253,6 +368,150 @@ export const logger = {
 ```
 
 #### Platform Database Models
+
+**IMPORTANT: Separate User Tables Architecture**
+- **PlatformAdmin**: Stores platform super admins (separate table)
+- **CompanyUser**: Stores all company-related users (company admins, employees)
+- **Company**: Stores company information
+- **PlatformConfig**: Stores platform-wide configuration (JWT secrets, OAuth credentials, etc.)
+
+**src/models/platform/PlatformAdmin.js** (Platform DB - Platform Super Admins Only)
+```javascript
+import mongoose from 'mongoose';
+import bcrypt from 'bcrypt';
+
+const platformAdminSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+  },
+  password: {
+    type: String,
+    required: true,
+    select: false,
+  },
+  role: {
+    type: String,
+    default: 'platform_super_admin',
+    immutable: true,
+  },
+  permissions: [{
+    type: String,
+    enum: ['manage_companies', 'manage_subscriptions', 'manage_platform_config', 'view_analytics', 'manage_admins'],
+  }],
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  lastLogin: Date,
+}, {
+  timestamps: true,
+});
+
+// Hash password before saving
+platformAdminSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+// Compare password method
+platformAdminSchema.methods.comparePassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
+};
+
+// Exclude password from JSON responses
+platformAdminSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
+
+export default mongoose.model('PlatformAdmin', platformAdminSchema);
+```
+
+**src/models/platform/CompanyUser.js** (Platform DB - Company Users Only)
+```javascript
+import mongoose from 'mongoose';
+import bcrypt from 'bcrypt';
+
+const companyUserSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+  },
+  password: {
+    type: String,
+    select: false,
+  },
+  googleId: String,
+  profilePicture: String,
+  
+  // Role (Company users only - NO platform_super_admin)
+  role: {
+    type: String,
+    enum: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'employee'],
+    required: true,
+  },
+  
+  // Company Reference (REQUIRED for all company users)
+  companyId: {
+    type: String,
+    ref: 'Company',
+    required: true,
+  },
+  
+  // Branch Access (for company_admin and employee)
+  branchIds: [{
+    type: String,
+  }],
+  
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  lastLogin: Date,
+}, {
+  timestamps: true,
+});
+
+// Hash password before saving
+companyUserSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+// Compare password method
+companyUserSchema.methods.comparePassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
+};
+
+// Exclude password from JSON responses
+companyUserSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
+
+export default mongoose.model('CompanyUser', companyUserSchema);
+```
 
 **src/models/platform/Company.js** (Platform DB)
 ```javascript
@@ -310,11 +569,11 @@ const companySchema = new mongoose.Schema({
     },
   },
   
-  // Primary Admin (Company Super Admin)
+  // Primary Admin (Company Super Admin) - References CompanyUser
   primaryAdmin: {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'CompanyUser',
     },
     name: String,
     email: String,
@@ -343,75 +602,7 @@ const companySchema = new mongoose.Schema({
 export default mongoose.model('Company', companySchema);
 ```
 
-**src/models/platform/User.js** (Platform DB)
-```javascript
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-
-const userSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    lowercase: true,
-  },
-  password: {
-    type: String,
-    select: false,
-  },
-  
-  // Google OAuth
-  googleId: String,
-  profilePicture: String,
-  
-  // Role
-  role: {
-    type: String,
-    enum: ['platform_super_admin', 'company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'employee'],
-    required: true,
-  },
-  
-  // Company Reference
-  companyId: {
-    type: String,
-    ref: 'Company',
-  },
-  
-  // Branch Access (for company_admin and employee)
-  branchIds: [{
-    type: String,
-  }],
-  
-  isActive: {
-    type: Boolean,
-    default: true,
-  },
-}, {
-  timestamps: true,
-});
-
-// Hash password before saving
-userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
-
-// Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
-
-export default mongoose.model('User', userSchema);
-```
-
-**src/models/platform/PlatformConfig.js** (Platform DB)
+**src/models/platform/PlatformConfig.js** (Platform DB - Stores Environment Configuration)
 ```javascript
 import mongoose from 'mongoose';
 
@@ -425,15 +616,35 @@ const platformConfigSchema = new mongoose.Schema({
   description: String,
   category: {
     type: String,
-    enum: ['subscription', 'pricing', 'features', 'system'],
+    enum: ['auth', 'payment', 'email', 'storage', 'api', 'system'],
+    required: true,
+  },
+  isSecret: {
+    type: Boolean,
+    default: false, // If true, value should be encrypted
   },
   isActive: {
     type: Boolean,
     default: true,
   },
+  lastModifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlatformAdmin',
+  },
 }, {
   timestamps: true,
 });
+
+// Example configuration keys stored in this collection:
+// - JWT_SECRET (category: 'auth', isSecret: true)
+// - JWT_EXPIRE (category: 'auth')
+// - GOOGLE_CLIENT_ID (category: 'auth')
+// - GOOGLE_CLIENT_SECRET (category: 'auth', isSecret: true)
+// - RAZORPAY_KEY_ID (category: 'payment')
+// - RAZORPAY_KEY_SECRET (category: 'payment', isSecret: true)
+// - SMTP_HOST (category: 'email')
+// - SMTP_PORT (category: 'email')
+// - AWS_S3_BUCKET (category: 'storage')
 
 export default mongoose.model('PlatformConfig', platformConfigSchema);
 ```
