@@ -17,7 +17,7 @@ Each task builds incrementally on previous work, with checkpoints to ensure stab
 
 ## Tasks
 
-- [ ] 1. Set up backend project structure and core infrastructure
+- [x] 1. Set up backend project structure and core infrastructure
   - Create backend folder structure with MVC pattern
   - Initialize package.json with required dependencies (Express, Mongoose, JWT, bcrypt, etc.)
   - Create server.js with Express app initialization
