@@ -8,10 +8,13 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { isElectron } from "@/utils/platform";
 
 const queryClient = new QueryClient();
 
 const App = () => {
+  const isElectronApp = isElectron();
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
@@ -21,13 +24,23 @@ const App = () => {
           <BrowserRouter>
             <AuthProvider>
               <Routes>
-                {/* Landing Page */}
-                <Route path="/" element={<Landing />} />
+                {/* Landing Page - Only for Web */}
+                {!isElectronApp && <Route path="/" element={<Landing />} />}
                 
-                {/* Auth Page (Login/Register) */}
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
-                <Route path="/register" element={<Navigate to="/auth?mode=register" replace />} />
+                {/* Auth Page - Default for Electron, accessible for Web */}
+                {isElectronApp ? (
+                  <Route path="/" element={<Auth />} />
+                ) : (
+                  <Route path="/auth" element={<Auth />} />
+                )}
+                
+                {/* Auth redirects for Web */}
+                {!isElectronApp && (
+                  <>
+                    <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
+                    <Route path="/register" element={<Navigate to="/auth?mode=register" replace />} />
+                  </>
+                )}
                 
                 {/* Dashboard - Protected Route */}
                 <Route 
@@ -39,8 +52,11 @@ const App = () => {
                   } 
                 />
                 
-                {/* Catch all - redirect to home */}
-                <Route path="*" element={<Navigate to="/" replace />} />
+                {/* Catch all - redirect based on platform */}
+                <Route 
+                  path="*" 
+                  element={<Navigate to={isElectronApp ? "/" : "/"} replace />} 
+                />
               </Routes>
             </AuthProvider>
           </BrowserRouter>

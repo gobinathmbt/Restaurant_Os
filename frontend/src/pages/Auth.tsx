@@ -74,9 +74,11 @@ const Auth = () => {
       toast({
         title: "Login Successful",
         description: "Welcome back! Redirecting to dashboard...",
+        variant: "success",
       });
       
-      setTimeout(() => navigate('/dashboard'), 500);
+      // Navigate immediately without setTimeout
+      navigate('/dashboard');
     } catch (err: any) {
       console.log('Login error:', err);
       
@@ -85,7 +87,7 @@ const Auth = () => {
       toast({
         title: "Login Failed",
         description: errorMessage,
-        variant: "destructive",
+        variant: "error",
       });
     } finally {
       setLoading(false);
@@ -102,9 +104,11 @@ const Auth = () => {
       toast({
         title: "Registration Successful",
         description: "Your account has been created. 30-day trial activated!",
+        variant: "success",
       });
       
-      setTimeout(() => navigate('/dashboard'), 500);
+      // Navigate immediately without setTimeout
+      navigate('/dashboard');
     } catch (err: any) {
       console.log('Registration error:', err);
       
@@ -118,7 +122,7 @@ const Auth = () => {
         toast({
           title: "Validation Error",
           description: validationErrors,
-          variant: "destructive",
+          variant: "warning",
         });
       } else {
         // General error
@@ -127,7 +131,7 @@ const Auth = () => {
         toast({
           title: "Registration Failed",
           description: errorMessage,
-          variant: "destructive",
+          variant: "error",
         });
       }
     } finally {
@@ -162,9 +166,11 @@ const Auth = () => {
             toast({
               title: "Google Login Successful",
               description: `Welcome back, ${response.data.data.user.name}!`,
+              variant: "success",
             });
             
-            setTimeout(() => navigate('/dashboard'), 500);
+            // Navigate immediately without setTimeout
+            navigate('/dashboard');
           }
         } catch (loginError: any) {
           
@@ -183,14 +189,14 @@ const Auth = () => {
             toast({
               title: "Account Not Found",
               description: "Please complete your registration to continue.",
-                 variant: "destructive",
+              variant: "info",
             });
           } else {
             const errorMessage = loginError.message || loginError.data?.message || 'Google login failed. Please try again.';
             toast({
               title: "Google Login Failed",
               description: errorMessage,
-              variant: "destructive",
+              variant: "error",
             });
           }
         }
@@ -199,7 +205,7 @@ const Auth = () => {
         toast({
           title: "Authentication Error",
           description: "Failed to authenticate with Google. Please try again.",
-          variant: "destructive",
+          variant: "error",
         });
       } finally {
         setLoading(false);
@@ -209,7 +215,7 @@ const Auth = () => {
       toast({
         title: "Google Login Cancelled",
         description: "Google login was cancelled or failed.",
-        variant: "destructive",
+        variant: "warning",
       });
       setLoading(false);
     },
