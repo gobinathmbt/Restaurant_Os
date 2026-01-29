@@ -1,27 +1,82 @@
-// config.ts
+/**
+ * Frontend Configuration
+ * Centralized configuration management for the application
+ */
 
-type ServerEnv = "PROD" | "TEST" |"DEV" | "LOCAL";
+// API Base URL - defaults to localhost backend
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
-const server: ServerEnv = "DEV";
+// Google OAuth Client ID
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
-// Frontend URL map
-const FRONTEND_URLS: Record<ServerEnv, string> = {
-  PROD: "https://dev.autoerp.io",
-  DEV: "http://dev.autoerp.io",
-  TEST: "http://test.autoerp.io",
-  LOCAL: "http://localhost:8080",
+// Application Configuration
+export const APP_CONFIG = {
+  // Application name
+  appName: 'Restaurant Operating System',
+  appShortName: 'ROS',
+  
+  // API Configuration
+  apiTimeout: 10000, // 10 seconds
+  apiRetries: 3,
+  
+  // Session Configuration
+  sessionTimeout: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+  
+  // Pagination
+  defaultPageSize: 20,
+  maxPageSize: 100,
+  
+  // Date/Time Configuration
+  dateFormat: 'DD/MM/YYYY',
+  timeFormat: 'HH:mm',
+  dateTimeFormat: 'DD/MM/YYYY HH:mm',
+  
+  // Currency Configuration
+  currency: 'INR',
+  currencySymbol: '₹',
+  currencyLocale: 'en-IN',
+  
+  // File Upload Configuration
+  maxFileSize: 5 * 1024 * 1024, // 5MB
+  allowedImageTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+  allowedDocumentTypes: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  
+  // Theme Configuration
+  defaultTheme: 'light',
+  primaryColor: '#22c55e', // Green
+  
+  // Feature Flags
+  features: {
+    googleOAuth: true,
+    offlineMode: false,
+    analytics: true,
+  },
 };
 
-// Backend URL map
-const BACKEND_URLS: Record<ServerEnv, string> = {
-  PROD: "https://dev-backend.autoerp.io",
-  DEV: "https://dev-backend.autoerp.io",
-  TEST: "https://test-backend.autoerp.io",
-  LOCAL: "http://localhost:5000",
+// Environment Information
+export const ENV = {
+  isDevelopment: import.meta.env.DEV,
+  isProduction: import.meta.env.PROD,
+  mode: import.meta.env.MODE,
 };
 
-const URL: string = FRONTEND_URLS[server];
-const BASE_URL: string = BACKEND_URLS[server];
+// API Endpoints (can be extended as needed)
+export const API_ENDPOINTS = {
+  auth: {
+    login: '/api/auth/login',
+    register: '/api/auth/register-company',
+    googleLogin: '/api/auth/google',
+    logout: '/api/auth/logout',
+    me: '/api/auth/me',
+    refreshToken: '/api/auth/refresh-token',
+  },
+  // Add more endpoint groups as modules are implemented
+};
 
-
-export { BASE_URL, URL };
+export default {
+  BASE_URL,
+  GOOGLE_CLIENT_ID,
+  APP_CONFIG,
+  ENV,
+  API_ENDPOINTS,
+};

@@ -193,14 +193,14 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Create src/styles/globals.css (add Tailwind directives, add CSS custom properties for colors, add utility classes: .theme-green, .theme-black, .theme-white)
     - _Requirements: 0.2, Design System_
 
-- [ ] 11. Create frontend configuration and utilities
-  - [ ] 11.1 Create configuration utilities (src/lib/config.js)
+- [x] 11. Create frontend configuration and utilities
+  - [x] 11.1 Create configuration utilities (src/lib/config.js)
     - Export BASE_URL from VITE_API_BASE_URL env variable (default: http://localhost:5000)
     - Export GOOGLE_CLIENT_ID from VITE_GOOGLE_CLIENT_ID
     - Add other frontend configuration constants
     - _Requirements: 0.2, Configuration Management_
   
-  - [ ] 11.2 Create helper utilities (src/lib/utils.js)
+  - [x] 11.2 Create helper utilities (src/lib/utils.js)
     - Add cn() function for className merging (using clsx)
     - Add formatDate() helper
     - Add formatCurrency() helper
