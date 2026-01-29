@@ -248,8 +248,8 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
   - Test routing navigation
   - Ask the user if questions arise
 
-- [ ] 15. Create frontend authentication UI pages
-  - [ ] 15.1 Create landing page component (src/pages/Landing.jsx)
+- [x] 15. Create frontend authentication UI pages
+  - [x] 15.1 Create landing page component (src/pages/Landing.jsx)
     - Implement header with logo, navigation (Features, Pricing, About, Contact), Login/Register buttons
     - Implement hero section with CTA buttons (Start Free Trial, Watch Demo)
     - Implement features section with grid of feature cards (use lucide-react icons)
@@ -261,7 +261,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Make responsive (mobile, tablet, desktop)
     - _Requirements: Module 1: Landing Page, UI/UX_
   
-  - [ ] 15.2 Create authentication page component (src/pages/Auth.jsx)
+  - [x] 15.2 Create authentication page component (src/pages/Auth.jsx)
     - Implement two-column layout: 70% left (green info section), 30% right (form section)
     - Left section: Company branding, benefits list, testimonials
     - Right section: Login/Register form switcher
@@ -273,7 +273,7 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Make responsive
     - _Requirements: Module 1: Authentication UI, Forms_
   
-  - [ ] 15.3 Update app routes (src/App.jsx)
+  - [x] 15.3 Update app routes (src/App.jsx)
     - Import Landing and Auth pages
     - Define route: / -> Landing
     - Define route: /login -> Auth

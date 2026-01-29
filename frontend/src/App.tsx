@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import Landing from "@/pages/Landing";
+import Auth from "@/pages/Auth";
 
 const queryClient = new QueryClient();
 
@@ -19,13 +21,16 @@ const App = () => {
             <AuthProvider>
               <Routes>
                 {/* Landing Page */}
-                <Route path="/" element={<div className="p-8 text-center">Landing Page - Coming Soon</div>} />
+                <Route path="/" element={<Landing />} />
                 
                 {/* Login Page */}
-                <Route path="/login" element={<div className="p-8 text-center">Login Page - Coming Soon</div>} />
+                <Route path="/login" element={<Auth />} />
                 
                 {/* Register Page */}
-                <Route path="/register" element={<div className="p-8 text-center">Register Page - Coming Soon</div>} />
+                <Route path="/register" element={<Auth />} />
+                
+                {/* Dashboard - Placeholder */}
+                <Route path="/dashboard" element={<div className="p-8 text-center text-2xl">Dashboard Coming Soon</div>} />
                 
                 {/* Catch all - redirect to home */}
                 <Route path="*" element={<Navigate to="/" replace />} />
