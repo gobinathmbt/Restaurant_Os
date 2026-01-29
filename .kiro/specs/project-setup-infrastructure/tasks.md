@@ -112,8 +112,8 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Add index on token for fast lookups
     - _Requirements: Module 1: Authentication, JWT Token Management_
 
-- [ ] 5. Implement authentication controller and routes
-  - [ ] 5.1 Create authentication controller (src/controllers/authController.js)
+- [x] 5. Implement authentication controller and routes
+  - [x] 5.1 Create authentication controller (src/controllers/authController.js)
     - Implement registerCompany() - registers new company with primary admin (validate input, check email exists, generate companyId, create CompanyUser with role 'company_super_admin_primary', create Company entry with 30-day trial, create dedicated company database, initialize CompanySettings, generate JWT and refresh tokens, return user/company/tokens)
     - Implement login() - login with email/password (find user in CompanyUser collection, verify password, check isActive status, check company subscription status, generate tokens, update lastLogin, return user/tokens)
     - Implement googleLogin() - Google OAuth login (verify Google token, extract user info, find or return "need registration", update googleId/profilePicture, check account/subscription status, generate tokens, return user/tokens)
@@ -123,12 +123,12 @@ This implementation plan breaks down the Project Setup & Infrastructure module i
     - Helper: generateRefreshToken(userId) - creates and stores refresh token
     - _Requirements: Module 1: Authentication, Company Registration_
   
-  - [ ] 5.2 Create authentication middleware (src/middlewares/auth.js)
+  - [x] 5.2 Create authentication middleware (src/middlewares/auth.js)
     - Implement authenticate() middleware (extract token from Authorization header, verify JWT token using ENV.JWT_SECRET, find user in CompanyUser collection, check if user exists and isActive, attach user info to req.user, handle token errors)
     - Implement authorize(...allowedRoles) middleware (check if req.user.role is in allowedRoles array, return 403 if not authorized)
     - _Requirements: Module 1: Authentication, Authorization_
   
-  - [ ] 5.3 Create authentication routes (src/routes/authRoutes.js)
+  - [x] 5.3 Create authentication routes (src/routes/authRoutes.js)
     - Define POST /api/auth/register-company (public)
     - Define POST /api/auth/login (public)
     - Define POST /api/auth/google (public)
