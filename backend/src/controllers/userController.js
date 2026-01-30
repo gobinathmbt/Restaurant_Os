@@ -8,10 +8,23 @@ import { logger } from '../utils/logger.js';
  */
 export const getUsers = async (req, res, next) => {
   try {
-    const { companyId } = req.user;
+    const { companyId, userId, role: currentUserRole } = req.user;
     const { page = 1, limit = 10, search, role, isActive, branchId } = req.query;
 
     const query = { companyId };
+    
+    // Exclude current user from the list
+    query._id = { $ne: userId };
+    
+    // Role-based filtering
+    if (currentUserRole === 'company_admin') {
+      // Company admin can only see employees
+      query.role = 'employee';
+    } else if (currentUserRole === 'company_super_admin_secondary') {
+      // Secondary admin cannot see primary admin
+      query.role = { $ne: 'company_super_admin_primary' };
+    }
+    // Primary admin can see all users (no additional restriction)
     
     if (search) {
       query.$or = [
@@ -21,6 +34,37 @@ export const getUsers = async (req, res, next) => {
     }
 
     if (role) {
+      // Apply role filter only if it doesn't conflict with role-based restrictions
+      if (currentUserRole === 'company_admin' && role !== 'employee') {
+        // Company admin trying to filter non-employees - return empty
+        return res.json({
+          success: true,
+          data: {
+            users: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
+      if (currentUserRole === 'company_super_admin_secondary' && role === 'company_super_admin_primary') {
+        // Secondary admin trying to see primary admin - return empty
+        return res.json({
+          success: true,
+          data: {
+            users: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
       query.role = role;
     }
 
@@ -157,7 +201,7 @@ export const createUser = async (req, res, next) => {
 
         for (const admin of superAdmins) {
           await notificationService.sendToCompanyUser(companyId, admin._id, {
-            category: 'user_management',
+            category: 'staff',
             event: 'userCreated',
             title: 'New User Created',
             message: `${creator.name} (Admin) created a new ${role.replace('company_', '').replace('_', ' ')}: ${name} (${email})`,
@@ -184,7 +228,7 @@ export const createUser = async (req, res, next) => {
 
         if (primaryAdmin) {
           await notificationService.sendToCompanyUser(companyId, primaryAdmin._id, {
-            category: 'user_management',
+            category: 'staff',
             event: 'userCreated',
             title: 'New User Created',
             message: `${creator.name} (Super Admin) created a new ${role.replace('company_', '').replace('_', ' ')}: ${name} (${email})`,
@@ -205,7 +249,7 @@ export const createUser = async (req, res, next) => {
       } else if (creatorRole === 'company_super_admin_primary') {
         // Only notify the creator
         await notificationService.sendToCompanyUser(companyId, userId, {
-          category: 'user_management',
+          category: 'staff',
           event: 'userCreated',
           title: 'User Created Successfully',
           message: `You created a new ${role.replace('company_', '').replace('_', ' ')}: ${name} (${email})`,
@@ -224,7 +268,7 @@ export const createUser = async (req, res, next) => {
 
       // Notify the new user
       await notificationService.sendToCompanyUser(companyId, newUser._id, {
-        category: 'user_management',
+        category: 'system',
         event: 'accountCreated',
         title: 'Welcome to RestaurantOS',
         message: `Your account has been created by ${creator.name}. You can now login with your email: ${email}`,

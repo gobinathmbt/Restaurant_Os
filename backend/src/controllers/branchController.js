@@ -136,7 +136,7 @@ export const createBranch = async (req, res, next) => {
 
         if (primaryAdmin) {
           await notificationService.sendToCompanyUser(companyId, primaryAdmin._id, {
-            category: 'branch_management',
+            category: 'system',
             event: 'branchCreated',
             title: 'New Branch Created',
             message: `${creator.name} created a new branch: ${branch.name} (${branch.code})`,
@@ -154,7 +154,7 @@ export const createBranch = async (req, res, next) => {
       } else if (role === 'company_super_admin_primary') {
         // Only notify the creator (primary admin)
         await notificationService.sendToCompanyUser(companyId, userId, {
-          category: 'branch_management',
+          category: 'system',
           event: 'branchCreated',
           title: 'Branch Created Successfully',
           message: `You created a new branch: ${branch.name} (${branch.code})`,
