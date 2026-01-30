@@ -2,24 +2,55 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { NotificationItem } from './NotificationItem';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
-import { Bell, CheckCheck, RefreshCw } from 'lucide-react';
+import { Bell, CheckCheck, RefreshCw, Loader2 } from 'lucide-react';
+import { useRef, useEffect } from 'react';
 
 export const NotificationList = () => {
   const {
     notifications,
     unreadCount,
     loading,
+    loadingMore,
+    hasMore,
     markAllAsRead,
     deleteNotification,
     markAsRead,
     fetchNotifications,
-    fetchUnreadCount
+    fetchUnreadCount,
+    loadMoreNotifications
   } = useNotifications();
 
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const observerTarget = useRef<HTMLDivElement>(null);
+
   const handleRefresh = () => {
-    fetchNotifications();
+    fetchNotifications({ page: 1, limit: 20 });
     fetchUnreadCount();
   };
+
+  // Infinite scroll using Intersection Observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          console.log('Loading more notifications...');
+          loadMoreNotifications();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const currentTarget = observerTarget.current;
+    if (currentTarget) {
+      observer.observe(currentTarget);
+    }
+
+    return () => {
+      if (currentTarget) {
+        observer.unobserve(currentTarget);
+      }
+    };
+  }, [hasMore, loadingMore, loading, loadMoreNotifications]);
 
   return (
     <div className="flex flex-col h-[500px]">
@@ -51,8 +82,8 @@ export const NotificationList = () => {
       </div>
 
       {/* Notifications List */}
-      <ScrollArea className="flex-1">
-        {loading ? (
+      <ScrollArea className="flex-1" ref={scrollAreaRef}>
+        {loading && notifications.length === 0 ? (
           <div className="p-4 text-center text-muted-foreground">
             Loading notifications...
           </div>
@@ -62,16 +93,36 @@ export const NotificationList = () => {
             <p>No notifications yet</p>
           </div>
         ) : (
-          <div className="divide-y">
-            {notifications.map((notification) => (
-              <NotificationItem
-                key={notification._id}
-                notification={notification}
-                onMarkAsRead={markAsRead}
-                onDelete={deleteNotification}
-              />
-            ))}
-          </div>
+          <>
+            <div className="divide-y">
+              {notifications.map((notification) => (
+                <NotificationItem
+                  key={notification._id}
+                  notification={notification}
+                  onMarkAsRead={markAsRead}
+                  onDelete={deleteNotification}
+                />
+              ))}
+            </div>
+            
+            {/* Intersection Observer Target */}
+            <div ref={observerTarget} className="h-4" />
+            
+            {/* Loading More Indicator */}
+            {loadingMore && (
+              <div className="p-4 text-center text-muted-foreground flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading more...</span>
+              </div>
+            )}
+            
+            {/* No More Notifications */}
+            {!hasMore && notifications.length > 0 && (
+              <div className="p-4 text-center text-muted-foreground text-sm">
+                No more notifications
+              </div>
+            )}
+          </>
         )}
       </ScrollArea>
     </div>

@@ -67,6 +67,9 @@ export const useNotifications = () => {
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const socket = useSocket();
 
@@ -76,6 +79,7 @@ export const useNotifications = () => {
     limit?: number;
     unreadOnly?: boolean;
     category?: string;
+    append?: boolean;
   }) => {
     if (!socket.isConnected) {
       console.log('Cannot fetch notifications: Socket not connected');
@@ -84,27 +88,66 @@ export const useNotifications = () => {
     }
 
     try {
-      console.log('Fetching notifications via socket...');
-      setLoading(true);
+      const isAppending = options?.append || false;
+      console.log('Fetching notifications via socket...', { options, isAppending });
+      
+      if (isAppending) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
 
       socketService.getNotifications(options || {}, (response) => {
         console.log('Notifications response:', response);
         if (response.success) {
-          console.log('Setting notifications:', response.data.notifications);
-          setNotifications(response.data.notifications);
+          const newNotifications = response.data.notifications;
+          const totalPages = response.data.pagination?.totalPages || 1;
+          const currentPage = response.data.pagination?.currentPage || 1;
+          
+          console.log('Setting notifications:', newNotifications, { totalPages, currentPage });
+          
+          if (isAppending) {
+            // Append new notifications to existing ones
+            setNotifications(prev => [...prev, ...newNotifications]);
+          } else {
+            // Replace notifications (initial load)
+            setNotifications(newNotifications);
+          }
+          
+          // Update hasMore based on pagination
+          setHasMore(currentPage < totalPages);
+          setPage(currentPage);
         } else {
           console.error('Failed to fetch notifications:', response.error);
           setError(response.error || 'Failed to fetch notifications');
         }
-        setLoading(false);
+        
+        if (isAppending) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
       });
     } catch (err: any) {
       console.error('Error fetching notifications:', err);
       setError(err.message || 'Failed to fetch notifications');
       setLoading(false);
+      setLoadingMore(false);
     }
   }, [socket.isConnected]);
+
+  // Load more notifications
+  const loadMoreNotifications = useCallback(() => {
+    if (!hasMore || loadingMore || loading) {
+      console.log('Cannot load more:', { hasMore, loadingMore, loading });
+      return;
+    }
+    
+    const nextPage = page + 1;
+    console.log('Loading more notifications, page:', nextPage);
+    fetchNotifications({ page: nextPage, limit: 20, append: true });
+  }, [hasMore, loadingMore, loading, page, fetchNotifications]);
 
   // Fetch unread count from Socket
   const fetchUnreadCount = useCallback(async () => {
@@ -323,9 +366,13 @@ export const useNotifications = () => {
   useEffect(() => {
     if (socket.isConnected) {
       console.log('Socket connected, fetching notifications and count');
+      // Reset pagination state on reconnect
+      setPage(1);
+      setHasMore(true);
+      
       // Small delay to ensure socket is fully ready
       const timer = setTimeout(() => {
-        fetchNotifications();
+        fetchNotifications({ page: 1, limit: 20 });
         fetchUnreadCount();
       }, 150);
       
@@ -338,9 +385,12 @@ export const useNotifications = () => {
     unreadCount,
     settings,
     loading,
+    loadingMore,
     error,
+    hasMore,
     isConnected: socket.isConnected,
     fetchNotifications,
+    loadMoreNotifications,
     fetchUnreadCount,
     fetchSettings,
     markAsRead,
