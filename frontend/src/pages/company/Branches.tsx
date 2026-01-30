@@ -1,16 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Edit, Trash2, Power, MapPin, Phone, Mail } from 'lucide-react';
+import { Plus, Edit, Trash2, Power, MapPin, Phone, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
+import { TableCell, TableHead, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { branchServices } from '@/api/services';
 import BranchFormModal from '@/components/company/BranchFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLoading } from '@/contexts/LoadingContext';
+import DataTableLayout from '@/components/common/DataTableLayout';
 
 interface Branch {
   _id: string;
@@ -45,30 +44,29 @@ export default function Branches() {
     open: false,
     branch: null
   });
-  const [pagination, setPagination] = useState({
-    currentPage: 1,
-    limit: 10,
-    total: 0,
-    totalPages: 0
-  });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
   const canManageBranches = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
 
   useEffect(() => {
     fetchBranches();
-  }, [pagination.currentPage, searchTerm]);
+  }, [currentPage, rowsPerPage, searchTerm]);
 
   const fetchBranches = async () => {
     try {
       setLocalLoading(true);
       const response = await branchServices.getBranches({
-        page: pagination.currentPage,
-        limit: pagination.limit,
+        page: currentPage,
+        limit: rowsPerPage,
         search: searchTerm || undefined
       });
 
       setBranches(response.data.data.branches);
-      setPagination(response.data.data.pagination);
+      setTotalCount(response.data.data.pagination.total);
+      setTotalPages(response.data.data.pagination.totalPages);
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to fetch branches');
     } finally {
@@ -127,175 +125,148 @@ export default function Branches() {
     fetchBranches();
   };
 
+  const activeBranches = branches.filter((b) => b.isActive).length;
+  const inactiveBranches = branches.filter((b) => !b.isActive).length;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Branches</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage your restaurant branches
-          </p>
-        </div>
-        {canManageBranches && (
-          <Button onClick={handleCreateBranch}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Branch
-          </Button>
-        )}
-      </div>
-
-      {/* Search */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search branches..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-      </div>
-
-      {/* Branches Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-6 w-3/4" />
-                <Skeleton className="h-4 w-1/2 mt-2" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-20 w-full" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : branches.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No branches found</h3>
-            <p className="text-muted-foreground text-center mb-4">
-              {searchTerm ? 'Try adjusting your search' : 'Get started by creating your first branch'}
-            </p>
-            {canManageBranches && !searchTerm && (
-              <Button onClick={handleCreateBranch}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Branch
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {branches.map((branch) => (
-            <Card key={branch._id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <CardTitle className="text-xl">{branch.name}</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Code: {branch.code}
-                    </p>
+    <>
+      <DataTableLayout
+        statChips={[
+          { label: 'Total', value: totalCount, variant: 'default' },
+          { label: 'Active', value: activeBranches, variant: 'default', bgColor: 'bg-green-100 text-green-800' },
+          { label: 'Inactive', value: inactiveBranches, variant: 'secondary' },
+        ]}
+        actionButtons={
+          canManageBranches
+            ? [
+                {
+                  icon: <Plus className="h-4 w-4" />,
+                  tooltip: 'Add new branch',
+                  onClick: handleCreateBranch,
+                  variant: 'default',
+                },
+              ]
+            : []
+        }
+        searchValue={searchTerm}
+        searchPlaceholder="Search branches..."
+        onSearchChange={setSearchTerm}
+        tableHeaders={
+          <>
+            <TableHead className="w-16">S.No</TableHead>
+            <TableHead>Branch</TableHead>
+            <TableHead>Location</TableHead>
+            <TableHead>Contact</TableHead>
+            <TableHead>Status</TableHead>
+            {canManageBranches && <TableHead className="text-right">Actions</TableHead>}
+          </>
+        }
+        tableBody={
+          <>
+            {branches.map((branch, index) => (
+              <TableRow key={branch._id}>
+                <TableCell className="font-medium text-muted-foreground">
+                  {(currentPage - 1) * rowsPerPage + index + 1}
+                </TableCell>
+                <TableCell>
+                  <div>
+                    <p className="font-medium">{branch.name}</p>
+                    <p className="text-sm text-muted-foreground">Code: {branch.code}</p>
                   </div>
-                  <Badge variant={branch.isActive ? 'default' : 'secondary'}>
-                    {branch.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Address */}
-                {branch.address && (
+                </TableCell>
+                <TableCell>
                   <div className="flex items-start gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="text-sm">
-                      {branch.address.street && <p>{branch.address.street}</p>}
+                      {branch.address?.street && <p>{branch.address.street}</p>}
                       <p>
-                        {[branch.address.city, branch.address.state, branch.address.pincode]
+                        {[branch.address?.city, branch.address?.state, branch.address?.pincode]
                           .filter(Boolean)
                           .join(', ')}
                       </p>
                     </div>
                   </div>
-                )}
-
-                {/* Contact */}
-                <div className="space-y-2">
-                  {branch.contact?.phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">{branch.contact.phone}</span>
-                    </div>
-                  )}
-                  {branch.contact?.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">{branch.contact.email}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                {canManageBranches && (
-                  <div className="flex items-center gap-2 pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleEditBranch(branch)}
-                      className="flex-1"
-                    >
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleToggleStatus(branch)}
-                    >
-                      <Power className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDeleteBranch(branch)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1">
+                    {branch.contact?.phone && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Phone className="h-3 w-3 text-muted-foreground" />
+                        {branch.contact.phone}
+                      </div>
+                    )}
+                    {branch.contact?.email && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Mail className="h-3 w-3 text-muted-foreground" />
+                        {branch.contact.email}
+                      </div>
+                    )}
                   </div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={branch.isActive ? 'default' : 'secondary'}>
+                    {branch.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                </TableCell>
+                {canManageBranches && (
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEditBranch(branch)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleStatus(branch)}
+                      >
+                        <Power className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteBranch(branch)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
                 )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {pagination.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={pagination.currentPage === 1}
-            onClick={() => setPagination(prev => ({ ...prev, currentPage: prev.currentPage - 1 }))}
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {pagination.currentPage} of {pagination.totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={pagination.currentPage === pagination.totalPages}
-            onClick={() => setPagination(prev => ({ ...prev, currentPage: prev.currentPage + 1 }))}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+              </TableRow>
+            ))}
+          </>
+        }
+        isLoading={loading}
+        emptyState={
+          branches.length === 0
+            ? {
+                icon: <MapPin className="h-12 w-12" />,
+                title: 'No branches found',
+                description: searchTerm
+                  ? 'Try adjusting your search'
+                  : 'Get started by creating your first branch',
+                action:
+                  canManageBranches && !searchTerm ? (
+                    <Button onClick={handleCreateBranch}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Branch
+                    </Button>
+                  ) : undefined,
+              }
+            : undefined
+        }
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        rowsPerPage={rowsPerPage}
+        onPageChange={setCurrentPage}
+        onRowsPerPageChange={setRowsPerPage}
+        onRefresh={fetchBranches}
+        cookiePrefix="branches"
+      />
 
       {/* Modals */}
       <BranchFormModal
@@ -315,6 +286,6 @@ export default function Branches() {
         title="Delete Branch"
         description={`Are you sure you want to delete "${deleteDialog.branch?.name}"? This action cannot be undone.`}
       />
-    </div>
+    </>
   );
 }
