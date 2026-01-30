@@ -108,11 +108,18 @@ export const useNotifications = () => {
 
   // Fetch unread count from Socket
   const fetchUnreadCount = useCallback(async () => {
-    if (!socket.isConnected) return;
+    if (!socket.isConnected) {
+      console.log('Cannot fetch unread count: Socket not connected');
+      return;
+    }
 
+    console.log('Fetching unread count via socket...');
     socketService.getUnreadCount((response) => {
       if (response.success) {
+        console.log('Unread count response:', response.data.count);
         setUnreadCount(response.data.count);
+      } else {
+        console.error('Failed to fetch unread count:', response.error);
       }
     });
   }, [socket.isConnected]);
@@ -309,21 +316,22 @@ export const useNotifications = () => {
     }
   }, [socket.notifications, toast, fetchUnreadCount]);
 
-  // Sync unread count with socket - this is the single source of truth
-  useEffect(() => {
-    if (socket.unreadCount !== undefined) {
-      setUnreadCount(socket.unreadCount);
-    }
-  }, [socket.unreadCount]);
+  // Don't sync from socket - useNotifications manages its own count
+  // The count is fetched from server via fetchUnreadCount()
 
-  // Initial data fetch - fetch notifications and count when socket connects
+  // Initial data fetch - fetch notifications and count when socket connects (only once)
   useEffect(() => {
     if (socket.isConnected) {
       console.log('Socket connected, fetching notifications and count');
-      fetchNotifications();
-      fetchUnreadCount();
+      // Small delay to ensure socket is fully ready
+      const timer = setTimeout(() => {
+        fetchNotifications();
+        fetchUnreadCount();
+      }, 150);
+      
+      return () => clearTimeout(timer);
     }
-  }, [socket.isConnected, fetchNotifications, fetchUnreadCount]);
+  }, [socket.isConnected]); // Remove fetchNotifications and fetchUnreadCount from deps
 
   return {
     notifications,

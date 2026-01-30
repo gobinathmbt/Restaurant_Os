@@ -55,17 +55,18 @@ export const useSocket = () => {
     };
   }, [user]);
 
-  // Handle incoming notifications
+  // Handle incoming notifications (stable reference)
   const handleNotification = useCallback((notification: NotificationData) => {
+    console.log('New notification received:', notification);
     setNotifications(prev => [notification, ...prev]);
     // Don't increment count here - let useNotifications handle it via socket.notifications
-  }, []);
+  }, []); // No dependencies - stable reference
 
-  // Subscribe to notifications
+  // Subscribe to notifications (only once)
   useEffect(() => {
     const unsubscribe = socketService.onNotification(handleNotification);
     return unsubscribe;
-  }, [handleNotification]);
+  }, []); // Empty deps - only subscribe once
 
   // Clear notifications
   const clearNotifications = useCallback(() => {
@@ -90,17 +91,24 @@ export const useSocket = () => {
   const fetchUnreadCount = useCallback(() => {
     socketService.getUnreadCount((response) => {
       if (response.success) {
+        console.log('Unread count fetched:', response.data.count);
         setUnreadCount(response.data.count);
       }
     });
   }, []);
 
-  // Fetch unread count when socket connects
+  // Fetch unread count when socket connects (only once)
   useEffect(() => {
     if (isConnected) {
-      fetchUnreadCount();
+      console.log('Socket is connected, fetching unread count');
+      // Small delay to ensure socket is fully ready
+      const timer = setTimeout(() => {
+        fetchUnreadCount();
+      }, 100);
+      
+      return () => clearTimeout(timer);
     }
-  }, [isConnected, fetchUnreadCount]);
+  }, [isConnected]); // Remove fetchUnreadCount from deps
 
   return {
     isConnected,

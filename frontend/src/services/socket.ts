@@ -206,27 +206,48 @@ class SocketService {
     unreadOnly?: boolean;
     category?: string;
   }, callback: (response: any) => void): void {
-    const socket = this.platformAdminSocket || this.companySocket;
+    // Prefer the connected socket
+    const socket = this.platformAdminSocket?.connected 
+      ? this.platformAdminSocket 
+      : this.companySocket?.connected 
+        ? this.companySocket 
+        : null;
+        
     if (socket && socket.connected) {
+      console.log('Emitting notifications:get via socket');
       socket.emit('notifications:get', options, callback);
     } else {
+      console.error('No connected socket available for getNotifications');
       callback({ success: false, error: 'Socket not connected' });
     }
   }
 
   // Get unread count
   getUnreadCount(callback: (response: any) => void): void {
-    const socket = this.platformAdminSocket || this.companySocket;
+    // Prefer the connected socket
+    const socket = this.platformAdminSocket?.connected 
+      ? this.platformAdminSocket 
+      : this.companySocket?.connected 
+        ? this.companySocket 
+        : null;
+        
     if (socket && socket.connected) {
+      console.log('Emitting notifications:getUnreadCount via socket');
       socket.emit('notifications:getUnreadCount', {}, callback);
     } else {
+      console.error('No connected socket available for getUnreadCount');
       callback({ success: false, error: 'Socket not connected' });
     }
   }
 
   // Mark notification as read
   markNotificationAsRead(notificationId: string, callback: (response: any) => void): void {
-    const socket = this.platformAdminSocket || this.companySocket;
+    const socket = this.platformAdminSocket?.connected 
+      ? this.platformAdminSocket 
+      : this.companySocket?.connected 
+        ? this.companySocket 
+        : null;
+        
     if (socket && socket.connected) {
       socket.emit('notifications:markAsRead', { notificationId }, callback);
     } else {
@@ -236,7 +257,12 @@ class SocketService {
 
   // Mark all as read
   markAllNotificationsAsRead(callback: (response: any) => void): void {
-    const socket = this.platformAdminSocket || this.companySocket;
+    const socket = this.platformAdminSocket?.connected 
+      ? this.platformAdminSocket 
+      : this.companySocket?.connected 
+        ? this.companySocket 
+        : null;
+        
     if (socket && socket.connected) {
       socket.emit('notifications:markAllAsRead', {}, callback);
     } else {
@@ -246,7 +272,12 @@ class SocketService {
 
   // Delete notification
   deleteNotification(notificationId: string, callback: (response: any) => void): void {
-    const socket = this.platformAdminSocket || this.companySocket;
+    const socket = this.platformAdminSocket?.connected 
+      ? this.platformAdminSocket 
+      : this.companySocket?.connected 
+        ? this.companySocket 
+        : null;
+        
     if (socket && socket.connected) {
       socket.emit('notifications:delete', { notificationId }, callback);
     } else {
