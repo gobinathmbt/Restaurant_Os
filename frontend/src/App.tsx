@@ -7,7 +7,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import ProtectedRoute from "@/contexts/ProtectedRoute";
 import { isElectron } from "@/utils/platform";
 
 const queryClient = new QueryClient();

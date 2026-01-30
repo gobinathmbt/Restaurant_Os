@@ -228,7 +228,7 @@ const Auth = () => {
         initial={{ x: -100, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="hidden lg:flex lg:w-[60%] bg-gradient-to-br from-black via-forest-dark to-black text-white p-12 flex-col justify-between relative overflow-hidden"
+        className="hidden lg:flex lg:w-[50%] bg-gradient-to-br from-black via-forest-dark to-black text-white p-8 flex-col justify-between relative overflow-hidden"
       >
         {/* Animated background */}
         <div className="absolute inset-0 opacity-20">
@@ -251,15 +251,15 @@ const Auth = () => {
         </div>
 
         <div className="relative z-10">
-          <Link to="/" className="flex items-center gap-3 mb-12 group">
+          <Link to="/" className="flex items-center gap-2 mb-8 group">
             <motion.div
               whileHover={{ rotate: 360 }}
               transition={{ duration: 0.5 }}
-              className="w-12 h-12 bg-gradient-to-br from-primary to-emerald rounded-lg flex items-center justify-center"
+              className="w-10 h-10 bg-gradient-to-br from-primary to-emerald rounded-lg flex items-center justify-center"
             >
-              <ChefHat className="w-7 h-7 text-white" />
+              <ChefHat className="w-6 h-6 text-white" />
             </motion.div>
-            <span className="text-3xl font-bold">RestaurantOS</span>
+            <span className="text-2xl font-bold">RestaurantOS</span>
           </Link>
 
           <motion.div
@@ -267,37 +267,36 @@ const Auth = () => {
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.2 }}
           >
-            <h1 className="text-5xl font-bold mb-6 leading-tight">
+            <h1 className="text-3xl font-bold mb-3 leading-tight">
               Transform Your
               <span className="block text-transparent bg-clip-text bg-gradient-to-r from-primary via-emerald to-mint">
                 Restaurant Operations
               </span>
             </h1>
-            <p className="text-xl text-gray-300 mb-12">
+            <p className="text-base text-gray-300 mb-8">
               Complete POS system with billing, inventory, CRM, and real-time analytics.
             </p>
           </motion.div>
 
-          <div className="space-y-6">
+          <div className="space-y-4">
             {[
               { icon: CheckCircle2, title: 'Smart Billing & KOT', desc: 'Lightning-fast billing with kitchen order tracking' },
               { icon: CheckCircle2, title: 'Inventory Management', desc: 'Real-time stock tracking and automated alerts' },
-              { icon: CheckCircle2, title: 'Customer CRM', desc: 'Build loyalty with personalized campaigns' },
-              { icon: CheckCircle2, title: 'Real-time Analytics', desc: 'Make data-driven decisions with powerful insights' }
+              { icon: CheckCircle2, title: 'Customer CRM', desc: 'Build loyalty with personalized campaigns' }
             ].map((item, index) => (
               <motion.div
                 key={index}
                 initial={{ x: -20, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
                 transition={{ delay: 0.3 + index * 0.1 }}
-                className="flex items-start gap-4"
+                className="flex items-start gap-3"
               >
-                <div className="w-10 h-10 bg-white/10 backdrop-blur-sm rounded-lg flex items-center justify-center flex-shrink-0">
-                  <item.icon className="w-5 h-5 text-primary" />
+                <div className="w-8 h-8 bg-white/10 backdrop-blur-sm rounded-lg flex items-center justify-center flex-shrink-0">
+                  <item.icon className="w-4 h-4 text-primary" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-lg mb-1">{item.title}</h3>
-                  <p className="text-gray-400 text-sm">{item.desc}</p>
+                  <h3 className="font-semibold text-sm mb-0.5">{item.title}</h3>
+                  <p className="text-gray-400 text-xs">{item.desc}</p>
                 </div>
               </motion.div>
             ))}
@@ -307,35 +306,35 @@ const Auth = () => {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.7 }}
-            className="mt-12 bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10"
+            className="mt-8 bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10"
           >
-            <div className="flex gap-1 mb-3">
+            <div className="flex gap-1 mb-2">
               {[...Array(5)].map((_, i) => (
-                <Star key={i} className="w-4 h-4 fill-primary text-primary" />
+                <Star key={i} className="w-3 h-3 fill-primary text-primary" />
               ))}
             </div>
-            <p className="text-gray-300 mb-4 italic">
+            <p className="text-gray-300 text-xs mb-3 italic">
               "RestaurantOS has completely transformed how we manage our restaurant. The billing system is incredibly fast!"
             </p>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-primary to-emerald rounded-full flex items-center justify-center font-semibold">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-gradient-to-br from-primary to-emerald rounded-full flex items-center justify-center text-xs font-semibold">
                 RK
               </div>
               <div>
-                <p className="font-semibold">Rajesh Kumar</p>
-                <p className="text-sm text-gray-400">Owner, Spice Garden</p>
+                <p className="font-semibold text-sm">Rajesh Kumar</p>
+                <p className="text-xs text-gray-400">Owner, Spice Garden</p>
               </div>
             </div>
           </motion.div>
         </div>
 
-        <div className="text-gray-400 text-sm relative z-10">
+        <div className="text-gray-400 text-xs relative z-10">
           <p>✓ 30-day free trial  ✓ No credit card required  ✓ Cancel anytime</p>
         </div>
       </motion.div>
 
       {/* Right Section - Form */}
-      <div className="w-full lg:w-[40%] bg-background flex flex-col h-screen">
+      <div className="w-full lg:w-[50%] bg-background flex flex-col h-screen">
         {/* Mobile Header */}
         <div className="lg:hidden p-6 border-b border-border">
           <Link to="/" className="flex items-center gap-3">
@@ -360,12 +359,12 @@ const Auth = () => {
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              className="mb-8"
+              className="mb-6"
             >
-              <h2 className="text-3xl font-bold text-foreground mb-2">
+              <h2 className="text-2xl font-bold text-foreground mb-1">
                 {mode === 'login' ? 'Welcome Back' : 'Get Started'}
               </h2>
-              <p className="text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {mode === 'login' 
                   ? 'Sign in to your account to continue' 
                   : 'Create your account and start your free trial'}
@@ -380,37 +379,37 @@ const Auth = () => {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
                 onSubmit={handleLoginSubmit}
-                className="space-y-4"
+                className="space-y-3"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Email Address
                   </label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="email"
                       required
                       value={loginData.email}
                       onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="you@example.com"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Password
                   </label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="password"
                       required
                       value={loginData.password}
                       onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="••••••••"
                     />
                   </div>
@@ -419,7 +418,7 @@ const Auth = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-gradient-to-r from-primary to-emerald text-white py-3 rounded-lg hover:shadow-lg hover:shadow-primary/30 transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-gradient-to-r from-primary to-emerald text-white py-2.5 text-sm rounded-lg hover:shadow-lg hover:shadow-primary/30 transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <>
@@ -476,108 +475,108 @@ const Auth = () => {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 onSubmit={handleRegisterSubmit}
-                className="space-y-4"
+                className="space-y-3"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Your Name
                   </label>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="text"
                       required
                       value={registerData.adminName}
                       onChange={(e) => setRegisterData({ ...registerData, adminName: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="John Doe"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Email Address
                   </label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="email"
                       required
                       value={registerData.email}
                       onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="you@example.com"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Password
                   </label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="password"
                       required
                       value={registerData.password}
                       onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="••••••••"
                     />
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-border">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Company Information</h3>
+                <div className="pt-3 border-t border-border">
+                  <h3 className="text-xs font-semibold text-foreground mb-2">Company Information</h3>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Company Name
                   </label>
                   <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="text"
                       required
                       value={registerData.companyName}
                       onChange={(e) => setRegisterData({ ...registerData, companyName: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="Your Restaurant Name"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Phone Number
                   </label>
                   <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="tel"
                       required
                       value={registerData.phone}
                       onChange={(e) => setRegisterData({ ...registerData, phone: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="+91 98765 43210"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     Address
                   </label>
                   <div className="relative">
-                    <MapPin className="absolute left-3 top-3 w-5 h-5 text-muted-foreground" />
+                    <MapPin className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
                     <textarea
                       required
                       value={registerData.address}
                       onChange={(e) => setRegisterData({ ...registerData, address: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="Restaurant address"
                       rows={2}
                     />
@@ -585,32 +584,32 @@ const Auth = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     GST Number <span className="text-muted-foreground">(Optional)</span>
                   </label>
                   <div className="relative">
-                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="text"
                       value={registerData.gstNumber}
                       onChange={(e) => setRegisterData({ ...registerData, gstNumber: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="22AAAAA0000A1Z5"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">
+                  <label className="block text-xs font-medium text-foreground mb-1.5">
                     FSSAI License <span className="text-muted-foreground">(Optional)</span>
                   </label>
                   <div className="relative">
-                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="text"
                       value={registerData.fssaiLicense}
                       onChange={(e) => setRegisterData({ ...registerData, fssaiLicense: e.target.value })}
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                      className="w-full pl-9 pr-3 py-2.5 text-sm bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                       placeholder="12345678901234"
                     />
                   </div>
@@ -619,7 +618,7 @@ const Auth = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-gradient-to-r from-primary to-emerald text-white py-3 rounded-lg hover:shadow-lg hover:shadow-primary/30 transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-gradient-to-r from-primary to-emerald text-white py-2.5 text-sm rounded-lg hover:shadow-lg hover:shadow-primary/30 transition-all font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <>
