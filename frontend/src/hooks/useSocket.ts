@@ -3,13 +3,15 @@ import { socketService, NotificationData } from '../services/socket';
 import { useAuth } from '../contexts/AuthContext';
 
 export const useSocket = () => {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [notifications, setNotifications] = useState<NotificationData[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Connect socket based on user role
   useEffect(() => {
+    const token = sessionStorage.getItem('token');
+    
     if (!user || !token) {
       socketService.disconnectAll();
       setIsConnected(false);
@@ -45,7 +47,7 @@ export const useSocket = () => {
       unsubscribeError();
       socketService.disconnectAll();
     };
-  }, [user, token]);
+  }, [user]);
 
   // Handle incoming notifications
   const handleNotification = useCallback((notification: NotificationData) => {

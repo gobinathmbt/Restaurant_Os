@@ -10,13 +10,16 @@ class NotificationController {
   async getNotifications(req, res) {
     try {
       const { page, limit, unreadOnly, category } = req.query;
-      const recipientId = req.user.userId;
+      const { userId, role, companyId } = req.user;
+      const isPlatformAdmin = role === 'platform_admin';
 
-      const result = await notificationService.getNotifications(recipientId, {
+      const result = await notificationService.getNotifications(userId, {
         page: parseInt(page) || 1,
         limit: parseInt(limit) || 20,
         unreadOnly: unreadOnly === 'true',
-        category
+        category,
+        companyId,
+        isPlatformAdmin
       });
 
       res.json({
@@ -36,8 +39,14 @@ class NotificationController {
   // Get unread count
   async getUnreadCount(req, res) {
     try {
-      const recipientId = req.user.userId;
-      const count = await notificationService.getUnreadCount(recipientId);
+      const { userId, role, companyId } = req.user;
+      const isPlatformAdmin = role === 'platform_admin';
+
+      const count = await notificationService.getUnreadCount(
+        userId,
+        companyId,
+        isPlatformAdmin
+      );
 
       res.json({
         success: true,
@@ -57,9 +66,15 @@ class NotificationController {
   async markAsRead(req, res) {
     try {
       const { id } = req.params;
-      const recipientId = req.user.userId;
+      const { userId, role, companyId } = req.user;
+      const isPlatformAdmin = role === 'platform_admin';
 
-      const notification = await notificationService.markAsRead(id, recipientId);
+      const notification = await notificationService.markAsRead(
+        id,
+        userId,
+        companyId,
+        isPlatformAdmin
+      );
 
       res.json({
         success: true,
@@ -78,8 +93,14 @@ class NotificationController {
   // Mark all as read
   async markAllAsRead(req, res) {
     try {
-      const recipientId = req.user.userId;
-      const result = await notificationService.markAllAsRead(recipientId);
+      const { userId, role, companyId } = req.user;
+      const isPlatformAdmin = role === 'platform_admin';
+
+      const result = await notificationService.markAllAsRead(
+        userId,
+        companyId,
+        isPlatformAdmin
+      );
 
       res.json({
         success: true,
@@ -99,9 +120,15 @@ class NotificationController {
   async deleteNotification(req, res) {
     try {
       const { id } = req.params;
-      const recipientId = req.user.userId;
+      const { userId, role, companyId } = req.user;
+      const isPlatformAdmin = role === 'platform_admin';
 
-      await notificationService.deleteNotification(id, recipientId);
+      await notificationService.deleteNotification(
+        id,
+        userId,
+        companyId,
+        isPlatformAdmin
+      );
 
       res.json({
         success: true,
@@ -124,24 +151,24 @@ class NotificationController {
 
       let settings;
       if (role === 'platform_admin') {
+        // Get from PLATFORM DB
         settings = await PlatformAdminNotificationSettings.findOne({ adminId: userId });
         
         if (!settings) {
-          // Create default settings
           settings = await PlatformAdminNotificationSettings.create({ adminId: userId });
         }
       } else {
-        settings = await CompanyNotificationSettings.findOne({ 
-          companyId, 
-          userId 
-        });
+        // Get from COMPANY DB
+        const { getCompanyDB } = await import('../config/database.js');
+        const { getCompanyNotificationSettingsModel } = await import('../models/company/NotificationSettings.js');
+        
+        const companyDB = getCompanyDB(companyId);
+        const CompanyNotificationSettings = getCompanyNotificationSettingsModel(companyDB);
+        
+        settings = await CompanyNotificationSettings.findOne({ userId });
 
         if (!settings) {
-          // Create default settings
-          settings = await CompanyNotificationSettings.create({ 
-            companyId, 
-            userId 
-          });
+          settings = await CompanyNotificationSettings.create({ userId });
         }
       }
 
@@ -167,14 +194,22 @@ class NotificationController {
 
       let settings;
       if (role === 'platform_admin') {
+        // Update in PLATFORM DB
         settings = await PlatformAdminNotificationSettings.findOneAndUpdate(
           { adminId: userId },
           { $set: updates },
           { new: true, upsert: true }
         );
       } else {
+        // Update in COMPANY DB
+        const { getCompanyDB } = await import('../config/database.js');
+        const { getCompanyNotificationSettingsModel } = await import('../models/company/NotificationSettings.js');
+        
+        const companyDB = getCompanyDB(companyId);
+        const CompanyNotificationSettings = getCompanyNotificationSettingsModel(companyDB);
+        
         settings = await CompanyNotificationSettings.findOneAndUpdate(
-          { companyId, userId },
+          { userId },
           { $set: updates },
           { new: true, upsert: true }
         );
@@ -212,14 +247,22 @@ class NotificationController {
 
       let settings;
       if (role === 'platform_admin') {
+        // Update in PLATFORM DB
         settings = await PlatformAdminNotificationSettings.findOneAndUpdate(
           { adminId: userId },
           { $set: updateData },
           { new: true, upsert: true }
         );
       } else {
+        // Update in COMPANY DB
+        const { getCompanyDB } = await import('../config/database.js');
+        const { getCompanyNotificationSettingsModel } = await import('../models/company/NotificationSettings.js');
+        
+        const companyDB = getCompanyDB(companyId);
+        const CompanyNotificationSettings = getCompanyNotificationSettingsModel(companyDB);
+        
         settings = await CompanyNotificationSettings.findOneAndUpdate(
-          { companyId, userId },
+          { userId },
           { $set: updateData },
           { new: true, upsert: true }
         );

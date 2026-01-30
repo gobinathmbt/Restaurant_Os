@@ -1,37 +1,28 @@
 import mongoose from 'mongoose';
 
 /**
- * Platform Admin Notification Model
- * Stored in platform database only
+ * Company Notification Model
+ * Stored in company-specific database
  */
-const notificationSchema = new mongoose.Schema({
-  type: {
-    type: String,
-    enum: ['platform_admin'],
-    required: true,
-    default: 'platform_admin'
-  },
+const companyNotificationSchema = new mongoose.Schema({
   recipientType: {
     type: String,
-    enum: ['platform_admin'],
+    enum: ['company_user'],
     required: true,
-    default: 'platform_admin'
+    default: 'company_user'
   },
   recipientId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    ref: 'PlatformAdmin'
-  },
-  companyId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Company'
+    ref: 'User' // References User in company DB
   },
   category: {
     type: String,
     enum: [
-      'company_registration',
-      'subscription',
-      'payment',
+      'order',
+      'inventory',
+      'staff',
+      'financial',
       'system',
       'security'
     ],
@@ -93,24 +84,33 @@ const notificationSchema = new mongoose.Schema({
 });
 
 // Indexes
-notificationSchema.index({ recipientId: 1, createdAt: -1 });
-notificationSchema.index({ recipientId: 1, 'channels.inApp.read': 1 });
-notificationSchema.index({ companyId: 1, createdAt: -1 });
-notificationSchema.index({ category: 1, createdAt: -1 });
-notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+companyNotificationSchema.index({ recipientId: 1, createdAt: -1 });
+companyNotificationSchema.index({ recipientId: 1, 'channels.inApp.read': 1 });
+companyNotificationSchema.index({ category: 1, createdAt: -1 });
+companyNotificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // Mark notification as read
-notificationSchema.methods.markAsRead = async function() {
+companyNotificationSchema.methods.markAsRead = async function() {
   this.channels.inApp.read = true;
   this.channels.inApp.readAt = new Date();
   return this.save();
 };
 
 // Check if notification is expired
-notificationSchema.methods.isExpired = function() {
+companyNotificationSchema.methods.isExpired = function() {
   return this.expiresAt && this.expiresAt < new Date();
 };
 
-const Notification = mongoose.model('Notification', notificationSchema);
+/**
+ * Get model for specific company database
+ * @param {mongoose.Connection} companyConnection - Company database connection
+ * @returns {mongoose.Model} Notification model for company
+ */
+export const getCompanyNotificationModel = (companyConnection) => {
+  if (companyConnection.models.Notification) {
+    return companyConnection.models.Notification;
+  }
+  return companyConnection.model('Notification', companyNotificationSchema);
+};
 
-export default Notification;
+export default companyNotificationSchema;

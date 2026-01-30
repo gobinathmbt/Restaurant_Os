@@ -3,6 +3,9 @@ import {
   PlatformAdminNotificationSettings, 
   CompanyNotificationSettings 
 } from '../models/platform/NotificationSettings.js';
+import { getCompanyNotificationModel } from '../models/company/Notification.js';
+import { getCompanyNotificationSettingsModel } from '../models/company/NotificationSettings.js';
+import { getCompanyDB } from '../config/database.js';
 import socketManager from '../config/socket.js';
 import emailService from './emailService.js';
 import whatsappService from './whatsappService.js';
@@ -12,6 +15,7 @@ import { logger } from '../utils/logger.js';
 class NotificationService {
   /**
    * Send notification to platform admin
+   * Stored in PLATFORM DATABASE
    */
   async sendToPlatformAdmin(adminId, notificationData) {
     try {
@@ -23,10 +27,11 @@ class NotificationService {
         data = {},
         priority = 'medium',
         actionUrl,
-        expiresAt
+        expiresAt,
+        companyId
       } = notificationData;
 
-      // Get admin notification settings
+      // Get admin notification settings from PLATFORM DB
       const settings = await PlatformAdminNotificationSettings.findOne({ adminId });
 
       // Check if this event type is enabled
@@ -38,15 +43,14 @@ class NotificationService {
       // Check quiet hours
       if (this.isInQuietHours(settings?.quietHours)) {
         logger.info(`Notification delayed for admin ${adminId}: quiet hours active`);
-        // Could implement a queue here for delayed delivery
       }
 
-      // Create notification record
+      // Create notification record in PLATFORM DB
       const notification = await Notification.create({
         type: 'platform_admin',
         recipientType: 'platform_admin',
         recipientId: adminId,
-        recipientModel: 'PlatformAdmin',
+        companyId,
         category,
         event,
         title,
@@ -120,6 +124,7 @@ class NotificationService {
 
   /**
    * Send notification to company user
+   * Stored in COMPANY-SPECIFIC DATABASE
    */
   async sendToCompanyUser(companyId, userId, notificationData) {
     try {
@@ -134,11 +139,13 @@ class NotificationService {
         expiresAt
       } = notificationData;
 
-      // Get user notification settings
-      const settings = await CompanyNotificationSettings.findOne({ 
-        companyId, 
-        userId 
-      });
+      // Get company database connection
+      const companyDB = getCompanyDB(companyId);
+      const CompanyNotification = getCompanyNotificationModel(companyDB);
+      const CompanyNotificationSettings = getCompanyNotificationSettingsModel(companyDB);
+
+      // Get user notification settings from COMPANY DB
+      const settings = await CompanyNotificationSettings.findOne({ userId });
 
       // Check if this event type is enabled
       if (settings && settings.preferences[event]?.enabled === false) {
@@ -151,13 +158,10 @@ class NotificationService {
         logger.info(`Notification delayed for user ${userId}: quiet hours active`);
       }
 
-      // Create notification record
-      const notification = await Notification.create({
-        type: 'company',
+      // Create notification record in COMPANY DB
+      const notification = await CompanyNotification.create({
         recipientType: 'company_user',
         recipientId: userId,
-        recipientModel: 'CompanyUser',
-        companyId,
         category,
         event,
         title,
@@ -231,11 +235,15 @@ class NotificationService {
 
   /**
    * Send notification to company primary admin
+   * Stored in COMPANY-SPECIFIC DATABASE
    */
   async sendToCompanyPrimaryAdmin(companyId, notificationData) {
     try {
+      // Get company database connection
+      const companyDB = getCompanyDB(companyId);
+      const CompanyNotificationSettings = getCompanyNotificationSettingsModel(companyDB);
+
       const settings = await CompanyNotificationSettings.findOne({ 
-        companyId, 
         isPrimaryAdmin: true 
       });
 
@@ -355,13 +363,16 @@ class NotificationService {
 
   /**
    * Get notifications for user
+   * Fetches from appropriate database based on user type
    */
   async getNotifications(recipientId, options = {}) {
     const {
       page = 1,
       limit = 20,
       unreadOnly = false,
-      category
+      category,
+      companyId,
+      isPlatformAdmin = false
     } = options;
 
     const query = { recipientId };
@@ -374,12 +385,32 @@ class NotificationService {
       query.category = category;
     }
 
-    const notifications = await Notification.find(query)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
+    let notifications, total;
 
-    const total = await Notification.countDocuments(query);
+    if (isPlatformAdmin) {
+      // Fetch from PLATFORM DB
+      notifications = await Notification.find(query)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+
+      total = await Notification.countDocuments(query);
+    } else {
+      // Fetch from COMPANY DB
+      if (!companyId) {
+        throw new Error('companyId is required for company user notifications');
+      }
+
+      const companyDB = getCompanyDB(companyId);
+      const CompanyNotification = getCompanyNotificationModel(companyDB);
+
+      notifications = await CompanyNotification.find(query)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+
+      total = await CompanyNotification.countDocuments(query);
+    }
 
     return {
       notifications,
@@ -394,12 +425,31 @@ class NotificationService {
 
   /**
    * Mark notification as read
+   * Updates in appropriate database
    */
-  async markAsRead(notificationId, recipientId) {
-    const notification = await Notification.findOne({
-      _id: notificationId,
-      recipientId
-    });
+  async markAsRead(notificationId, recipientId, companyId = null, isPlatformAdmin = false) {
+    let notification;
+
+    if (isPlatformAdmin) {
+      // Update in PLATFORM DB
+      notification = await Notification.findOne({
+        _id: notificationId,
+        recipientId
+      });
+    } else {
+      // Update in COMPANY DB
+      if (!companyId) {
+        throw new Error('companyId is required for company user notifications');
+      }
+
+      const companyDB = getCompanyDB(companyId);
+      const CompanyNotification = getCompanyNotificationModel(companyDB);
+
+      notification = await CompanyNotification.findOne({
+        _id: notificationId,
+        recipientId
+      });
+    }
 
     if (!notification) {
       throw new Error('Notification not found');
@@ -410,40 +460,99 @@ class NotificationService {
 
   /**
    * Mark all notifications as read
+   * Updates in appropriate database
    */
-  async markAllAsRead(recipientId) {
-    return await Notification.updateMany(
-      { 
-        recipientId,
-        'channels.inApp.read': false
-      },
-      {
-        $set: {
-          'channels.inApp.read': true,
-          'channels.inApp.readAt': new Date()
+  async markAllAsRead(recipientId, companyId = null, isPlatformAdmin = false) {
+    if (isPlatformAdmin) {
+      // Update in PLATFORM DB
+      return await Notification.updateMany(
+        { 
+          recipientId,
+          'channels.inApp.read': false
+        },
+        {
+          $set: {
+            'channels.inApp.read': true,
+            'channels.inApp.readAt': new Date()
+          }
         }
+      );
+    } else {
+      // Update in COMPANY DB
+      if (!companyId) {
+        throw new Error('companyId is required for company user notifications');
       }
-    );
+
+      const companyDB = getCompanyDB(companyId);
+      const CompanyNotification = getCompanyNotificationModel(companyDB);
+
+      return await CompanyNotification.updateMany(
+        { 
+          recipientId,
+          'channels.inApp.read': false
+        },
+        {
+          $set: {
+            'channels.inApp.read': true,
+            'channels.inApp.readAt': new Date()
+          }
+        }
+      );
+    }
   }
 
   /**
    * Get unread count
+   * Fetches from appropriate database
    */
-  async getUnreadCount(recipientId) {
-    return await Notification.countDocuments({
-      recipientId,
-      'channels.inApp.read': false
-    });
+  async getUnreadCount(recipientId, companyId = null, isPlatformAdmin = false) {
+    if (isPlatformAdmin) {
+      // Count from PLATFORM DB
+      return await Notification.countDocuments({
+        recipientId,
+        'channels.inApp.read': false
+      });
+    } else {
+      // Count from COMPANY DB
+      if (!companyId) {
+        throw new Error('companyId is required for company user notifications');
+      }
+
+      const companyDB = getCompanyDB(companyId);
+      const CompanyNotification = getCompanyNotificationModel(companyDB);
+
+      return await CompanyNotification.countDocuments({
+        recipientId,
+        'channels.inApp.read': false
+      });
+    }
   }
 
   /**
    * Delete notification
+   * Deletes from appropriate database
    */
-  async deleteNotification(notificationId, recipientId) {
-    return await Notification.findOneAndDelete({
-      _id: notificationId,
-      recipientId
-    });
+  async deleteNotification(notificationId, recipientId, companyId = null, isPlatformAdmin = false) {
+    if (isPlatformAdmin) {
+      // Delete from PLATFORM DB
+      return await Notification.findOneAndDelete({
+        _id: notificationId,
+        recipientId
+      });
+    } else {
+      // Delete from COMPANY DB
+      if (!companyId) {
+        throw new Error('companyId is required for company user notifications');
+      }
+
+      const companyDB = getCompanyDB(companyId);
+      const CompanyNotification = getCompanyNotificationModel(companyDB);
+
+      return await CompanyNotification.findOneAndDelete({
+        _id: notificationId,
+        recipientId
+      });
+    }
   }
 }
 

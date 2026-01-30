@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiClient } from '../api/axios';
+import apiClient from '../api/axios';
 import { useSocket } from './useSocket';
 import { toast } from './use-toast';
 
