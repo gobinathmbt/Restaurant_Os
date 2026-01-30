@@ -49,8 +49,8 @@ const Auth = () => {
 
   // Redirect when authentication state changes
   useEffect(() => {
-    if (isAuthenticated && user) {
-      // Small delay to ensure state is fully updated
+    if (isAuthenticated && user && !loading) {
+      // Only redirect if we're authenticated and not in the middle of a login attempt
       const timer = setTimeout(() => {
         if (user.userType === 'platform') {
           navigate('/platform/dashboard', { replace: true });
@@ -61,7 +61,7 @@ const Auth = () => {
       
       return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user, navigate, loading]);
 
   const [loginData, setLoginData] = useState<LoginData>({
     email: '',
@@ -81,6 +81,11 @@ const Auth = () => {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent event bubbling
+    
+    // Prevent any default form behavior
+    if (loading) return;
+    
     setLoading(true);
 
     try {
@@ -88,27 +93,51 @@ const Auth = () => {
       
       toast({
         title: "Login Successful",
-        description: "Welcome back! Redirecting to dashboard...",
+        description: "Welcome back!",
         variant: "default",
       });
       
+      // Don't set loading to false here - let the redirect happen
+      // Form will be cleared by navigation, no need to manually reset
       // Redirect will happen via useEffect when isAuthenticated changes
     } catch (err: any) {
-      console.log('Login error:', err);
+      console.error('Login error caught in component:', err);
       
-      const errorMessage = err.message || err.data?.message || 'Login failed. Please try again.';
+      // Extract error message from various possible structures
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (err?.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err?.data?.message) {
+        errorMessage = err.data.message;
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
       
       toast({
         title: "Login Failed",
         description: errorMessage,
         variant: "destructive",
       });
+      
+      // IMPORTANT: Keep form data intact on error - do NOT reset loginData
+      // Only reset loading state
       setLoading(false);
+    } finally {
+      // Ensure loading is reset even if something unexpected happens
+      if (!isAuthenticated) {
+        setLoading(false);
+      }
     }
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent event bubbling
+    
+    // Prevent any default form behavior
+    if (loading) return;
+    
     setLoading(true);
 
     try {
@@ -120,16 +149,20 @@ const Auth = () => {
         variant: "default",
       });
       
+      // Don't set loading to false here - let the redirect happen
+      // Form will be cleared by navigation, no need to manually reset
       // Redirect will happen via useEffect when isAuthenticated changes
     } catch (err: any) {
-      console.log('Registration error:', err);
+      console.error('Registration error caught in component:', err);
       
       // Check for validation errors from backend
-      if (err.status === 400 && err.data?.errors && Array.isArray(err.data.errors)) {
+      const responseData = err?.response?.data || err?.data;
+      
+      if (responseData?.errors && Array.isArray(responseData.errors)) {
         // Map validation errors to readable format
-        const validationErrors = err.data.errors
-          .map((error: any) => `${error.path}: ${error.msg}`)
-          .join('\n');
+        const validationErrors = responseData.errors
+          .map((error: any) => `${error.path || error.field || 'Field'}: ${error.msg || error.message}`)
+          .join(', ');
         
         toast({
           title: "Validation Error",
@@ -137,8 +170,14 @@ const Auth = () => {
           variant: "destructive",
         });
       } else {
-        // General error
-        const errorMessage = err.message || err.data?.message || 'Registration failed. Please try again.';
+        // General error - extract message from various possible structures
+        let errorMessage = 'Registration failed. Please try again.';
+        
+        if (responseData?.message) {
+          errorMessage = responseData.message;
+        } else if (err?.message) {
+          errorMessage = err.message;
+        }
         
         toast({
           title: "Registration Failed",
@@ -146,7 +185,15 @@ const Auth = () => {
           variant: "destructive",
         });
       }
+      
+      // IMPORTANT: Keep form data intact on error - do NOT reset registerData
+      // Only reset loading state
       setLoading(false);
+    } finally {
+      // Ensure loading is reset even if something unexpected happens
+      if (!isAuthenticated) {
+        setLoading(false);
+      }
     }
   };
 

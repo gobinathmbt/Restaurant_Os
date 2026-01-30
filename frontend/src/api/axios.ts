@@ -29,10 +29,19 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     // Handle 401 Unauthorized - clear tokens and redirect to login
+    // BUT: Don't redirect if we're already on the auth page
     if (error.response?.status === 401) {
+      const currentPath = window.location.pathname;
+      const isAuthPage = currentPath === '/login' || currentPath === '/auth' || currentPath === '/register';
+      
+      // Clear tokens
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
-      window.location.href = '/login';
+      
+      // Only redirect if not already on auth page
+      if (!isAuthPage) {
+        window.location.href = '/auth';
+      }
     }
     
     // Format error for consistent error handling
@@ -40,6 +49,7 @@ apiClient.interceptors.response.use(
       message: error.response?.data?.message || error.message || 'An error occurred',
       status: error.response?.status,
       data: error.response?.data,
+      response: error.response,
     };
     
     return Promise.reject(formattedError);

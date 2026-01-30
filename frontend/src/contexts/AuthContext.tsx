@@ -160,11 +160,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             });
         }
       } else {
-        throw new Error(response.data.message || 'Login failed');
+        const error = new Error(response.data.message || 'Login failed');
+        (error as any).response = { data: response.data };
+        throw error;
       }
     } catch (error: any) {
-      console.error('Login error:', error);
-      throw error;
+      console.error('Login error in AuthContext:', error);
+      // Re-throw the error with proper structure
+      const formattedError = {
+        message: error.message || 'Login failed',
+        response: error.response,
+        data: error.data,
+        status: error.status
+      };
+      throw formattedError;
     }
   };
 
@@ -222,11 +231,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setCompany(companyData || null);
         setIsAuthenticated(true);
       } else {
-        throw new Error(response.data.message || 'Registration failed');
+        const error = new Error(response.data.message || 'Registration failed');
+        (error as any).response = { data: response.data };
+        throw error;
       }
     } catch (error: any) {
-      console.error('Registration error:', error);
-      throw error;
+      console.error('Registration error in AuthContext:', error);
+      // Re-throw the error with proper structure
+      const formattedError = {
+        message: error.message || 'Registration failed',
+        response: error.response,
+        data: error.data,
+        status: error.status
+      };
+      throw formattedError;
     }
   };
 
