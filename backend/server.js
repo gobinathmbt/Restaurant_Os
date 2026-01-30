@@ -12,17 +12,21 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import http from 'http';
 import { connectPlatformDB, setupGracefulShutdown } from './src/config/database.js';
 import { initializeConfig, ENV } from './src/config/env.js';
 import { errorHandler } from './src/middlewares/errorHandler.js';
 import { logger } from './src/utils/logger.js';
 import authRoutes from './src/routes/authRoutes.js';
+import notificationRoutes from './src/routes/notificationRoutes.js';
+import socketManager from './src/config/socket.js';
 
 // Load environment variables from .env file
 dotenv.config();
 
 // Create Express application
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Configure middleware
@@ -49,9 +53,14 @@ const startServer = async () => {
     logger.info('Step 2: Loading platform configuration...');
     await initializeConfig();
 
-    // Step 3: Setup routes
-    logger.info('Step 3: Setting up routes...');
+    // Step 3: Initialize Socket.IO
+    logger.info('Step 3: Initializing Socket.IO...');
+    socketManager.initialize(server);
+
+    // Step 4: Setup routes
+    logger.info('Step 4: Setting up routes...');
     app.use('/api/auth', authRoutes);
+    app.use('/api/notifications', notificationRoutes);
 
     // Health check endpoint
     app.get('/health', (req, res) => {
@@ -89,8 +98,8 @@ const startServer = async () => {
     // Error handler middleware (must be last)
     app.use(errorHandler);
 
-    // Step 4: Start server
-    app.listen(PORT, () => {
+    // Step 5: Start server
+    server.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`Environment: ${ENV.NODE_ENV}`);
       logger.info(`Health check: http://localhost:${PORT}/health`);

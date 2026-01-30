@@ -6,8 +6,18 @@
 // API Base URL - defaults to localhost backend
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
+// Socket.IO URL - defaults to same as API base
+export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+
 // Google OAuth Client ID
 export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '140715848718-0scehakngdbco0cdmb8m1p7f3h20em08.apps.googleusercontent.com';
+
+// API Configuration Object
+export const API_CONFIG = {
+  BASE_URL,
+  SOCKET_URL,
+  GOOGLE_CLIENT_ID
+};
 
 // Application Configuration
 export const APP_CONFIG = {
