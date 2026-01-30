@@ -6,6 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Accordion,
   AccordionContent,
   AccordionItem,
@@ -24,6 +31,21 @@ interface BranchFormModalProps {
 export default function BranchFormModal({ open, onClose, branch, onSuccess }: BranchFormModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  
+  // Generate time options (every 30 minutes)
+  const generateTimeOptions = () => {
+    const times = [];
+    for (let hour = 0; hour < 24; hour++) {
+      for (let minute = 0; minute < 60; minute += 30) {
+        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        times.push(timeString);
+      }
+    }
+    return times;
+  };
+
+  const timeOptions = generateTimeOptions();
+
   const [formData, setFormData] = useState({
     name: '',
     code: '',
@@ -395,31 +417,49 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
                       </div>
                       {formData.operatingHours[day as keyof typeof formData.operatingHours].isOpen && (
                         <div className="flex items-center gap-2 flex-1">
-                          <Input
-                            type="time"
+                          <Select
                             value={formData.operatingHours[day as keyof typeof formData.operatingHours].open}
-                            onChange={(e) => setFormData({
+                            onValueChange={(value) => setFormData({
                               ...formData,
                               operatingHours: {
                                 ...formData.operatingHours,
-                                [day]: { ...formData.operatingHours[day as keyof typeof formData.operatingHours], open: e.target.value }
+                                [day]: { ...formData.operatingHours[day as keyof typeof formData.operatingHours], open: value }
                               }
                             })}
-                            className="w-32"
-                          />
+                          >
+                            <SelectTrigger className="w-32">
+                              <SelectValue placeholder="Open" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              {timeOptions.map((time) => (
+                                <SelectItem key={`${day}-open-${time}`} value={time}>
+                                  {time}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <span className="text-muted-foreground">to</span>
-                          <Input
-                            type="time"
+                          <Select
                             value={formData.operatingHours[day as keyof typeof formData.operatingHours].close}
-                            onChange={(e) => setFormData({
+                            onValueChange={(value) => setFormData({
                               ...formData,
                               operatingHours: {
                                 ...formData.operatingHours,
-                                [day]: { ...formData.operatingHours[day as keyof typeof formData.operatingHours], close: e.target.value }
+                                [day]: { ...formData.operatingHours[day as keyof typeof formData.operatingHours], close: value }
                               }
                             })}
-                            className="w-32"
-                          />
+                          >
+                            <SelectTrigger className="w-32">
+                              <SelectValue placeholder="Close" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              {timeOptions.map((time) => (
+                                <SelectItem key={`${day}-close-${time}`} value={time}>
+                                  {time}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       )}
                       {!formData.operatingHours[day as keyof typeof formData.operatingHours].isOpen && (
