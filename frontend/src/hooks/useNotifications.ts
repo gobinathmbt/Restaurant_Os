@@ -82,14 +82,12 @@ export const useNotifications = () => {
     append?: boolean;
   }) => {
     if (!socket.isConnected) {
-      console.log('Cannot fetch notifications: Socket not connected');
       setError('Socket not connected');
       return;
     }
 
     try {
       const isAppending = options?.append || false;
-      console.log('Fetching notifications via socket...', { options, isAppending });
       
       if (isAppending) {
         setLoadingMore(true);
@@ -99,14 +97,11 @@ export const useNotifications = () => {
       setError(null);
 
       socketService.getNotifications(options || {}, (response) => {
-        console.log('Notifications response:', response);
         if (response.success) {
           const newNotifications = response.data.notifications;
           const totalPages = response.data.pagination?.totalPages || 1;
           const currentPage = response.data.pagination?.currentPage || 1;
-          
-          console.log('Setting notifications:', newNotifications, { totalPages, currentPage });
-          
+                    
           if (isAppending) {
             // Append new notifications to existing ones
             setNotifications(prev => [...prev, ...newNotifications]);
@@ -140,26 +135,21 @@ export const useNotifications = () => {
   // Load more notifications
   const loadMoreNotifications = useCallback(() => {
     if (!hasMore || loadingMore || loading) {
-      console.log('Cannot load more:', { hasMore, loadingMore, loading });
       return;
     }
     
     const nextPage = page + 1;
-    console.log('Loading more notifications, page:', nextPage);
     fetchNotifications({ page: nextPage, limit: 20, append: true });
   }, [hasMore, loadingMore, loading, page, fetchNotifications]);
 
   // Fetch unread count from Socket
   const fetchUnreadCount = useCallback(async () => {
     if (!socket.isConnected) {
-      console.log('Cannot fetch unread count: Socket not connected');
       return;
     }
 
-    console.log('Fetching unread count via socket...');
     socketService.getUnreadCount((response) => {
       if (response.success) {
-        console.log('Unread count response:', response.data.count);
         setUnreadCount(response.data.count);
       } else {
         console.error('Failed to fetch unread count:', response.error);
@@ -182,11 +172,8 @@ export const useNotifications = () => {
   // Mark notification as read via Socket
   const markAsRead = useCallback(async (notificationId: string) => {
     if (!socket.isConnected) {
-      console.log('Cannot mark as read: Socket not connected');
       return;
     }
-
-    console.log('Marking notification as read:', notificationId);
     
     // Update notification state and check if it was unread
     let wasUnread = false;
@@ -204,17 +191,14 @@ export const useNotifications = () => {
     
     // Decrement count if it was unread
     if (wasUnread) {
-      console.log('Decrementing unread count');
       setUnreadCount(prev => {
         const newCount = Math.max(0, prev - 1);
-        console.log('Unread count updated:', prev, '->', newCount);
         return newCount;
       });
     }
 
     // Send to server (don't wait for response to update UI)
     socketService.markNotificationAsRead(notificationId, (response) => {
-      console.log('Mark as read response:', response);
       if (response.success) {
         socket.markAsRead(notificationId);
       } else {
@@ -237,11 +221,8 @@ export const useNotifications = () => {
   // Mark all as read via Socket
   const markAllAsRead = useCallback(async () => {
     if (!socket.isConnected) {
-      console.log('Cannot mark all as read: Socket not connected');
       return;
     }
-
-    console.log('Marking all notifications as read');
     
     // Update all notifications to read and set count to 0
     setNotifications(prev =>
@@ -252,12 +233,10 @@ export const useNotifications = () => {
     );
     
     // Set count to 0
-    console.log('Setting unread count to 0');
     setUnreadCount(0);
 
     // Send to server (don't wait for response to update UI)
     socketService.markAllNotificationsAsRead((response) => {
-      console.log('Mark all as read response:', response);
       if (response.success) {
         socket.markAllAsRead();
       } else {
@@ -272,11 +251,8 @@ export const useNotifications = () => {
   // Delete notification via Socket
   const deleteNotification = useCallback(async (notificationId: string) => {
     if (!socket.isConnected) {
-      console.log('Cannot delete notification: Socket not connected');
       return;
     }
-
-    console.log('Deleting notification:', notificationId);
     
     // Check if notification is unread and update state
     let wasUnread = false;
@@ -290,17 +266,14 @@ export const useNotifications = () => {
     
     // Decrement count if it was unread
     if (wasUnread) {
-      console.log('Decrementing unread count for deleted notification');
       setUnreadCount(prev => {
         const newCount = Math.max(0, prev - 1);
-        console.log('Unread count updated:', prev, '->', newCount);
         return newCount;
       });
     }
 
     // Send to server (don't wait for response to update UI)
     socketService.deleteNotification(notificationId, (response) => {
-      console.log('Delete notification response:', response);
       if (response.success) {
         toast({
           title: 'Success',
@@ -447,7 +420,6 @@ export const useNotifications = () => {
   // Initial data fetch - fetch notifications and count when socket connects (only once)
   useEffect(() => {
     if (socket.isConnected) {
-      console.log('Socket connected, fetching notifications and count');
       // Reset pagination state on reconnect
       setPage(1);
       setHasMore(true);

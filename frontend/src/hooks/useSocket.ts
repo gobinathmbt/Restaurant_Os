@@ -34,12 +34,10 @@ export const useSocket = () => {
     // Setup event listeners
     const unsubscribeConnect = socketService.onConnect(() => {
       setIsConnected(true);
-      console.log('Socket connected');
     });
 
     const unsubscribeDisconnect = socketService.onDisconnect(() => {
       setIsConnected(false);
-      console.log('Socket disconnected');
     });
 
     const unsubscribeError = socketService.onError((error) => {
@@ -57,7 +55,6 @@ export const useSocket = () => {
 
   // Handle incoming notifications (stable reference)
   const handleNotification = useCallback((notification: NotificationData) => {
-    console.log('New notification received:', notification);
     setNotifications(prev => [notification, ...prev]);
     // Don't increment count here - let useNotifications handle it via socket.notifications
   }, []); // No dependencies - stable reference
@@ -91,7 +88,6 @@ export const useSocket = () => {
   const fetchUnreadCount = useCallback(() => {
     socketService.getUnreadCount((response) => {
       if (response.success) {
-        console.log('Unread count fetched:', response.data.count);
         setUnreadCount(response.data.count);
       }
     });
@@ -100,7 +96,6 @@ export const useSocket = () => {
   // Fetch unread count when socket connects (only once)
   useEffect(() => {
     if (isConnected) {
-      console.log('Socket is connected, fetching unread count');
       // Small delay to ensure socket is fully ready
       const timer = setTimeout(() => {
         fetchUnreadCount();

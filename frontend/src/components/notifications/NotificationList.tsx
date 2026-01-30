@@ -33,7 +33,6 @@ export const NotificationList = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-          console.log('Loading more notifications...');
           loadMoreNotifications();
         }
       },

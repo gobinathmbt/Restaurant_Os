@@ -30,7 +30,6 @@ class SocketService {
    */
   connectPlatformAdmin(token: string): void {
     if (this.platformAdminSocket?.connected) {
-      console.log('Platform admin socket already connected');
       // Trigger connection callback for already connected socket
       this.connectionCallbacks.forEach(callback => callback());
       return;
@@ -55,7 +54,6 @@ class SocketService {
    */
   connectCompany(token: string): void {
     if (this.companySocket?.connected) {
-      console.log('Company socket already connected');
       // Trigger connection callback for already connected socket
       this.connectionCallbacks.forEach(callback => callback());
       return;
@@ -80,12 +78,10 @@ class SocketService {
    */
   private setupSocketListeners(socket: Socket, namespace: string): void {
     socket.on('connect', () => {
-      console.log(`${namespace} socket connected:`, socket.id);
       this.connectionCallbacks.forEach(callback => callback());
     });
 
     socket.on('disconnect', (reason) => {
-      console.log(`${namespace} socket disconnected:`, reason);
       this.disconnectionCallbacks.forEach(callback => callback());
     });
 
@@ -95,7 +91,6 @@ class SocketService {
     });
 
     socket.on('notification', (notification: NotificationData) => {
-      console.log(`${namespace} notification received:`, notification);
       this.notificationCallbacks.forEach(callback => callback(notification));
     });
 
@@ -112,7 +107,6 @@ class SocketService {
     if (this.platformAdminSocket) {
       this.platformAdminSocket.disconnect();
       this.platformAdminSocket = null;
-      console.log('Platform admin socket disconnected');
     }
   }
 
@@ -123,7 +117,6 @@ class SocketService {
     if (this.companySocket) {
       this.companySocket.disconnect();
       this.companySocket = null;
-      console.log('Company socket disconnected');
     }
   }
 
@@ -214,7 +207,6 @@ class SocketService {
         : null;
         
     if (socket && socket.connected) {
-      console.log('Emitting notifications:get via socket');
       socket.emit('notifications:get', options, callback);
     } else {
       console.error('No connected socket available for getNotifications');
@@ -232,7 +224,6 @@ class SocketService {
         : null;
         
     if (socket && socket.connected) {
-      console.log('Emitting notifications:getUnreadCount via socket');
       socket.emit('notifications:getUnreadCount', {}, callback);
     } else {
       console.error('No connected socket available for getUnreadCount');

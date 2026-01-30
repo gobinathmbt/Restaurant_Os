@@ -12,8 +12,6 @@ import { useNotifications } from '../../contexts/NotificationContext';
 export const NotificationBell = () => {
   const { unreadCount, isConnected } = useNotifications();
 
-  console.log('NotificationBell render - unreadCount:', unreadCount);
-
   return (
     <Popover>
       <PopoverTrigger asChild>
