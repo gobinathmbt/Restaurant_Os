@@ -9,13 +9,6 @@ export default function PlatformSettings() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">
-          Manage your platform settings and preferences
-        </p>
-      </div>
-
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-5 lg:w-auto">
           <TabsTrigger value="notifications" className="flex items-center gap-2">
