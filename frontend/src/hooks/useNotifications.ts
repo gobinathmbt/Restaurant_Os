@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import apiClient from '../api/axios';
+import { socketService } from '../services/socket';
 import { useSocket } from './useSocket';
 import { toast } from './use-toast';
 
@@ -69,47 +70,46 @@ export const useNotifications = () => {
 
   const socket = useSocket();
 
-  // Fetch notifications from API
+  // Fetch notifications from Socket
   const fetchNotifications = useCallback(async (options?: {
     page?: number;
     limit?: number;
     unreadOnly?: boolean;
     category?: string;
   }) => {
+    if (!socket.isConnected) {
+      setError('Socket not connected');
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      const params = new URLSearchParams();
-      if (options?.page) params.append('page', options.page.toString());
-      if (options?.limit) params.append('limit', options.limit.toString());
-      if (options?.unreadOnly) params.append('unreadOnly', 'true');
-      if (options?.category) params.append('category', options.category);
-
-      const response = await apiClient.get(`/notifications?${params.toString()}`);
-      
-      if (response.data.success) {
-        setNotifications(response.data.data.notifications);
-      }
+      socketService.getNotifications(options || {}, (response) => {
+        if (response.success) {
+          setNotifications(response.data.notifications);
+        } else {
+          setError(response.error || 'Failed to fetch notifications');
+        }
+        setLoading(false);
+      });
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch notifications');
-      console.error('Error fetching notifications:', err);
-    } finally {
+      setError(err.message || 'Failed to fetch notifications');
       setLoading(false);
     }
-  }, []);
+  }, [socket.isConnected]);
 
-  // Fetch unread count
+  // Fetch unread count from Socket
   const fetchUnreadCount = useCallback(async () => {
-    try {
-      const response = await apiClient.get('/notifications/unread-count');
-      if (response.data.success) {
-        setUnreadCount(response.data.data.count);
+    if (!socket.isConnected) return;
+
+    socketService.getUnreadCount((response) => {
+      if (response.success) {
+        setUnreadCount(response.data.count);
       }
-    } catch (err) {
-      console.error('Error fetching unread count:', err);
-    }
-  }, []);
+    });
+  }, [socket.isConnected]);
 
   // Fetch notification settings
   const fetchSettings = useCallback(async () => {
@@ -123,12 +123,12 @@ export const useNotifications = () => {
     }
   }, []);
 
-  // Mark notification as read
+  // Mark notification as read via Socket
   const markAsRead = useCallback(async (notificationId: string) => {
-    try {
-      const response = await apiClient.patch(`/notifications/${notificationId}/read`);
-      
-      if (response.data.success) {
+    if (!socket.isConnected) return;
+
+    socketService.markNotificationAsRead(notificationId, (response) => {
+      if (response.success) {
         setNotifications(prev =>
           prev.map(n =>
             n._id === notificationId
@@ -138,18 +138,18 @@ export const useNotifications = () => {
         );
         setUnreadCount(prev => Math.max(0, prev - 1));
         socket.markAsRead(notificationId);
+      } else {
+        console.error('Error marking notification as read:', response.error);
       }
-    } catch (err) {
-      console.error('Error marking notification as read:', err);
-    }
+    });
   }, [socket]);
 
-  // Mark all as read
+  // Mark all as read via Socket
   const markAllAsRead = useCallback(async () => {
-    try {
-      const response = await apiClient.patch('/notifications/read-all');
-      
-      if (response.data.success) {
+    if (!socket.isConnected) return;
+
+    socketService.markAllNotificationsAsRead((response) => {
+      if (response.success) {
         setNotifications(prev =>
           prev.map(n => ({
             ...n,
@@ -158,33 +158,33 @@ export const useNotifications = () => {
         );
         setUnreadCount(0);
         socket.markAllAsRead();
+      } else {
+        console.error('Error marking all notifications as read:', response.error);
       }
-    } catch (err) {
-      console.error('Error marking all notifications as read:', err);
-    }
+    });
   }, [socket]);
 
-  // Delete notification
+  // Delete notification via Socket
   const deleteNotification = useCallback(async (notificationId: string) => {
-    try {
-      const response = await apiClient.delete(`/notifications/${notificationId}`);
-      
-      if (response.data.success) {
+    if (!socket.isConnected) return;
+
+    socketService.deleteNotification(notificationId, (response) => {
+      if (response.success) {
         setNotifications(prev => prev.filter(n => n._id !== notificationId));
         toast({
           title: 'Success',
           description: 'Notification deleted successfully'
         });
+      } else {
+        console.error('Error deleting notification:', response.error);
+        toast({
+          title: 'Error',
+          description: 'Failed to delete notification',
+          variant: 'destructive'
+        });
       }
-    } catch (err) {
-      console.error('Error deleting notification:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to delete notification',
-        variant: 'destructive'
-      });
-    }
-  }, []);
+    });
+  }, [socket]);
 
   // Update notification settings
   const updateSettings = useCallback(async (updates: Partial<NotificationSettings>) => {

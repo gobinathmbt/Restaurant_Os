@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger.js';
+import notificationService from '../services/notificationService.js';
 
 class SocketManager {
   constructor() {
@@ -45,6 +46,9 @@ class SocketManager {
       // Join personal room
       socket.join(`platform-admin-${userId}`);
 
+      // Handle notification requests
+      this.setupPlatformAdminHandlers(socket);
+
       socket.on('disconnect', () => {
         logger.info(`Platform Admin disconnected: ${userId}`);
         this.platformAdminSockets.delete(userId);
@@ -78,6 +82,9 @@ class SocketManager {
       // Join role-based room
       socket.join(`company-${companyId}-${role}`);
 
+      // Handle notification requests
+      this.setupCompanyHandlers(socket);
+
       socket.on('disconnect', () => {
         logger.info(`Company user disconnected: ${userId}`);
         const companySockets = this.companySockets.get(companyId);
@@ -92,6 +99,157 @@ class SocketManager {
       socket.on('error', (error) => {
         logger.error('Company socket error:', error);
       });
+    });
+  }
+
+  setupPlatformAdminHandlers(socket) {
+    const userId = socket.user.id;
+
+    // Get notifications
+    socket.on('notifications:get', async (data, callback) => {
+      try {
+        const { page = 1, limit = 20, unreadOnly = false, category } = data || {};
+        
+        const result = await notificationService.getNotifications(userId, {
+          page,
+          limit,
+          unreadOnly,
+          category,
+          isPlatformAdmin: true
+        });
+
+        callback({ success: true, data: result });
+      } catch (error) {
+        logger.error('Error getting notifications:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Get unread count
+    socket.on('notifications:getUnreadCount', async (data, callback) => {
+      try {
+        const count = await notificationService.getUnreadCount(userId, null, true);
+        callback({ success: true, data: { count } });
+      } catch (error) {
+        logger.error('Error getting unread count:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Mark as read
+    socket.on('notifications:markAsRead', async (data, callback) => {
+      try {
+        const { notificationId } = data;
+        const notification = await notificationService.markAsRead(
+          notificationId,
+          userId,
+          null,
+          true
+        );
+        callback({ success: true, data: notification });
+      } catch (error) {
+        logger.error('Error marking notification as read:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Mark all as read
+    socket.on('notifications:markAllAsRead', async (data, callback) => {
+      try {
+        const result = await notificationService.markAllAsRead(userId, null, true);
+        callback({ success: true, data: { modifiedCount: result.modifiedCount } });
+      } catch (error) {
+        logger.error('Error marking all as read:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Delete notification
+    socket.on('notifications:delete', async (data, callback) => {
+      try {
+        const { notificationId } = data;
+        await notificationService.deleteNotification(notificationId, userId, null, true);
+        callback({ success: true, message: 'Notification deleted' });
+      } catch (error) {
+        logger.error('Error deleting notification:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+  }
+
+  setupCompanyHandlers(socket) {
+    const { userId, companyId } = socket.user;
+
+    // Get notifications
+    socket.on('notifications:get', async (data, callback) => {
+      try {
+        const { page = 1, limit = 20, unreadOnly = false, category } = data || {};
+        
+        const result = await notificationService.getNotifications(userId, {
+          page,
+          limit,
+          unreadOnly,
+          category,
+          companyId,
+          isPlatformAdmin: false
+        });
+
+        callback({ success: true, data: result });
+      } catch (error) {
+        logger.error('Error getting notifications:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Get unread count
+    socket.on('notifications:getUnreadCount', async (data, callback) => {
+      try {
+        const count = await notificationService.getUnreadCount(userId, companyId, false);
+        callback({ success: true, data: { count } });
+      } catch (error) {
+        logger.error('Error getting unread count:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Mark as read
+    socket.on('notifications:markAsRead', async (data, callback) => {
+      try {
+        const { notificationId } = data;
+        const notification = await notificationService.markAsRead(
+          notificationId,
+          userId,
+          companyId,
+          false
+        );
+        callback({ success: true, data: notification });
+      } catch (error) {
+        logger.error('Error marking notification as read:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Mark all as read
+    socket.on('notifications:markAllAsRead', async (data, callback) => {
+      try {
+        const result = await notificationService.markAllAsRead(userId, companyId, false);
+        callback({ success: true, data: { modifiedCount: result.modifiedCount } });
+      } catch (error) {
+        logger.error('Error marking all as read:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
+    // Delete notification
+    socket.on('notifications:delete', async (data, callback) => {
+      try {
+        const { notificationId } = data;
+        await notificationService.deleteNotification(notificationId, userId, companyId, false);
+        callback({ success: true, message: 'Notification deleted' });
+      } catch (error) {
+        logger.error('Error deleting notification:', error);
+        callback({ success: false, error: error.message });
+      }
     });
   }
 

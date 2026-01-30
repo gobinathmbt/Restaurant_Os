@@ -190,6 +190,65 @@ class SocketService {
   getCompanySocket(): Socket | null {
     return this.companySocket;
   }
+
+  /**
+   * Socket event emitters with callbacks
+   */
+
+  // Get notifications
+  getNotifications(options: {
+    page?: number;
+    limit?: number;
+    unreadOnly?: boolean;
+    category?: string;
+  }, callback: (response: any) => void): void {
+    const socket = this.platformAdminSocket || this.companySocket;
+    if (socket && socket.connected) {
+      socket.emit('notifications:get', options, callback);
+    } else {
+      callback({ success: false, error: 'Socket not connected' });
+    }
+  }
+
+  // Get unread count
+  getUnreadCount(callback: (response: any) => void): void {
+    const socket = this.platformAdminSocket || this.companySocket;
+    if (socket && socket.connected) {
+      socket.emit('notifications:getUnreadCount', {}, callback);
+    } else {
+      callback({ success: false, error: 'Socket not connected' });
+    }
+  }
+
+  // Mark notification as read
+  markNotificationAsRead(notificationId: string, callback: (response: any) => void): void {
+    const socket = this.platformAdminSocket || this.companySocket;
+    if (socket && socket.connected) {
+      socket.emit('notifications:markAsRead', { notificationId }, callback);
+    } else {
+      callback({ success: false, error: 'Socket not connected' });
+    }
+  }
+
+  // Mark all as read
+  markAllNotificationsAsRead(callback: (response: any) => void): void {
+    const socket = this.platformAdminSocket || this.companySocket;
+    if (socket && socket.connected) {
+      socket.emit('notifications:markAllAsRead', {}, callback);
+    } else {
+      callback({ success: false, error: 'Socket not connected' });
+    }
+  }
+
+  // Delete notification
+  deleteNotification(notificationId: string, callback: (response: any) => void): void {
+    const socket = this.platformAdminSocket || this.companySocket;
+    if (socket && socket.connected) {
+      socket.emit('notifications:delete', { notificationId }, callback);
+    } else {
+      callback({ success: false, error: 'Socket not connected' });
+    }
+  }
 }
 
 export const socketService = new SocketService();

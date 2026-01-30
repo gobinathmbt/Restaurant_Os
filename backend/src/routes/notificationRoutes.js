@@ -7,20 +7,7 @@ const router = express.Router();
 // All routes require authentication
 router.use(authenticate);
 
-// Get notifications
-router.get('/', notificationController.getNotifications);
-
-// Get unread count
-router.get('/unread-count', notificationController.getUnreadCount);
-
-// Mark notification as read
-router.patch('/:id/read', notificationController.markAsRead);
-
-// Mark all as read
-router.patch('/read-all', notificationController.markAllAsRead);
-
-// Delete notification
-router.delete('/:id', notificationController.deleteNotification);
+// ONLY SETTINGS ENDPOINTS - All other operations handled via Socket.IO
 
 // Get notification settings
 router.get('/settings', notificationController.getSettings);
@@ -31,7 +18,7 @@ router.put('/settings', notificationController.updateSettings);
 // Update specific event preference
 router.patch('/settings/events/:event', notificationController.updateEventPreference);
 
-// Test notification
+// Test notification (for testing purposes)
 router.post('/test', notificationController.testNotification);
 
 export default router;
