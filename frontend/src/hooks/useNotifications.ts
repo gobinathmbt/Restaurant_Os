@@ -78,23 +78,29 @@ export const useNotifications = () => {
     category?: string;
   }) => {
     if (!socket.isConnected) {
+      console.log('Cannot fetch notifications: Socket not connected');
       setError('Socket not connected');
       return;
     }
 
     try {
+      console.log('Fetching notifications via socket...');
       setLoading(true);
       setError(null);
 
       socketService.getNotifications(options || {}, (response) => {
+        console.log('Notifications response:', response);
         if (response.success) {
+          console.log('Setting notifications:', response.data.notifications);
           setNotifications(response.data.notifications);
         } else {
+          console.error('Failed to fetch notifications:', response.error);
           setError(response.error || 'Failed to fetch notifications');
         }
         setLoading(false);
       });
     } catch (err: any) {
+      console.error('Error fetching notifications:', err);
       setError(err.message || 'Failed to fetch notifications');
       setLoading(false);
     }
@@ -136,13 +142,14 @@ export const useNotifications = () => {
               : n
           )
         );
-        setUnreadCount(prev => Math.max(0, prev - 1));
+        // Fetch updated count from server
+        fetchUnreadCount();
         socket.markAsRead(notificationId);
       } else {
         console.error('Error marking notification as read:', response.error);
       }
     });
-  }, [socket]);
+  }, [socket, fetchUnreadCount]);
 
   // Mark all as read via Socket
   const markAllAsRead = useCallback(async () => {
@@ -156,13 +163,14 @@ export const useNotifications = () => {
             channels: { ...n.channels, inApp: { ...n.channels.inApp, read: true } }
           }))
         );
-        setUnreadCount(0);
+        // Fetch updated count from server
+        fetchUnreadCount();
         socket.markAllAsRead();
       } else {
         console.error('Error marking all notifications as read:', response.error);
       }
     });
-  }, [socket]);
+  }, [socket, fetchUnreadCount]);
 
   // Delete notification via Socket
   const deleteNotification = useCallback(async (notificationId: string) => {
@@ -295,20 +303,27 @@ export const useNotifications = () => {
           ? 'destructive' 
           : 'default'
       });
+      
+      // Fetch updated count from server
+      fetchUnreadCount();
     }
-  }, [socket.notifications]);
+  }, [socket.notifications, toast, fetchUnreadCount]);
 
-  // Sync unread count with socket
+  // Sync unread count with socket - this is the single source of truth
   useEffect(() => {
-    setUnreadCount(socket.unreadCount);
+    if (socket.unreadCount !== undefined) {
+      setUnreadCount(socket.unreadCount);
+    }
   }, [socket.unreadCount]);
 
-  // Initial data fetch
+  // Initial data fetch - fetch notifications and count when socket connects
   useEffect(() => {
-    fetchNotifications();
-    fetchUnreadCount();
-    // Don't fetch settings here - only fetch in Settings page
-  }, [fetchNotifications, fetchUnreadCount]);
+    if (socket.isConnected) {
+      console.log('Socket connected, fetching notifications and count');
+      fetchNotifications();
+      fetchUnreadCount();
+    }
+  }, [socket.isConnected, fetchNotifications, fetchUnreadCount]);
 
   return {
     notifications,

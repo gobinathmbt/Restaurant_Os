@@ -31,6 +31,8 @@ class SocketService {
   connectPlatformAdmin(token: string): void {
     if (this.platformAdminSocket?.connected) {
       console.log('Platform admin socket already connected');
+      // Trigger connection callback for already connected socket
+      this.connectionCallbacks.forEach(callback => callback());
       return;
     }
 
@@ -54,6 +56,8 @@ class SocketService {
   connectCompany(token: string): void {
     if (this.companySocket?.connected) {
       console.log('Company socket already connected');
+      // Trigger connection callback for already connected socket
+      this.connectionCallbacks.forEach(callback => callback());
       return;
     }
 

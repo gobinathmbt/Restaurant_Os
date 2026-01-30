@@ -8,21 +8,27 @@ export const useSocket = () => {
   const [notifications, setNotifications] = useState<NotificationData[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Connect socket based on user role
+  // Connect socket based on user type
   useEffect(() => {
     const token = sessionStorage.getItem('token');
     
     if (!user || !token) {
-      socketService.disconnectAll();
-      setIsConnected(false);
-      return;
+      return; // Don't disconnect, just don't connect
     }
 
-    // Connect to appropriate namespace based on role
-    if (user.role === 'platform_admin') {
+    // Connect to appropriate namespace based on userType
+    if (user.userType === 'platform') {
       socketService.connectPlatformAdmin(token);
-    } else if (user.companyId) {
+      // Check if already connected
+      if (socketService.isPlatformAdminConnected()) {
+        setIsConnected(true);
+      }
+    } else if (user.userType === 'company' && user.companyId) {
       socketService.connectCompany(token);
+      // Check if already connected
+      if (socketService.isCompanyConnected()) {
+        setIsConnected(true);
+      }
     }
 
     // Setup event listeners
@@ -40,19 +46,19 @@ export const useSocket = () => {
       console.error('Socket error:', error);
     });
 
-    // Cleanup on unmount
+    // Cleanup on unmount - only unsubscribe listeners, don't disconnect socket
     return () => {
       unsubscribeConnect();
       unsubscribeDisconnect();
       unsubscribeError();
-      socketService.disconnectAll();
+      // Don't disconnect socket here - keep it alive
     };
   }, [user]);
 
   // Handle incoming notifications
   const handleNotification = useCallback((notification: NotificationData) => {
     setNotifications(prev => [notification, ...prev]);
-    setUnreadCount(prev => prev + 1);
+    // Don't increment count here - let useNotifications handle it via socket.notifications
   }, []);
 
   // Subscribe to notifications
@@ -71,14 +77,30 @@ export const useSocket = () => {
     setNotifications(prev =>
       prev.map(n => (n.id === notificationId ? { ...n, read: true } : n))
     );
-    setUnreadCount(prev => Math.max(0, prev - 1));
+    // Don't decrement count here - let useNotifications handle it
   }, []);
 
   // Mark all as read
   const markAllAsRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    setUnreadCount(0);
+    // Don't reset count here - let useNotifications handle it
   }, []);
+
+  // Fetch unread count from server
+  const fetchUnreadCount = useCallback(() => {
+    socketService.getUnreadCount((response) => {
+      if (response.success) {
+        setUnreadCount(response.data.count);
+      }
+    });
+  }, []);
+
+  // Fetch unread count when socket connects
+  useEffect(() => {
+    if (isConnected) {
+      fetchUnreadCount();
+    }
+  }, [isConnected, fetchUnreadCount]);
 
   return {
     isConnected,
@@ -86,6 +108,7 @@ export const useSocket = () => {
     unreadCount,
     clearNotifications,
     markAsRead,
-    markAllAsRead
+    markAllAsRead,
+    fetchUnreadCount
   };
 };

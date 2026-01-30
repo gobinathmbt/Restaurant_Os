@@ -12,8 +12,14 @@ export const NotificationList = () => {
     markAllAsRead,
     deleteNotification,
     markAsRead,
-    fetchNotifications
+    fetchNotifications,
+    fetchUnreadCount
   } = useNotifications();
+
+  const handleRefresh = () => {
+    fetchNotifications();
+    fetchUnreadCount();
+  };
 
   return (
     <div className="flex flex-col h-[500px]">
@@ -24,7 +30,7 @@ export const NotificationList = () => {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => fetchNotifications()}
+            onClick={handleRefresh}
             disabled={loading}
             title="Refresh notifications"
           >
