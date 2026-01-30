@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
@@ -18,7 +18,6 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { authServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
 
 interface LoginData {
@@ -40,7 +39,7 @@ interface RegisterData {
 const Auth = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login, register } = useAuth();
+  const { login, register, googleLogin: googleLoginContext, isAuthenticated, user } = useAuth();
   const { toast } = useToast();
   
   const [mode, setMode] = useState<'login' | 'register'>(
@@ -48,20 +47,21 @@ const Auth = () => {
   );
   const [loading, setLoading] = useState(false);
 
-  // Helper function to redirect based on user type
-  const redirectToDashboard = () => {
-    const userStr = sessionStorage.getItem('user');
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      if (user.userType === 'platform') {
-        navigate('/platform/dashboard');
-      } else {
-        navigate('/dashboard');
-      }
-    } else {
-      navigate('/dashboard');
+  // Redirect when authentication state changes
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      // Small delay to ensure state is fully updated
+      const timer = setTimeout(() => {
+        if (user.userType === 'platform') {
+          navigate('/platform/dashboard', { replace: true });
+        } else {
+          navigate('/dashboard', { replace: true });
+        }
+      }, 100);
+      
+      return () => clearTimeout(timer);
     }
-  };
+  }, [isAuthenticated, user, navigate]);
 
   const [loginData, setLoginData] = useState<LoginData>({
     email: '',
@@ -89,10 +89,10 @@ const Auth = () => {
       toast({
         title: "Login Successful",
         description: "Welcome back! Redirecting to dashboard...",
-        variant: "success",
+        variant: "default",
       });
       
-      redirectToDashboard();
+      // Redirect will happen via useEffect when isAuthenticated changes
     } catch (err: any) {
       console.log('Login error:', err);
       
@@ -101,9 +101,8 @@ const Auth = () => {
       toast({
         title: "Login Failed",
         description: errorMessage,
-        variant: "error",
+        variant: "destructive",
       });
-    } finally {
       setLoading(false);
     }
   };
@@ -118,10 +117,10 @@ const Auth = () => {
       toast({
         title: "Registration Successful",
         description: "Your account has been created. 30-day trial activated!",
-        variant: "success",
+        variant: "default",
       });
       
-      redirectToDashboard();
+      // Redirect will happen via useEffect when isAuthenticated changes
     } catch (err: any) {
       console.log('Registration error:', err);
       
@@ -135,7 +134,7 @@ const Auth = () => {
         toast({
           title: "Validation Error",
           description: validationErrors,
-          variant: "warning",
+          variant: "destructive",
         });
       } else {
         // General error
@@ -144,10 +143,9 @@ const Auth = () => {
         toast({
           title: "Registration Failed",
           description: errorMessage,
-          variant: "error",
+          variant: "destructive",
         });
       }
-    } finally {
       setLoading(false);
     }
   };
@@ -157,69 +155,52 @@ const Auth = () => {
       setLoading(true);
 
       try {
-        // Get user info from Google
-        const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: {
-            Authorization: `Bearer ${tokenResponse.access_token}`,
-          },
+        // Use the googleLogin function from auth context
+        await googleLoginContext(tokenResponse.access_token);
+        
+        toast({
+          title: "Google Login Successful",
+          description: "Welcome back!",
+          variant: "default",
         });
         
-        const userInfo = await userInfoResponse.json();
-        
-        // Try to login with Google using access token
-        try {
-          const response = await authServices.googleLogin(tokenResponse.access_token);
-          
-          // Check backend response structure
-          if (response.data.success) {
-            // Store tokens from backend response
-            sessionStorage.setItem('token', response.data.data.token);
-            sessionStorage.setItem('user', JSON.stringify(response.data.data.user));
-            
-            toast({
-              title: "Google Login Successful",
-              description: `Welcome back, ${response.data.data.user.name}!`,
-              variant: "success",
+        // Redirect will happen via useEffect when isAuthenticated changes
+      } catch (loginError: any) {
+        // If user doesn't exist (404), show registration form with pre-filled data
+        if (loginError.status === 404 || loginError.message?.includes('No account found')) {
+          // Get user info from Google for pre-filling
+          try {
+            const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+              headers: {
+                Authorization: `Bearer ${tokenResponse.access_token}`,
+              },
             });
             
-            redirectToDashboard();
-          }
-        } catch (loginError: any) {
-          
-          // If user doesn't exist (404), show registration form with pre-filled data
-          if (loginError.status === 404) {
-            // Access the nested data from error response
-            const errorData = loginError.data?.data;
+            const userInfo = await userInfoResponse.json();
             
             setMode('register');
             setRegisterData({
               ...registerData,
-              adminName: errorData?.name || userInfo.name || '',
-              email: errorData?.email || userInfo.email || '',
+              adminName: userInfo.name || '',
+              email: userInfo.email || '',
             });
             
             toast({
               title: "Account Not Found",
               description: "Please complete your registration to continue.",
-              variant: "info",
+              variant: "default",
             });
-          } else {
-            const errorMessage = loginError.message || loginError.data?.message || 'Google login failed. Please try again.';
-            toast({
-              title: "Google Login Failed",
-              description: errorMessage,
-              variant: "error",
-            });
+          } catch (err) {
+            console.error('Failed to get user info:', err);
           }
+        } else {
+          const errorMessage = loginError.message || 'Google login failed. Please try again.';
+          toast({
+            title: "Google Login Failed",
+            description: errorMessage,
+            variant: "destructive",
+          });
         }
-      } catch (err: any) {
-        console.error('Google login error:', err);
-        toast({
-          title: "Authentication Error",
-          description: "Failed to authenticate with Google. Please try again.",
-          variant: "error",
-        });
-      } finally {
         setLoading(false);
       }
     },
@@ -227,7 +208,7 @@ const Auth = () => {
       toast({
         title: "Google Login Cancelled",
         description: "Google login was cancelled or failed.",
-        variant: "warning",
+        variant: "destructive",
       });
       setLoading(false);
     },
