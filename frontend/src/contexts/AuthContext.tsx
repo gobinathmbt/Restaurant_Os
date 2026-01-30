@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authServices } from '@/api/services';
+import { socketService } from '@/services/socket';
 
 // Types
 interface User {
@@ -101,12 +102,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const response = await authServices.getMe();
         
         if (response.data.success) {
-          setUser(response.data.data.user);
+          const userData = response.data.data.user;
+          setUser(userData);
           setCompany(response.data.data.company || null);
           setIsAuthenticated(true);
           
           // Update sessionStorage with fresh data
-          sessionStorage.setItem('user', JSON.stringify(response.data.data.user));
+          sessionStorage.setItem('user', JSON.stringify(userData));
+          
+          // Connect socket based on user type
+          if (userData.userType === 'platform') {
+            socketService.connectPlatformAdmin(token);
+          } else if (userData.userType === 'company') {
+            socketService.connectCompany(token);
+          }
         } else {
           // Invalid token, clear storage
           sessionStorage.removeItem('token');
@@ -146,6 +155,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Update state immediately
         setUser(userData);
         setIsAuthenticated(true);
+        
+        // Connect socket based on user type
+        if (userData.userType === 'platform') {
+          socketService.connectPlatformAdmin(token);
+        } else if (userData.userType === 'company') {
+          socketService.connectCompany(token);
+        }
         
         // Fetch company data if user has companyId (don't await, let it load in background)
         if (userData.userType === 'company' && userData.companyId) {
@@ -257,6 +273,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error('Logout API error:', error);
       // Continue with logout even if API call fails
     } finally {
+      // Disconnect sockets
+      socketService.disconnectAll();
+      
       // Clear tokens from sessionStorage
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');

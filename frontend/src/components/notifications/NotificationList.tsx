@@ -2,10 +2,10 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { NotificationItem } from './NotificationItem';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
-import { Separator } from '../ui/separator';
-import { Bell, CheckCheck, Settings } from 'lucide-react';
+import { Bell, CheckCheck, ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
-import { NotificationSettings } from './NotificationSettings';
+import { useAuth } from '../../contexts/AuthContext';
+import NotificationSettings from './NotificationSettings';
 
 export const NotificationList = () => {
   const {
@@ -17,10 +17,28 @@ export const NotificationList = () => {
     markAsRead
   } = useNotifications();
 
+  const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
 
   if (showSettings) {
-    return <NotificationSettings onBack={() => setShowSettings(false)} />;
+    return (
+      <div className="flex flex-col h-[500px]">
+        <div className="p-4 border-b">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowSettings(false)}
+            className="mb-2"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Notifications
+          </Button>
+        </div>
+        <ScrollArea className="flex-1 p-4">
+          {/* <NotificationSettings userType={user?.userType === 'platform' ? 'platform' : 'company'} /> */}
+        </ScrollArea>
+      </div>
+    );
   }
 
   return (
@@ -29,13 +47,6 @@ export const NotificationList = () => {
       <div className="p-4 border-b">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold text-lg">Notifications</h3>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowSettings(true)}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
         </div>
         {unreadCount > 0 && (
           <Button

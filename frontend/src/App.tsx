@@ -11,7 +11,9 @@ import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
 import ProtectedRoute from "@/contexts/ProtectedRoute";
 import PlatformDashboard from "@/pages/platform/PlatformDashboard";
+import PlatformSettings from "@/pages/platform/PlatformSettings";
 import CompanyDashboard from "@/pages/company/CompanyDashboard";
+import CompanySettings from "@/pages/company/CompanySettings";
 import { isElectron } from "@/utils/platform";
 
 const queryClient = new QueryClient();
@@ -60,7 +62,7 @@ const App = () => {
                   <Route path="subscriptions" element={<div className="p-8">Subscriptions Page Coming Soon</div>} />
                   <Route path="analytics" element={<div className="p-8">Analytics Page Coming Soon</div>} />
                   <Route path="admins" element={<div className="p-8">Admins Page Coming Soon</div>} />
-                  <Route path="settings" element={<div className="p-8">Settings Page Coming Soon</div>} />
+                  <Route path="settings" element={<PlatformSettings />} />
                   <Route index element={<Navigate to="/platform/dashboard" replace />} />
                 </Route>
 
@@ -83,7 +85,7 @@ const App = () => {
                   <Route path="reports" element={<div className="p-8">Reports Page Coming Soon</div>} />
                   <Route path="billing" element={<div className="p-8">Billing Page Coming Soon</div>} />
                   <Route path="branches" element={<div className="p-8">Branches Page Coming Soon</div>} />
-                  <Route path="settings" element={<div className="p-8">Settings Page Coming Soon</div>} />
+                  <Route path="settings" element={<CompanySettings />} />
                 </Route>
                 
                 {/* Catch all - redirect based on platform */}

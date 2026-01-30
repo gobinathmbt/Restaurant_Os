@@ -21,6 +21,24 @@ export const authServices = {
   logout: () => apiClient.post("/api/auth/logout"),
 };
 
+// Notification Services (Settings only - other operations via Socket.IO)
+export const notificationServices = {
+  // Get notification settings
+  getSettings: () => apiClient.get("/api/notifications/settings"),
+
+  // Update notification settings
+  updateSettings: (settings: any) =>
+    apiClient.put("/api/notifications/settings", settings),
+
+  // Update specific event preference
+  updateEventPreference: (event: string, data: { enabled?: boolean; channels?: any }) =>
+    apiClient.patch(`/api/notifications/settings/events/${event}`, data),
+
+  // Send test notification
+  sendTestNotification: () => apiClient.post("/api/notifications/test"),
+};
+
 export default {
   auth: authServices,
+  notifications: notificationServices,
 };

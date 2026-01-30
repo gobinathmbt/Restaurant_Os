@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import apiClient from '../api/axios';
+import { notificationServices } from '../api/services';
 import { socketService } from '../services/socket';
 import { useSocket } from './useSocket';
 import { toast } from './use-toast';
@@ -111,10 +111,10 @@ export const useNotifications = () => {
     });
   }, [socket.isConnected]);
 
-  // Fetch notification settings
+  // Fetch notification settings via API
   const fetchSettings = useCallback(async () => {
     try {
-      const response = await apiClient.get('/notifications/settings');
+      const response = await notificationServices.getSettings();
       if (response.data.success) {
         setSettings(response.data.data);
       }
@@ -186,10 +186,10 @@ export const useNotifications = () => {
     });
   }, [socket]);
 
-  // Update notification settings
+  // Update notification settings via API
   const updateSettings = useCallback(async (updates: Partial<NotificationSettings>) => {
     try {
-      const response = await apiClient.put('/notifications/settings', updates);
+      const response = await notificationServices.updateSettings(updates);
       
       if (response.data.success) {
         setSettings(response.data.data);
@@ -208,13 +208,13 @@ export const useNotifications = () => {
     }
   }, []);
 
-  // Update event preference
+  // Update event preference via API
   const updateEventPreference = useCallback(async (
     event: string,
     updates: { enabled?: boolean; channels?: any }
   ) => {
     try {
-      const response = await apiClient.patch(`/notifications/settings/events/${event}`, updates);
+      const response = await notificationServices.updateEventPreference(event, updates);
       
       if (response.data.success) {
         setSettings(response.data.data);
@@ -233,10 +233,10 @@ export const useNotifications = () => {
     }
   }, []);
 
-  // Send test notification
+  // Send test notification via API
   const sendTestNotification = useCallback(async () => {
     try {
-      const response = await apiClient.post('/notifications/test');
+      const response = await notificationServices.sendTestNotification();
       
       if (response.data.success) {
         toast({

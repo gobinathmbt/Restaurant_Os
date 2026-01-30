@@ -141,6 +141,32 @@ export const registerCompany = async (req, res, next) => {
 
     logger.info('Company registered successfully', { companyId, email });
 
+    // Send notification to all platform admins about new company registration
+    try {
+      const notificationService = await import('../services/notificationService.js');
+      await notificationService.default.sendToAllPlatformAdmins({
+        category: 'company_registration',
+        event: 'companyRegistration',
+        title: 'New Company Registered',
+        message: `${companyName} has registered with a 30-day trial. Primary admin: ${adminName} (${email})`,
+        data: {
+          companyId,
+          companyName,
+          adminName,
+          email,
+          phone,
+          trialEndDate,
+          registeredAt: new Date()
+        },
+        priority: 'high',
+        actionUrl: `/platform/companies/${companyId}`
+      });
+      logger.info('Platform admin notification sent for new company registration', { companyId });
+    } catch (notifError) {
+      logger.error('Failed to send platform admin notification', notifError);
+      // Don't fail registration if notification fails
+    }
+
     res.status(201).json({
       success: true,
       message: 'Company registered successfully. 30-day trial activated.',
