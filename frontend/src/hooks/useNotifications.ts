@@ -307,8 +307,8 @@ export const useNotifications = () => {
   useEffect(() => {
     fetchNotifications();
     fetchUnreadCount();
-    fetchSettings();
-  }, [fetchNotifications, fetchUnreadCount, fetchSettings]);
+    // Don't fetch settings here - only fetch in Settings page
+  }, [fetchNotifications, fetchUnreadCount]);
 
   return {
     notifications,

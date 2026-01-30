@@ -1,18 +1,38 @@
+import { useState, useEffect } from 'react';
 import { Mail, MessageSquare, Smartphone, Bell, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { ScrollArea } from '../ui/scroll-area';
-import { Separator } from '../ui/separator';
-import { useNotifications } from '../../hooks/useNotifications';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { useToast } from '../../hooks/use-toast';
+import { notificationServices } from '../../api/services';
 
 interface NotificationSettingsProps {
   userType: 'platform' | 'company';
 }
 
+interface NotificationSettings {
+  _id?: string;
+  adminId?: string;
+  companyId?: string;
+  userId?: string;
+  isPrimaryAdmin?: boolean;
+  preferences: Record<string, any>;
+  quietHours: {
+    enabled: boolean;
+    start?: string;
+    end?: string;
+    timezone?: string;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export default function NotificationSettings({ userType }: NotificationSettingsProps) {
-  const { settings, updateEventPreference, sendTestNotification, loading } = useNotifications();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<NotificationSettings | null>(null);
 
   // Event labels based on user type
   const platformEventLabels: Record<string, string> = {
@@ -42,24 +62,111 @@ export default function NotificationSettings({ userType }: NotificationSettingsP
 
   const eventLabels = userType === 'platform' ? platformEventLabels : companyEventLabels;
 
+  // Load settings on mount
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      setLoading(true);
+      const response = await notificationServices.getSettings();
+      
+      if (response.data.success && response.data.data) {
+        setSettings(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load notification settings:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load notification settings',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleToggleEvent = async (event: string, enabled: boolean) => {
-    await updateEventPreference(event, { enabled });
+    try {
+      const response = await notificationServices.updateEventPreference(event, { enabled });
+      
+      if (response.data.success) {
+        setSettings(response.data.data);
+        toast({
+          title: 'Success',
+          description: 'Event preference updated successfully',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update event preference:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update event preference',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleToggleChannel = async (event: string, channel: string, enabled: boolean) => {
-    const currentChannels = settings?.preferences[event]?.channels || {};
-    await updateEventPreference(event, {
-      channels: {
-        ...currentChannels,
-        [channel]: { ...currentChannels[channel], enabled }
+    try {
+      const currentChannels = settings?.preferences[event]?.channels || {};
+      const response = await notificationServices.updateEventPreference(event, {
+        channels: {
+          ...currentChannels,
+          [channel]: { ...currentChannels[channel], enabled }
+        }
+      });
+      
+      if (response.data.success) {
+        setSettings(response.data.data);
+        toast({
+          title: 'Success',
+          description: 'Channel preference updated successfully',
+        });
       }
-    });
+    } catch (error) {
+      console.error('Failed to update channel preference:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update channel preference',
+        variant: 'destructive',
+      });
+    }
   };
 
-  if (loading || !settings) {
+  const handleTestNotification = async () => {
+    try {
+      const response = await notificationServices.sendTestNotification();
+      
+      if (response.data.success) {
+        toast({
+          title: 'Success',
+          description: 'Test notification sent successfully',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to send test notification:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send test notification',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
+      </div>
+    );
+  }
+
+  if (!settings) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-muted-foreground">Failed to load settings</p>
       </div>
     );
   }
@@ -81,17 +188,14 @@ export default function NotificationSettings({ userType }: NotificationSettingsP
             <Button
               variant="outline"
               className="w-full"
-              onClick={sendTestNotification}
+              onClick={handleTestNotification}
             >
               <Bell className="h-4 w-4 mr-2" />
               Send Test Notification
             </Button>
 
-            <Separator />
-
-            {/* Event Preferences */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">
+            <div className="border-t pt-4">
+              <h4 className="font-medium text-sm text-muted-foreground mb-4">
                 Event Preferences
               </h4>
               

@@ -263,13 +263,22 @@ class SocketManager {
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      if (decoded.role !== 'platform_admin') {
+      // Check if user is a platform admin
+      const { default: PlatformAdmin } = await import('../models/platform/PlatformAdmin.js');
+      const admin = await PlatformAdmin.findById(decoded.userId);
+
+      if (!admin) {
         return next(new Error('Unauthorized: Platform admin access only'));
       }
 
+      if (!admin.isActive) {
+        return next(new Error('Account is deactivated'));
+      }
+
       socket.user = {
-        id: decoded.userId,
-        role: decoded.role
+        id: admin._id,
+        role: admin.role,
+        email: admin.email
       };
 
       next();
@@ -289,14 +298,28 @@ class SocketManager {
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      if (!decoded.companyId) {
+      // Check if user is a company user
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(decoded.userId);
+
+      if (!user) {
         return next(new Error('Unauthorized: Company access only'));
       }
 
+      if (!user.isActive) {
+        return next(new Error('Account is deactivated'));
+      }
+
+      if (!user.companyId) {
+        return next(new Error('User not associated with a company'));
+      }
+
       socket.user = {
-        id: decoded.userId,
-        companyId: decoded.companyId,
-        role: decoded.role
+        id: user._id,
+        userId: user._id,
+        companyId: user.companyId,
+        role: user.role,
+        email: user.email
       };
 
       next();

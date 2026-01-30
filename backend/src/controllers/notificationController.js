@@ -9,10 +9,10 @@ class NotificationController {
   // Get notification settings
   async getSettings(req, res) {
     try {
-      const { userId, role, companyId } = req.user;
+      const { userId, userType, companyId } = req.user;
 
       let settings;
-      if (role === 'platform_admin') {
+      if (userType === 'platform') {
         // Get from PLATFORM DB
         settings = await PlatformAdminNotificationSettings.findOne({ adminId: userId });
         
@@ -51,11 +51,11 @@ class NotificationController {
   // Update notification settings
   async updateSettings(req, res) {
     try {
-      const { userId, role, companyId } = req.user;
+      const { userId, userType, companyId } = req.user;
       const updates = req.body;
 
       let settings;
-      if (role === 'platform_admin') {
+      if (userType === 'platform') {
         // Update in PLATFORM DB
         settings = await PlatformAdminNotificationSettings.findOneAndUpdate(
           { adminId: userId },
@@ -96,7 +96,7 @@ class NotificationController {
   async updateEventPreference(req, res) {
     try {
       const { event } = req.params;
-      const { userId, role, companyId } = req.user;
+      const { userId, userType, companyId } = req.user;
       const { enabled, channels } = req.body;
 
       const updateData = {};
@@ -108,7 +108,7 @@ class NotificationController {
       }
 
       let settings;
-      if (role === 'platform_admin') {
+      if (userType === 'platform') {
         // Update in PLATFORM DB
         settings = await PlatformAdminNotificationSettings.findOneAndUpdate(
           { adminId: userId },
@@ -148,7 +148,7 @@ class NotificationController {
   // Test notification
   async testNotification(req, res) {
     try {
-      const { userId, role, companyId } = req.user;
+      const { userId, userType, companyId } = req.user;
 
       const notificationData = {
         category: 'system',
@@ -159,7 +159,7 @@ class NotificationController {
       };
 
       let notification;
-      if (role === 'platform_admin') {
+      if (userType === 'platform') {
         notification = await notificationService.sendToPlatformAdmin(userId, notificationData);
       } else {
         notification = await notificationService.sendToCompanyUser(companyId, userId, notificationData);
