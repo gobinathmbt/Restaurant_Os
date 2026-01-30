@@ -7,10 +7,12 @@ import {
 } from '../ui/popover';
 import { Badge } from '../ui/badge';
 import { NotificationList } from './NotificationList';
-import { useNotifications } from '../../hooks/useNotifications';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 export const NotificationBell = () => {
   const { unreadCount, isConnected } = useNotifications();
+
+  console.log('NotificationBell render - unreadCount:', unreadCount);
 
   return (
     <Popover>

@@ -181,60 +181,142 @@ export const useNotifications = () => {
 
   // Mark notification as read via Socket
   const markAsRead = useCallback(async (notificationId: string) => {
-    if (!socket.isConnected) return;
+    if (!socket.isConnected) {
+      console.log('Cannot mark as read: Socket not connected');
+      return;
+    }
 
+    console.log('Marking notification as read:', notificationId);
+    
+    // Update notification state and check if it was unread
+    let wasUnread = false;
+    
+    setNotifications(prev => {
+      const notification = prev.find(n => n._id === notificationId);
+      wasUnread = notification ? !notification.channels.inApp.read : false;
+      
+      return prev.map(n =>
+        n._id === notificationId
+          ? { ...n, channels: { ...n.channels, inApp: { ...n.channels.inApp, read: true, readAt: new Date().toISOString() } } }
+          : n
+      );
+    });
+    
+    // Decrement count if it was unread
+    if (wasUnread) {
+      console.log('Decrementing unread count');
+      setUnreadCount(prev => {
+        const newCount = Math.max(0, prev - 1);
+        console.log('Unread count updated:', prev, '->', newCount);
+        return newCount;
+      });
+    }
+
+    // Send to server (don't wait for response to update UI)
     socketService.markNotificationAsRead(notificationId, (response) => {
+      console.log('Mark as read response:', response);
       if (response.success) {
-        setNotifications(prev =>
-          prev.map(n =>
-            n._id === notificationId
-              ? { ...n, channels: { ...n.channels, inApp: { ...n.channels.inApp, read: true } } }
-              : n
-          )
-        );
-        // Fetch updated count from server
-        fetchUnreadCount();
         socket.markAsRead(notificationId);
       } else {
         console.error('Error marking notification as read:', response.error);
+        // Revert on error
+        if (wasUnread) {
+          setUnreadCount(prev => prev + 1);
+          setNotifications(prev =>
+            prev.map(n =>
+              n._id === notificationId
+                ? { ...n, channels: { ...n.channels, inApp: { ...n.channels.inApp, read: false, readAt: undefined } } }
+                : n
+            )
+          );
+        }
       }
     });
-  }, [socket, fetchUnreadCount]);
+  }, [socket]);
 
   // Mark all as read via Socket
   const markAllAsRead = useCallback(async () => {
-    if (!socket.isConnected) return;
+    if (!socket.isConnected) {
+      console.log('Cannot mark all as read: Socket not connected');
+      return;
+    }
 
+    console.log('Marking all notifications as read');
+    
+    // Update all notifications to read and set count to 0
+    setNotifications(prev =>
+      prev.map(n => ({
+        ...n,
+        channels: { ...n.channels, inApp: { ...n.channels.inApp, read: true, readAt: new Date().toISOString() } }
+      }))
+    );
+    
+    // Set count to 0
+    console.log('Setting unread count to 0');
+    setUnreadCount(0);
+
+    // Send to server (don't wait for response to update UI)
     socketService.markAllNotificationsAsRead((response) => {
+      console.log('Mark all as read response:', response);
       if (response.success) {
-        setNotifications(prev =>
-          prev.map(n => ({
-            ...n,
-            channels: { ...n.channels, inApp: { ...n.channels.inApp, read: true } }
-          }))
-        );
-        // Fetch updated count from server
-        fetchUnreadCount();
         socket.markAllAsRead();
       } else {
         console.error('Error marking all notifications as read:', response.error);
+        // Refetch on error to get correct state
+        fetchNotifications({ page: 1, limit: 20 });
+        fetchUnreadCount();
       }
     });
-  }, [socket, fetchUnreadCount]);
+  }, [socket, fetchNotifications, fetchUnreadCount]);
 
   // Delete notification via Socket
   const deleteNotification = useCallback(async (notificationId: string) => {
-    if (!socket.isConnected) return;
+    if (!socket.isConnected) {
+      console.log('Cannot delete notification: Socket not connected');
+      return;
+    }
 
+    console.log('Deleting notification:', notificationId);
+    
+    // Check if notification is unread and update state
+    let wasUnread = false;
+    let deletedNotification: Notification | undefined;
+    
+    setNotifications(prev => {
+      deletedNotification = prev.find(n => n._id === notificationId);
+      wasUnread = deletedNotification ? !deletedNotification.channels.inApp.read : false;
+      return prev.filter(n => n._id !== notificationId);
+    });
+    
+    // Decrement count if it was unread
+    if (wasUnread) {
+      console.log('Decrementing unread count for deleted notification');
+      setUnreadCount(prev => {
+        const newCount = Math.max(0, prev - 1);
+        console.log('Unread count updated:', prev, '->', newCount);
+        return newCount;
+      });
+    }
+
+    // Send to server (don't wait for response to update UI)
     socketService.deleteNotification(notificationId, (response) => {
+      console.log('Delete notification response:', response);
       if (response.success) {
-        setNotifications(prev => prev.filter(n => n._id !== notificationId));
         toast({
           title: 'Success',
           description: 'Notification deleted successfully'
         });
       } else {
         console.error('Error deleting notification:', response.error);
+        // Revert on error
+        if (deletedNotification) {
+          setNotifications(prev => [...prev, deletedNotification].sort((a, b) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          ));
+          if (wasUnread) {
+            setUnreadCount(prev => prev + 1);
+          }
+        }
         toast({
           title: 'Error',
           description: 'Failed to delete notification',

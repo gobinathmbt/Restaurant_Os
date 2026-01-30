@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { NotificationProvider } from "@/contexts/NotificationContext";
 import PlatformAdminLayout from "@/components/layouts/PlatformAdminLayout";
 import CompanyLayout  from "@/components/layouts/CompanyLayout";
 import Landing from "@/pages/Landing";
@@ -53,7 +54,9 @@ const App = () => {
                   path="/platform"
                   element={
                     <ProtectedRoute requiredUserType="platform">
-                      <PlatformAdminLayout />
+                      <NotificationProvider>
+                        <PlatformAdminLayout />
+                      </NotificationProvider>
                     </ProtectedRoute>
                   }
                 >
@@ -71,7 +74,9 @@ const App = () => {
                   path="/"
                   element={
                     <ProtectedRoute requiredUserType="company">
-                      <CompanyLayout />
+                      <NotificationProvider>
+                        <CompanyLayout />
+                      </NotificationProvider>
                     </ProtectedRoute>
                   }
                 >
