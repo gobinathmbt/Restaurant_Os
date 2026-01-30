@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
 import { userServices } from '@/api/services';
 import UserFormModal from '@/components/company/UserFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
@@ -48,6 +48,7 @@ const roleColors: Record<string, string> = {
 export default function Staff() {
   const { user: currentUser } = useAuth();
   const { setLoading, setLoadingMessage } = useLoading();
+  const { toast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLocalLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -83,7 +84,11 @@ export default function Staff() {
       setTotalCount(response.data.data.pagination.total);
       setTotalPages(response.data.data.pagination.totalPages);
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to fetch users');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch users',
+        variant: "destructive",
+      });
     } finally {
       setLocalLoading(false);
     }
@@ -110,11 +115,19 @@ export default function Staff() {
       setLoading(true);
       setLoadingMessage('Deleting user...');
       await userServices.deleteUser(deleteDialog.user._id);
-      toast.success('User deleted successfully');
+      toast({
+        title: "Success",
+        description: "User deleted successfully",
+        variant: "success",
+      });
       fetchUsers();
       setDeleteDialog({ open: false, user: null });
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to delete user');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to delete user',
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -125,10 +138,18 @@ export default function Staff() {
       setLoading(true);
       setLoadingMessage(`${user.isActive ? 'Deactivating' : 'Activating'} user...`);
       await userServices.toggleUserStatus(user._id);
-      toast.success(`User ${user.isActive ? 'deactivated' : 'activated'} successfully`);
+      toast({
+        title: "Success",
+        description: `User ${user.isActive ? 'deactivated' : 'activated'} successfully`,
+        variant: "success",
+      });
       fetchUsers();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to update user status');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to update user status',
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

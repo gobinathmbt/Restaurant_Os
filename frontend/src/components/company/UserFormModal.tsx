@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
 import { userServices, branchServices } from '@/api/services';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -30,6 +30,7 @@ interface Branch {
 
 export default function UserFormModal({ open, onClose, user, onSuccess }: UserFormModalProps) {
   const { user: currentUser } = useAuth();
+  const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [formData, setFormData] = useState({
@@ -91,7 +92,11 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
       const response = await branchServices.getBranches({ limit: 100 });
       setBranches(response.data.data.branches);
     } catch (error: any) {
-      toast.error('Failed to fetch branches');
+      toast({
+        title: "Error",
+        description: "Failed to fetch branches",
+        variant: "destructive",
+      });
     }
   };
 
@@ -108,12 +113,20 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
     e.preventDefault();
     
     if (!formData.name || !formData.email || !formData.role) {
-      toast.error('Name, email, and role are required');
+      toast({
+        title: "Validation Error",
+        description: "Name, email, and role are required",
+        variant: "destructive",
+      });
       return;
     }
 
     if (!user && !formData.password) {
-      toast.error('Password is required for new users');
+      toast({
+        title: "Validation Error",
+        description: "Password is required for new users",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -134,15 +147,27 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
 
       if (user) {
         await userServices.updateUser(user._id, submitData);
-        toast.success('User updated successfully');
+        toast({
+          title: "Success",
+          description: "User updated successfully",
+          variant: "success",
+        });
       } else {
         await userServices.createUser(submitData);
-        toast.success('User created successfully');
+        toast({
+          title: "Success",
+          description: "User created successfully",
+          variant: "success",
+        });
       }
       
       onSuccess();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || `Failed to ${user ? 'update' : 'create'} user`);
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || `Failed to ${user ? 'update' : 'create'} user`,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

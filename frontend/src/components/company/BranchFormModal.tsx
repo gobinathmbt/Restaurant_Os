@@ -4,7 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { toast } from 'sonner';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { useToast } from '@/hooks/use-toast';
 import { branchServices } from '@/api/services';
 
 interface BranchFormModalProps {
@@ -15,6 +22,7 @@ interface BranchFormModalProps {
 }
 
 export default function BranchFormModal({ open, onClose, branch, onSuccess }: BranchFormModalProps) {
+  const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -33,9 +41,24 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
     },
     gstNumber: '',
     fssaiLicense: '',
+    operatingHours: {
+      monday: { open: '09:00', close: '22:00', isOpen: true },
+      tuesday: { open: '09:00', close: '22:00', isOpen: true },
+      wednesday: { open: '09:00', close: '22:00', isOpen: true },
+      thursday: { open: '09:00', close: '22:00', isOpen: true },
+      friday: { open: '09:00', close: '22:00', isOpen: true },
+      saturday: { open: '09:00', close: '22:00', isOpen: true },
+      sunday: { open: '09:00', close: '22:00', isOpen: true }
+    },
     settings: {
       currency: 'INR',
       timezone: 'Asia/Kolkata',
+      taxSettings: {
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        serviceCharge: 0
+      },
       billPrefix: '',
       kotPrefix: ''
     }
@@ -60,9 +83,24 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
         },
         gstNumber: branch.gstNumber || '',
         fssaiLicense: branch.fssaiLicense || '',
+        operatingHours: {
+          monday: branch.operatingHours?.monday || { open: '09:00', close: '22:00', isOpen: true },
+          tuesday: branch.operatingHours?.tuesday || { open: '09:00', close: '22:00', isOpen: true },
+          wednesday: branch.operatingHours?.wednesday || { open: '09:00', close: '22:00', isOpen: true },
+          thursday: branch.operatingHours?.thursday || { open: '09:00', close: '22:00', isOpen: true },
+          friday: branch.operatingHours?.friday || { open: '09:00', close: '22:00', isOpen: true },
+          saturday: branch.operatingHours?.saturday || { open: '09:00', close: '22:00', isOpen: true },
+          sunday: branch.operatingHours?.sunday || { open: '09:00', close: '22:00', isOpen: true }
+        },
         settings: {
           currency: branch.settings?.currency || 'INR',
           timezone: branch.settings?.timezone || 'Asia/Kolkata',
+          taxSettings: {
+            cgst: branch.settings?.taxSettings?.cgst || 0,
+            sgst: branch.settings?.taxSettings?.sgst || 0,
+            igst: branch.settings?.taxSettings?.igst || 0,
+            serviceCharge: branch.settings?.taxSettings?.serviceCharge || 0
+          },
           billPrefix: branch.settings?.billPrefix || '',
           kotPrefix: branch.settings?.kotPrefix || ''
         }
@@ -86,9 +124,24 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
         },
         gstNumber: '',
         fssaiLicense: '',
+        operatingHours: {
+          monday: { open: '09:00', close: '22:00', isOpen: true },
+          tuesday: { open: '09:00', close: '22:00', isOpen: true },
+          wednesday: { open: '09:00', close: '22:00', isOpen: true },
+          thursday: { open: '09:00', close: '22:00', isOpen: true },
+          friday: { open: '09:00', close: '22:00', isOpen: true },
+          saturday: { open: '09:00', close: '22:00', isOpen: true },
+          sunday: { open: '09:00', close: '22:00', isOpen: true }
+        },
         settings: {
           currency: 'INR',
           timezone: 'Asia/Kolkata',
+          taxSettings: {
+            cgst: 0,
+            sgst: 0,
+            igst: 0,
+            serviceCharge: 0
+          },
           billPrefix: '',
           kotPrefix: ''
         }
@@ -100,7 +153,11 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
     e.preventDefault();
     
     if (!formData.name || !formData.code) {
-      toast.error('Name and code are required');
+      toast({
+        title: "Validation Error",
+        description: "Name and code are required",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -109,15 +166,27 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
       
       if (branch) {
         await branchServices.updateBranch(branch._id, formData);
-        toast.success('Branch updated successfully');
+        toast({
+          title: "Success",
+          description: "Branch updated successfully",
+          variant: "success",
+        });
       } else {
         await branchServices.createBranch(formData);
-        toast.success('Branch created successfully');
+        toast({
+          title: "Success",
+          description: "Branch created successfully",
+          variant: "success",
+        });
       }
       
       onSuccess();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || `Failed to ${branch ? 'update' : 'create'} branch`);
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || `Failed to ${branch ? 'update' : 'create'} branch`,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -246,18 +315,30 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
                 />
               </div>
               <div>
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="alternatePhone">Alternate Phone</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  value={formData.contact.email}
+                  id="alternatePhone"
+                  value={formData.contact.alternatePhone}
                   onChange={(e) => setFormData({
                     ...formData,
-                    contact: { ...formData.contact, email: e.target.value }
+                    contact: { ...formData.contact, alternatePhone: e.target.value }
                   })}
-                  placeholder="branch@restaurant.com"
+                  placeholder="+91 98765 43211"
                 />
               </div>
+            </div>
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.contact.email}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  contact: { ...formData.contact, email: e.target.value }
+                })}
+                placeholder="branch@restaurant.com"
+              />
             </div>
           </div>
 
@@ -281,6 +362,205 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
                   value={formData.fssaiLicense}
                   onChange={(e) => setFormData({ ...formData, fssaiLicense: e.target.value })}
                   placeholder="12345678901234"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Operating Hours */}
+          <Accordion type="single" collapsible className="border rounded-lg">
+            <AccordionItem value="operating-hours" className="border-0">
+              <AccordionTrigger className="px-4 hover:no-underline">
+                <h3 className="font-semibold">Operating Hours</h3>
+              </AccordionTrigger>
+              <AccordionContent className="px-4 pb-4">
+                <div className="space-y-3">
+                  {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => (
+                    <div key={day} className="flex items-center gap-4 p-3 border rounded-lg">
+                      <div className="flex items-center gap-2 w-32">
+                        <Checkbox
+                          id={`${day}-open`}
+                          checked={formData.operatingHours[day as keyof typeof formData.operatingHours].isOpen}
+                          onCheckedChange={(checked) => setFormData({
+                            ...formData,
+                            operatingHours: {
+                              ...formData.operatingHours,
+                              [day]: { ...formData.operatingHours[day as keyof typeof formData.operatingHours], isOpen: checked as boolean }
+                            }
+                          })}
+                        />
+                        <Label htmlFor={`${day}-open`} className="capitalize cursor-pointer">
+                          {day}
+                        </Label>
+                      </div>
+                      {formData.operatingHours[day as keyof typeof formData.operatingHours].isOpen && (
+                        <div className="flex items-center gap-2 flex-1">
+                          <Input
+                            type="time"
+                            value={formData.operatingHours[day as keyof typeof formData.operatingHours].open}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              operatingHours: {
+                                ...formData.operatingHours,
+                                [day]: { ...formData.operatingHours[day as keyof typeof formData.operatingHours], open: e.target.value }
+                              }
+                            })}
+                            className="w-32"
+                          />
+                          <span className="text-muted-foreground">to</span>
+                          <Input
+                            type="time"
+                            value={formData.operatingHours[day as keyof typeof formData.operatingHours].close}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              operatingHours: {
+                                ...formData.operatingHours,
+                                [day]: { ...formData.operatingHours[day as keyof typeof formData.operatingHours], close: e.target.value }
+                              }
+                            })}
+                            className="w-32"
+                          />
+                        </div>
+                      )}
+                      {!formData.operatingHours[day as keyof typeof formData.operatingHours].isOpen && (
+                        <span className="text-sm text-muted-foreground">Closed</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          {/* Settings */}
+          <div className="space-y-4">
+            <h3 className="font-semibold">Settings</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="currency">Currency</Label>
+                <Input
+                  id="currency"
+                  value={formData.settings.currency}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, currency: e.target.value }
+                  })}
+                  placeholder="INR"
+                />
+              </div>
+              <div>
+                <Label htmlFor="timezone">Timezone</Label>
+                <Input
+                  id="timezone"
+                  value={formData.settings.timezone}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, timezone: e.target.value }
+                  })}
+                  placeholder="Asia/Kolkata"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="billPrefix">Bill Prefix</Label>
+                <Input
+                  id="billPrefix"
+                  value={formData.settings.billPrefix}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, billPrefix: e.target.value }
+                  })}
+                  placeholder="BILL-"
+                />
+              </div>
+              <div>
+                <Label htmlFor="kotPrefix">KOT Prefix</Label>
+                <Input
+                  id="kotPrefix"
+                  value={formData.settings.kotPrefix}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, kotPrefix: e.target.value }
+                  })}
+                  placeholder="KOT-"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Tax Settings */}
+          <div className="space-y-4">
+            <h3 className="font-semibold">Tax Settings</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="cgst">CGST (%)</Label>
+                <Input
+                  id="cgst"
+                  type="number"
+                  step="0.01"
+                  value={formData.settings.taxSettings.cgst}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: {
+                      ...formData.settings,
+                      taxSettings: { ...formData.settings.taxSettings, cgst: parseFloat(e.target.value) || 0 }
+                    }
+                  })}
+                  placeholder="2.5"
+                />
+              </div>
+              <div>
+                <Label htmlFor="sgst">SGST (%)</Label>
+                <Input
+                  id="sgst"
+                  type="number"
+                  step="0.01"
+                  value={formData.settings.taxSettings.sgst}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: {
+                      ...formData.settings,
+                      taxSettings: { ...formData.settings.taxSettings, sgst: parseFloat(e.target.value) || 0 }
+                    }
+                  })}
+                  placeholder="2.5"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="igst">IGST (%)</Label>
+                <Input
+                  id="igst"
+                  type="number"
+                  step="0.01"
+                  value={formData.settings.taxSettings.igst}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: {
+                      ...formData.settings,
+                      taxSettings: { ...formData.settings.taxSettings, igst: parseFloat(e.target.value) || 0 }
+                    }
+                  })}
+                  placeholder="5"
+                />
+              </div>
+              <div>
+                <Label htmlFor="serviceCharge">Service Charge (%)</Label>
+                <Input
+                  id="serviceCharge"
+                  type="number"
+                  step="0.01"
+                  value={formData.settings.taxSettings.serviceCharge}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: {
+                      ...formData.settings,
+                      taxSettings: { ...formData.settings.taxSettings, serviceCharge: parseFloat(e.target.value) || 0 }
+                    }
+                  })}
+                  placeholder="10"
                 />
               </div>
             </div>

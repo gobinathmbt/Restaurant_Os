@@ -3,7 +3,7 @@ import { Plus, Edit, Trash2, Power, MapPin, Phone, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
-import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
 import { branchServices } from '@/api/services';
 import BranchFormModal from '@/components/company/BranchFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
@@ -25,9 +25,29 @@ interface Branch {
   contact: {
     phone?: string;
     email?: string;
+    alternatePhone?: string;
   };
   gstNumber?: string;
   fssaiLicense?: string;
+  operatingHours?: {
+    [key: string]: {
+      open?: string;
+      close?: string;
+      isOpen?: boolean;
+    };
+  };
+  settings?: {
+    currency?: string;
+    timezone?: string;
+    taxSettings?: {
+      cgst?: number;
+      sgst?: number;
+      igst?: number;
+      serviceCharge?: number;
+    };
+    billPrefix?: string;
+    kotPrefix?: string;
+  };
   isActive: boolean;
   createdAt: string;
 }
@@ -35,6 +55,7 @@ interface Branch {
 export default function Branches() {
   const { user } = useAuth();
   const { setLoading, setLoadingMessage } = useLoading();
+  const { toast } = useToast();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLocalLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,6 +71,16 @@ export default function Branches() {
   const [totalPages, setTotalPages] = useState(0);
 
   const canManageBranches = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+
+  // Helper function to get today's operating hours
+  const getTodayHours = (operatingHours?: Branch['operatingHours']) => {
+    if (!operatingHours) return null;
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const today = days[new Date().getDay()];
+    const hours = operatingHours[today];
+    if (!hours || !hours.isOpen) return 'Closed';
+    return `${hours.open} - ${hours.close}`;
+  };
 
   useEffect(() => {
     fetchBranches();
@@ -68,7 +99,11 @@ export default function Branches() {
       setTotalCount(response.data.data.pagination.total);
       setTotalPages(response.data.data.pagination.totalPages);
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to fetch branches');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch branches',
+        variant: "destructive",
+      });
     } finally {
       setLocalLoading(false);
     }
@@ -95,11 +130,19 @@ export default function Branches() {
       setLoading(true);
       setLoadingMessage('Deleting branch...');
       await branchServices.deleteBranch(deleteDialog.branch._id);
-      toast.success('Branch deleted successfully');
+      toast({
+        title: "Success",
+        description: "Branch deleted successfully",
+        variant: "success",
+      });
       fetchBranches();
       setDeleteDialog({ open: false, branch: null });
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to delete branch');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to delete branch',
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -110,10 +153,18 @@ export default function Branches() {
       setLoading(true);
       setLoadingMessage(`${branch.isActive ? 'Deactivating' : 'Activating'} branch...`);
       await branchServices.toggleBranchStatus(branch._id);
-      toast.success(`Branch ${branch.isActive ? 'deactivated' : 'activated'} successfully`);
+      toast({
+        title: "Success",
+        description: `Branch ${branch.isActive ? 'deactivated' : 'activated'} successfully`,
+        variant: "success",
+      });
       fetchBranches();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to update branch status');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to update branch status',
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -154,9 +205,12 @@ export default function Branches() {
         tableHeaders={
           <>
             <TableHead className="w-16">S.No</TableHead>
-            <TableHead>Branch</TableHead>
+            <TableHead>Branch Details</TableHead>
             <TableHead>Location</TableHead>
             <TableHead>Contact</TableHead>
+            <TableHead>Hours Today</TableHead>
+            <TableHead>Legal Info</TableHead>
+            <TableHead>Settings</TableHead>
             <TableHead>Status</TableHead>
             {canManageBranches && <TableHead className="text-right">Actions</TableHead>}
           </>
@@ -172,6 +226,9 @@ export default function Branches() {
                   <div>
                     <p className="font-medium">{branch.name}</p>
                     <p className="text-sm text-muted-foreground">Code: {branch.code}</p>
+                    {branch.settings?.billPrefix && (
+                      <p className="text-xs text-muted-foreground">Bill: {branch.settings.billPrefix}</p>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -184,6 +241,9 @@ export default function Branches() {
                           .filter(Boolean)
                           .join(', ')}
                       </p>
+                      {branch.address?.country && (
+                        <p className="text-xs text-muted-foreground">{branch.address.country}</p>
+                      )}
                     </div>
                   </div>
                 </TableCell>
@@ -195,10 +255,65 @@ export default function Branches() {
                         {branch.contact.phone}
                       </div>
                     )}
+                    {branch.contact?.alternatePhone && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Phone className="h-3 w-3" />
+                        {branch.contact.alternatePhone}
+                      </div>
+                    )}
                     {branch.contact?.email && (
                       <div className="flex items-center gap-2 text-sm">
                         <Mail className="h-3 w-3 text-muted-foreground" />
                         {branch.contact.email}
+                      </div>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="text-sm">
+                    {getTodayHours(branch.operatingHours) === 'Closed' ? (
+                      <Badge variant="secondary" className="text-xs">Closed</Badge>
+                    ) : (
+                      <div className="font-mono text-xs">
+                        {getTodayHours(branch.operatingHours)}
+                      </div>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1 text-xs">
+                    {branch.gstNumber && (
+                      <div>
+                        <span className="text-muted-foreground">GST:</span>
+                        <p className="font-mono">{branch.gstNumber}</p>
+                      </div>
+                    )}
+                    {branch.fssaiLicense && (
+                      <div>
+                        <span className="text-muted-foreground">FSSAI:</span>
+                        <p className="font-mono">{branch.fssaiLicense}</p>
+                      </div>
+                    )}
+                    {!branch.gstNumber && !branch.fssaiLicense && (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1 text-xs">
+                    {branch.settings?.currency && (
+                      <Badge variant="outline" className="text-xs">
+                        {branch.settings.currency}
+                      </Badge>
+                    )}
+                    {branch.settings?.taxSettings && (
+                      <div className="text-muted-foreground">
+                        {branch.settings.taxSettings.cgst && (
+                          <div>CGST: {branch.settings.taxSettings.cgst}%</div>
+                        )}
+                        {branch.settings.taxSettings.sgst && (
+                          <div>SGST: {branch.settings.taxSettings.sgst}%</div>
+                        )}
                       </div>
                     )}
                   </div>
