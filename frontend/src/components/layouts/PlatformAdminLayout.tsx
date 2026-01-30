@@ -1,0 +1,277 @@
+import { useState } from 'react';
+import { Link, useLocation, Outlet } from 'react-router-dom';
+import { cn } from '@/lib/utils';
+import {
+  LayoutDashboard,
+  Building2,
+  Users,
+  CreditCard,
+  Settings,
+  BarChart3,
+  Menu,
+  X,
+  LogOut,
+  Bell,
+  Search,
+  ChevronDown,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useAuth } from '@/contexts/AuthContext';
+
+interface MenuItem {
+  title: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  permissions?: string[];
+}
+
+const menuItems: MenuItem[] = [
+  {
+    title: 'Dashboard',
+    href: '/platform/dashboard',
+    icon: LayoutDashboard,
+  },
+  {
+    title: 'Companies',
+    href: '/platform/companies',
+    icon: Building2,
+    permissions: ['manage_companies'],
+  },
+  {
+    title: 'Subscriptions',
+    href: '/platform/subscriptions',
+    icon: CreditCard,
+    permissions: ['manage_subscriptions'],
+  },
+  {
+    title: 'Analytics',
+    href: '/platform/analytics',
+    icon: BarChart3,
+    permissions: ['view_analytics'],
+  },
+  {
+    title: 'Admins',
+    href: '/platform/admins',
+    icon: Users,
+    permissions: ['manage_admins'],
+  },
+  {
+    title: 'Settings',
+    href: '/platform/settings',
+    icon: Settings,
+    permissions: ['manage_platform_config'],
+  },
+];
+
+export default function PlatformAdminLayout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+  const { user, logout } = useAuth();
+
+  const hasPermission = (permissions?: string[]) => {
+    if (!permissions || permissions.length === 0) return true;
+    if (user?.platformAdminPrimary) return true;
+    return permissions.some(p => user?.permissions?.includes(p));
+  };
+
+  const filteredMenuItems = menuItems.filter(item => hasPermission(item.permissions));
+
+  const handleLogout = () => {
+    logout();
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Sidebar - Desktop */}
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
+        <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-neutral-950 border-r border-border px-6 pb-4">
+          {/* Logo */}
+          <div className="flex h-16 shrink-0 items-center">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-primary-500 flex items-center justify-center">
+                <span className="text-white font-bold text-lg">R</span>
+              </div>
+              <div>
+                <h1 className="text-white font-bold text-lg">RestaurantOS</h1>
+                <p className="text-xs text-muted-foreground">Platform Admin</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex flex-1 flex-col">
+            <ul role="list" className="flex flex-1 flex-col gap-y-7">
+              <li>
+                <ul role="list" className="-mx-2 space-y-1">
+                  {filteredMenuItems.map((item) => {
+                    const isActive = location.pathname === item.href;
+                    return (
+                      <li key={item.title}>
+                        <Link
+                          to={item.href}
+                          className={cn(
+                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
+                            isActive
+                              ? 'bg-primary-500 text-white'
+                              : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                          )}
+                        >
+                          <item.icon className="h-5 w-5 shrink-0" />
+                          {item.title}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </aside>
+
+      {/* Mobile sidebar */}
+      <div
+        className={cn(
+          'fixed inset-0 z-50 lg:hidden',
+          sidebarOpen ? 'block' : 'hidden'
+        )}
+      >
+        <div className="fixed inset-0 bg-black/80" onClick={() => setSidebarOpen(false)} />
+        <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-neutral-950 border-r border-border">
+          <div className="flex h-16 items-center justify-between px-6">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-primary-500 flex items-center justify-center">
+                <span className="text-white font-bold text-lg">R</span>
+              </div>
+              <div>
+                <h1 className="text-white font-bold text-lg">RestaurantOS</h1>
+                <p className="text-xs text-muted-foreground">Platform Admin</p>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(false)}
+              className="text-gray-400 hover:text-white"
+            >
+              <X className="h-6 w-6" />
+            </Button>
+          </div>
+          <nav className="px-4 py-4">
+            <ul role="list" className="space-y-1">
+              {filteredMenuItems.map((item) => {
+                const isActive = location.pathname === item.href;
+                return (
+                  <li key={item.title}>
+                    <Link
+                      to={item.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className={cn(
+                        'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
+                        isActive
+                          ? 'bg-primary-500 text-white'
+                          : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                      )}
+                    >
+                      <item.icon className="h-5 w-5 shrink-0" />
+                      {item.title}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        </aside>
+      </div>
+
+      {/* Main content */}
+      <div className="lg:pl-64">
+        {/* Top bar */}
+        <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border bg-background px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Menu className="h-6 w-6" />
+          </Button>
+
+          {/* Search */}
+          <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
+            <div className="relative flex flex-1 items-center">
+              <Search className="pointer-events-none absolute left-3 h-5 w-5 text-muted-foreground" />
+              <input
+                type="search"
+                placeholder="Search..."
+                className="block w-full rounded-md border-0 bg-muted py-1.5 pl-10 pr-3 text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary-500 sm:text-sm sm:leading-6"
+              />
+            </div>
+          </div>
+
+          {/* Right side */}
+          <div className="flex items-center gap-x-4 lg:gap-x-6">
+            {/* Notifications */}
+            <Button variant="ghost" size="icon" className="relative">
+              <Bell className="h-5 w-5" />
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary-500" />
+            </Button>
+
+            {/* Profile dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="flex items-center gap-2">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={user?.profilePicture} />
+                    <AvatarFallback className="bg-primary-500 text-white">
+                      {user?.name?.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="hidden md:block text-left">
+                    <p className="text-sm font-medium">{user?.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {user?.platformAdminPrimary ? 'Primary Admin' : 'Admin'}
+                    </p>
+                  </div>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium">{user?.name}</p>
+                    <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Page content */}
+        <main className="py-6 px-4 sm:px-6 lg:px-8">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}

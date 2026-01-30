@@ -68,4 +68,19 @@ companyUserSchema.methods.toJSON = function() {
   return obj;
 };
 
+// Database Indexes for performance optimization
+companyUserSchema.index({ email: 1 }, { unique: true }); // Primary login lookup
+companyUserSchema.index({ googleId: 1 }, { sparse: true }); // Google OAuth lookup
+companyUserSchema.index({ companyId: 1 }); // Company-based queries
+companyUserSchema.index({ role: 1 }); // Role-based filtering
+companyUserSchema.index({ isActive: 1 }); // Active users filter
+companyUserSchema.index({ lastLogin: -1 }); // Sort by last login
+companyUserSchema.index({ createdAt: -1 }); // Sort by creation date
+
+// Compound indexes
+companyUserSchema.index({ companyId: 1, role: 1 }); // Users by company and role
+companyUserSchema.index({ companyId: 1, isActive: 1 }); // Active users per company
+companyUserSchema.index({ companyId: 1, branchIds: 1 }); // Branch-based access
+companyUserSchema.index({ email: 1, isActive: 1 }); // Login with active check
+
 export default mongoose.model('CompanyUser', companyUserSchema);

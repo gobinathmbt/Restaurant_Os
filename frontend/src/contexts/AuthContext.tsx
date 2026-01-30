@@ -7,8 +7,12 @@ interface User {
   name: string;
   email: string;
   role: string;
+  userType?: 'company' | 'platform';
   companyId?: string;
+  companyName?: string;
   branchIds?: string[];
+  platformAdminPrimary?: boolean;
+  permissions?: string[];
   isActive: boolean;
   profilePicture?: string;
 }

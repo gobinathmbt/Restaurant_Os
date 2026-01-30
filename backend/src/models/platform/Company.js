@@ -82,4 +82,17 @@ const companySchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Database Indexes for performance optimization
+companySchema.index({ companyId: 1 }, { unique: true }); // Primary lookup
+companySchema.index({ email: 1 }, { unique: true }); // Email lookup
+companySchema.index({ 'subscription.status': 1 }); // Filter by subscription status
+companySchema.index({ isActive: 1 }); // Filter active companies
+companySchema.index({ 'subscription.nextBillingDate': 1 }); // Billing queries
+companySchema.index({ createdAt: -1 }); // Sort by creation date
+companySchema.index({ companyName: 'text' }); // Text search on company name
+
+// Compound indexes
+companySchema.index({ isActive: 1, 'subscription.status': 1 }); // Active companies by subscription
+companySchema.index({ 'subscription.status': 1, 'subscription.nextBillingDate': 1 }); // Billing management
+
 export default mongoose.model('Company', companySchema);

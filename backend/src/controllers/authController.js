@@ -1,15 +1,15 @@
 import CompanyUser from '../models/platform/CompanyUser.js';
 import Company from '../models/platform/Company.js';
+import PlatformAdmin from '../models/platform/PlatformAdmin.js';
 import RefreshToken from '../models/platform/RefreshToken.js';
 import jwt from 'jsonwebtoken';
 import { ENV } from '../config/env.js';
 import { logger } from '../utils/logger.js';
-import { OAuth2Client } from 'google-auth-library';
 import { getCompanyDB } from '../config/database.js';
 import { generateCompanyId, generateDatabaseName, calculateTrialEndDate } from '../utils/helpers.js';
 import mongoose from 'mongoose';
 
-const googleClient = new OAuth2Client(ENV.GOOGLE_CLIENT_ID);
+
 
 /**
  * Generate JWT Token
@@ -171,6 +171,7 @@ export const registerCompany = async (req, res, next) => {
 /**
  * Login with Email/Password
  * Authenticates user and returns JWT tokens
+ * Priority: CompanyUser first, then PlatformAdmin
  */
 export const login = async (req, res, next) => {
   try {
@@ -184,8 +185,16 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Find user with password field (explicitly select it)
-    const user = await CompanyUser.findOne({ email }).select('+password');
+    // First priority: Find in CompanyUser
+    let user = await CompanyUser.findOne({ email }).select('+password');
+    let userType = 'company';
+
+    // Second priority: Find in PlatformAdmin if not found in CompanyUser
+    if (!user) {
+      user = await PlatformAdmin.findOne({ email }).select('+password');
+      userType = 'platform';
+    }
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -218,8 +227,8 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Check company subscription status
-    if (user.companyId) {
+    // Check company subscription status (only for company users)
+    if (userType === 'company' && user.companyId) {
       const company = await Company.findOne({ companyId: user.companyId });
       
       if (!company || !company.isActive) {
@@ -245,23 +254,37 @@ export const login = async (req, res, next) => {
     const token = generateToken(user._id);
     const refreshToken = await generateRefreshToken(user._id);
 
-    logger.info('User logged in', { userId: user._id, email });
+    logger.info('User logged in', { userId: user._id, email, userType });
+
+    // Prepare response based on user type
+    const responseData = {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        userType,
+      },
+      token,
+      refreshToken,
+    };
+
+    // Add company-specific fields
+    if (userType === 'company') {
+      responseData.user.companyId = user.companyId;
+      responseData.user.branchIds = user.branchIds;
+    }
+
+    // Add platform admin-specific fields
+    if (userType === 'platform') {
+      responseData.user.platformAdminPrimary = user.platformAdminPrimary;
+      responseData.user.permissions = user.permissions;
+    }
 
     res.json({
       success: true,
       message: 'Login successful',
-      data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          companyId: user.companyId,
-          branchIds: user.branchIds,
-        },
-        token,
-        refreshToken,
-      },
+      data: responseData,
     });
   } catch (error) {
     logger.error('Login error', error);

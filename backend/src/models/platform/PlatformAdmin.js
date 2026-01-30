@@ -22,6 +22,10 @@ const platformAdminSchema = new mongoose.Schema({
     default: 'platform_super_admin',
     immutable: true,
   },
+  platformAdminPrimary: {
+    type: Boolean,
+    default: false,
+  },
   permissions: [{
     type: String,
     enum: ['manage_companies', 'manage_subscriptions', 'manage_platform_config', 'view_analytics', 'manage_admins'],
@@ -55,5 +59,17 @@ platformAdminSchema.methods.toJSON = function() {
   delete obj.password;
   return obj;
 };
+
+// Database Indexes for performance optimization
+platformAdminSchema.index({ email: 1 }, { unique: true }); // Primary login lookup
+platformAdminSchema.index({ platformAdminPrimary: 1 }); // Filter primary admins
+platformAdminSchema.index({ isActive: 1 }); // Active admins filter
+platformAdminSchema.index({ permissions: 1 }); // Permission-based queries
+platformAdminSchema.index({ lastLogin: -1 }); // Sort by last login
+platformAdminSchema.index({ createdAt: -1 }); // Sort by creation date
+
+// Compound indexes
+platformAdminSchema.index({ isActive: 1, platformAdminPrimary: 1 }); // Active primary admins
+platformAdminSchema.index({ email: 1, isActive: 1 }); // Login with active check
 
 export default mongoose.model('PlatformAdmin', platformAdminSchema);

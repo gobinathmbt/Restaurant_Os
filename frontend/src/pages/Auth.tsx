@@ -48,6 +48,21 @@ const Auth = () => {
   );
   const [loading, setLoading] = useState(false);
 
+  // Helper function to redirect based on user type
+  const redirectToDashboard = () => {
+    const userStr = sessionStorage.getItem('user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      if (user.userType === 'platform') {
+        navigate('/platform/dashboard');
+      } else {
+        navigate('/dashboard');
+      }
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
   const [loginData, setLoginData] = useState<LoginData>({
     email: '',
     password: '',
@@ -77,8 +92,7 @@ const Auth = () => {
         variant: "success",
       });
       
-      // Navigate immediately without setTimeout
-      navigate('/dashboard');
+      redirectToDashboard();
     } catch (err: any) {
       console.log('Login error:', err);
       
@@ -107,8 +121,7 @@ const Auth = () => {
         variant: "success",
       });
       
-      // Navigate immediately without setTimeout
-      navigate('/dashboard');
+      redirectToDashboard();
     } catch (err: any) {
       console.log('Registration error:', err);
       
@@ -169,8 +182,7 @@ const Auth = () => {
               variant: "success",
             });
             
-            // Navigate immediately without setTimeout
-            navigate('/dashboard');
+            redirectToDashboard();
           }
         } catch (loginError: any) {
           

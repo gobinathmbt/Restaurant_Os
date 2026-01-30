@@ -29,6 +29,17 @@ const platformConfigSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Database Indexes for performance optimization
+platformConfigSchema.index({ configKey: 1 }, { unique: true }); // Primary lookup
+platformConfigSchema.index({ category: 1 }); // Category-based queries
+platformConfigSchema.index({ isActive: 1 }); // Active configs filter
+platformConfigSchema.index({ isSecret: 1 }); // Secret configs filter
+platformConfigSchema.index({ updatedAt: -1 }); // Recently modified configs
+
+// Compound indexes
+platformConfigSchema.index({ category: 1, isActive: 1 }); // Active configs by category
+platformConfigSchema.index({ isActive: 1, isSecret: 1 }); // Active secret configs
+
 // Example configuration keys stored in this collection:
 // - JWT_SECRET (category: 'auth', isSecret: true)
 // - JWT_EXPIRE (category: 'auth')
