@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
+import { LoadingProvider } from "@/contexts/LoadingContext";
 import PlatformAdminLayout from "@/components/layouts/PlatformAdminLayout";
 import CompanyLayout  from "@/components/layouts/CompanyLayout";
 import Landing from "@/pages/Landing";
@@ -15,6 +16,8 @@ import PlatformDashboard from "@/pages/platform/PlatformDashboard";
 import PlatformSettings from "@/pages/platform/PlatformSettings";
 import CompanyDashboard from "@/pages/company/CompanyDashboard";
 import CompanySettings from "@/pages/company/CompanySettings";
+import Branches from "@/pages/company/Branches";
+import Staff from "@/pages/company/Staff";
 import { isElectron } from "@/utils/platform";
 
 const queryClient = new QueryClient();
@@ -25,11 +28,12 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AuthProvider>
+        <LoadingProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AuthProvider>
               <Routes>
                 {/* Landing Page - Only for Web */}
                 {!isElectronApp && <Route path="/" element={<Landing />} />}
@@ -86,10 +90,10 @@ const App = () => {
                   <Route path="menu" element={<div className="p-8">Menu Page Coming Soon</div>} />
                   <Route path="inventory" element={<div className="p-8">Inventory Page Coming Soon</div>} />
                   <Route path="customers" element={<div className="p-8">Customers Page Coming Soon</div>} />
-                  <Route path="staff" element={<div className="p-8">Staff Page Coming Soon</div>} />
+                  <Route path="staff" element={<Staff />} />
                   <Route path="reports" element={<div className="p-8">Reports Page Coming Soon</div>} />
                   <Route path="billing" element={<div className="p-8">Billing Page Coming Soon</div>} />
-                  <Route path="branches" element={<div className="p-8">Branches Page Coming Soon</div>} />
+                  <Route path="branches" element={<Branches />} />
                   <Route path="settings" element={<CompanySettings />} />
                 </Route>
                 
@@ -102,8 +106,9 @@ const App = () => {
             </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+      </LoadingProvider>
+    </ThemeProvider>
+  </QueryClientProvider>
   );
 };
 

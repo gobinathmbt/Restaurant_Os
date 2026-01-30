@@ -38,7 +38,53 @@ export const notificationServices = {
   sendTestNotification: () => apiClient.post("/api/notifications/test"),
 };
 
+// Branch Services
+export const branchServices = {
+  // Get all branches
+  getBranches: (params?: { page?: number; limit?: number; search?: string; isActive?: boolean }) =>
+    apiClient.get("/api/branches", { params }),
+
+  // Get single branch
+  getBranch: (id: string) => apiClient.get(`/api/branches/${id}`),
+
+  // Create branch
+  createBranch: (data: any) => apiClient.post("/api/branches", data),
+
+  // Update branch
+  updateBranch: (id: string, data: any) => apiClient.put(`/api/branches/${id}`, data),
+
+  // Delete branch
+  deleteBranch: (id: string) => apiClient.delete(`/api/branches/${id}`),
+
+  // Toggle branch status
+  toggleBranchStatus: (id: string) => apiClient.patch(`/api/branches/${id}/toggle-status`),
+};
+
+// User Services
+export const userServices = {
+  // Get all users
+  getUsers: (params?: { page?: number; limit?: number; search?: string; role?: string; isActive?: boolean; branchId?: string }) =>
+    apiClient.get("/api/users", { params }),
+
+  // Get single user
+  getUser: (id: string) => apiClient.get(`/api/users/${id}`),
+
+  // Create user
+  createUser: (data: any) => apiClient.post("/api/users", data),
+
+  // Update user
+  updateUser: (id: string, data: any) => apiClient.put(`/api/users/${id}`, data),
+
+  // Delete user
+  deleteUser: (id: string) => apiClient.delete(`/api/users/${id}`),
+
+  // Toggle user status
+  toggleUserStatus: (id: string) => apiClient.patch(`/api/users/${id}/toggle-status`),
+};
+
 export default {
   auth: authServices,
   notifications: notificationServices,
+  branches: branchServices,
+  users: userServices,
 };

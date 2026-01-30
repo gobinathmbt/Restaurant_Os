@@ -19,6 +19,8 @@ import { errorHandler } from './src/middlewares/errorHandler.js';
 import { logger } from './src/utils/logger.js';
 import authRoutes from './src/routes/authRoutes.js';
 import notificationRoutes from './src/routes/notificationRoutes.js';
+import branchRoutes from './src/routes/branchRoutes.js';
+import userRoutes from './src/routes/userRoutes.js';
 import socketManager from './src/config/socket.js';
 
 // Load environment variables from .env file
@@ -61,6 +63,8 @@ const startServer = async () => {
     logger.info('Step 4: Setting up routes...');
     app.use('/api/auth', authRoutes);
     app.use('/api/notifications', notificationRoutes);
+    app.use('/api/branches', branchRoutes);
+    app.use('/api/users', userRoutes);
 
     // Health check endpoint
     app.get('/health', (req, res) => {
