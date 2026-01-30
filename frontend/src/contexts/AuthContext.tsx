@@ -78,29 +78,51 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const checkAuth = async () => {
       try {
         const token = sessionStorage.getItem('token');
+        const userStr = sessionStorage.getItem('user');
         
         if (!token) {
           setLoading(false);
+          setIsAuthenticated(false);
           return;
         }
 
-        // Call getMe to verify token and get user data
+        // If we have user data in sessionStorage, set it immediately
+        if (userStr) {
+          try {
+            const userData = JSON.parse(userStr);
+            setUser(userData);
+            setIsAuthenticated(true);
+          } catch (e) {
+            console.error('Failed to parse user data:', e);
+          }
+        }
+
+        // Call getMe to verify token and get fresh user data
         const response = await authServices.getMe();
         
         if (response.data.success) {
           setUser(response.data.data.user);
           setCompany(response.data.data.company || null);
           setIsAuthenticated(true);
+          
+          // Update sessionStorage with fresh data
+          sessionStorage.setItem('user', JSON.stringify(response.data.data.user));
         } else {
           // Invalid token, clear storage
           sessionStorage.removeItem('token');
           sessionStorage.removeItem('user');
+          setUser(null);
+          setCompany(null);
+          setIsAuthenticated(false);
         }
       } catch (error) {
         console.error('Auth check failed:', error);
         // Clear invalid tokens
         sessionStorage.removeItem('token');
         sessionStorage.removeItem('user');
+        setUser(null);
+        setCompany(null);
+        setIsAuthenticated(false);
       } finally {
         setLoading(false);
       }
@@ -121,20 +143,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sessionStorage.setItem('token', token);
         sessionStorage.setItem('user', JSON.stringify(userData));
         
-        // Update state
+        // Update state immediately
         setUser(userData);
         setIsAuthenticated(true);
         
-        // Fetch company data if user has companyId
-        if (userData.companyId) {
-          try {
-            const meResponse = await authServices.getMe();
-            if (meResponse.data.success && meResponse.data.data.company) {
-              setCompany(meResponse.data.data.company);
-            }
-          } catch (err) {
-            console.error('Failed to fetch company data:', err);
-          }
+        // Fetch company data if user has companyId (don't await, let it load in background)
+        if (userData.userType === 'company' && userData.companyId) {
+          authServices.getMe()
+            .then(meResponse => {
+              if (meResponse.data.success && meResponse.data.data.company) {
+                setCompany(meResponse.data.data.company);
+              }
+            })
+            .catch(err => {
+              console.error('Failed to fetch company data:', err);
+            });
         }
       } else {
         throw new Error(response.data.message || 'Login failed');
@@ -151,16 +174,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await authServices.googleLogin(googleToken);
       
       if (response.data.success) {
-        const { token, user: userData, company: companyData } = response.data;
+        const { token, user: userData } = response.data.data;
         
         // Store token in sessionStorage
         sessionStorage.setItem('token', token);
         sessionStorage.setItem('user', JSON.stringify(userData));
         
-        // Update state
+        // Update state immediately
         setUser(userData);
-        setCompany(companyData || null);
         setIsAuthenticated(true);
+        
+        // Fetch company data if user has companyId (don't await)
+        if (userData.userType === 'company' && userData.companyId) {
+          authServices.getMe()
+            .then(meResponse => {
+              if (meResponse.data.success && meResponse.data.data.company) {
+                setCompany(meResponse.data.data.company);
+              }
+            })
+            .catch(err => {
+              console.error('Failed to fetch company data:', err);
+            });
+        }
       } else {
         throw new Error(response.data.message || 'Google login failed');
       }
@@ -182,7 +217,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sessionStorage.setItem('token', token);
         sessionStorage.setItem('user', JSON.stringify(userData));
         
-        // Update state
+        // Update state immediately
         setUser(userData);
         setCompany(companyData || null);
         setIsAuthenticated(true);

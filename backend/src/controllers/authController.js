@@ -150,6 +150,7 @@ export const registerCompany = async (req, res, next) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          userType: 'company',
           companyId: user.companyId,
         },
         company: {
@@ -331,8 +332,15 @@ export const googleLogin = async (req, res, next) => {
       });
     }
 
-    // Find user by email or googleId
+    // Find user by email or googleId - check CompanyUser first, then PlatformAdmin
     let user = await CompanyUser.findOne({ $or: [{ email }, { googleId }] });
+    let userType = 'company';
+
+    // If not found in CompanyUser, check PlatformAdmin
+    if (!user) {
+      user = await PlatformAdmin.findOne({ $or: [{ email }, { googleId }] });
+      userType = 'platform';
+    }
 
     if (!user) {
       // New user - need to register company first
@@ -363,8 +371,8 @@ export const googleLogin = async (req, res, next) => {
       });
     }
 
-    // Check company subscription
-    if (user.companyId) {
+    // Check company subscription (only for company users)
+    if (userType === 'company' && user.companyId) {
       const company = await Company.findOne({ companyId: user.companyId });
       
       if (!company || !company.isActive) {
@@ -390,23 +398,38 @@ export const googleLogin = async (req, res, next) => {
     const token = generateToken(user._id);
     const refreshToken = await generateRefreshToken(user._id);
 
-    logger.info('Google login successful', { userId: user._id, email });
+    logger.info('Google login successful', { userId: user._id, email, userType });
+
+    // Prepare response based on user type
+    const responseData = {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        userType,
+        profilePicture: user.profilePicture,
+      },
+      token,
+      refreshToken,
+    };
+
+    // Add company-specific fields
+    if (userType === 'company') {
+      responseData.user.companyId = user.companyId;
+      responseData.user.branchIds = user.branchIds;
+    }
+
+    // Add platform admin-specific fields
+    if (userType === 'platform') {
+      responseData.user.platformAdminPrimary = user.platformAdminPrimary;
+      responseData.user.permissions = user.permissions;
+    }
 
     res.json({
       success: true,
       message: 'Google login successful',
-      data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          companyId: user.companyId,
-          profilePicture: user.profilePicture,
-        },
-        token,
-        refreshToken,
-      },
+      data: responseData,
     });
   } catch (error) {
     logger.error('Google login error', error);
@@ -420,7 +443,15 @@ export const googleLogin = async (req, res, next) => {
  */
 export const getMe = async (req, res, next) => {
   try {
-    const user = await CompanyUser.findById(req.user.userId);
+    // First try to find in CompanyUser
+    let user = await CompanyUser.findById(req.user.userId);
+    let userType = 'company';
+    
+    // If not found, try PlatformAdmin
+    if (!user) {
+      user = await PlatformAdmin.findById(req.user.userId);
+      userType = 'platform';
+    }
     
     if (!user) {
       return res.status(404).json({
@@ -429,32 +460,54 @@ export const getMe = async (req, res, next) => {
       });
     }
 
-    // Get company details if user belongs to a company
-    let company = null;
-    if (user.companyId) {
-      company = await Company.findOne({ companyId: user.companyId });
+    // Prepare base user data
+    const userData = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      userType,
+      profilePicture: user.profilePicture,
+    };
+
+    // Add company-specific data
+    if (userType === 'company') {
+      userData.companyId = user.companyId;
+      userData.branchIds = user.branchIds;
+      
+      // Get company details if user belongs to a company
+      let company = null;
+      if (user.companyId) {
+        company = await Company.findOne({ companyId: user.companyId });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          user: userData,
+          company: company ? {
+            companyId: company.companyId,
+            companyName: company.companyName,
+            subscription: company.subscription,
+            modules: company.modules,
+          } : null,
+        },
+      });
     }
 
-    res.json({
-      success: true,
-      data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          companyId: user.companyId,
-          branchIds: user.branchIds,
-          profilePicture: user.profilePicture,
+    // Add platform admin-specific data
+    if (userType === 'platform') {
+      userData.platformAdminPrimary = user.platformAdminPrimary;
+      userData.permissions = user.permissions;
+
+      return res.json({
+        success: true,
+        data: {
+          user: userData,
+          company: null,
         },
-        company: company ? {
-          companyId: company.companyId,
-          companyName: company.companyName,
-          subscription: company.subscription,
-          modules: company.modules,
-        } : null,
-      },
-    });
+      });
+    }
   } catch (error) {
     logger.error('Get me error', error);
     next(error);
