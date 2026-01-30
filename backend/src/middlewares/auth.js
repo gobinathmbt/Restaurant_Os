@@ -1,11 +1,13 @@
 import jwt from 'jsonwebtoken';
 import { ENV } from '../config/env.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
+import PlatformAdmin from '../models/platform/PlatformAdmin.js';
 import { logger } from '../utils/logger.js';
 
 /**
  * Authentication Middleware
  * Verifies JWT token and attaches user info to request
+ * Checks both CompanyUser and PlatformAdmin collections
  */
 export const authenticate = async (req, res, next) => {
   try {
@@ -48,8 +50,15 @@ export const authenticate = async (req, res, next) => {
       throw jwtError;
     }
 
-    // Find user in CompanyUser collection
-    const user = await CompanyUser.findById(decoded.userId);
+    // Find user in CompanyUser collection first
+    let user = await CompanyUser.findById(decoded.userId);
+    let userType = 'company';
+    
+    // If not found in CompanyUser, check PlatformAdmin
+    if (!user) {
+      user = await PlatformAdmin.findById(decoded.userId);
+      userType = 'platform';
+    }
     
     if (!user) {
       return res.status(401).json({
@@ -71,11 +80,22 @@ export const authenticate = async (req, res, next) => {
       userId: user._id,
       email: user.email,
       role: user.role,
-      companyId: user.companyId,
-      branchIds: user.branchIds,
+      userType,
     };
 
-    logger.debug('User authenticated', { userId: user._id, role: user.role });
+    // Add company-specific fields
+    if (userType === 'company') {
+      req.user.companyId = user.companyId;
+      req.user.branchIds = user.branchIds;
+    }
+
+    // Add platform admin-specific fields
+    if (userType === 'platform') {
+      req.user.platformAdminPrimary = user.platformAdminPrimary;
+      req.user.permissions = user.permissions;
+    }
+
+    logger.debug('User authenticated', { userId: user._id, role: user.role, userType });
 
     next();
   } catch (error) {

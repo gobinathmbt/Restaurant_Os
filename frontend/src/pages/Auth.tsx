@@ -94,7 +94,7 @@ const Auth = () => {
       toast({
         title: "Login Successful",
         description: "Welcome back!",
-        variant: "default",
+        variant: "success",
       });
       
       // Don't set loading to false here - let the redirect happen
@@ -146,7 +146,7 @@ const Auth = () => {
       toast({
         title: "Registration Successful",
         description: "Your account has been created. 30-day trial activated!",
-        variant: "default",
+        variant: "info",
       });
       
       // Don't set loading to false here - let the redirect happen
@@ -208,7 +208,7 @@ const Auth = () => {
         toast({
           title: "Google Login Successful",
           description: "Welcome back!",
-          variant: "default",
+          variant: "success",
         });
         
         // Redirect will happen via useEffect when isAuthenticated changes
@@ -235,7 +235,7 @@ const Auth = () => {
             toast({
               title: "Account Not Found",
               description: "Please complete your registration to continue.",
-              variant: "default",
+              variant: "info",
             });
           } catch (err) {
             console.error('Failed to get user info:', err);

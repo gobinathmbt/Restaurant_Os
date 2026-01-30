@@ -195,7 +195,7 @@ export const login = async (req, res, next) => {
       user = await PlatformAdmin.findOne({ email }).select('+password');
       userType = 'platform';
     }
-console.log(user)
+
     if (!user) {
       return res.status(401).json({
         success: false,
