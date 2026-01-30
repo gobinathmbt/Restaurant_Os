@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
@@ -13,6 +13,8 @@ import {
   LogOut,
   Search,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -24,6 +26,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 
@@ -74,8 +82,19 @@ const menuItems: MenuItem[] = [
 
 export default function PlatformAdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    // Read from cookie on initial load
+    const cookies = document.cookie.split(';');
+    const collapsedCookie = cookies.find(c => c.trim().startsWith('sidebar-collapsed='));
+    return collapsedCookie ? collapsedCookie.split('=')[1] === 'true' : false;
+  });
   const location = useLocation();
   const { user, logout } = useAuth();
+
+  // Save to cookie whenever state changes
+  useEffect(() => {
+    document.cookie = `sidebar-collapsed=${sidebarCollapsed}; path=/; max-age=31536000`; // 1 year
+  }, [sidebarCollapsed]);
 
   const hasPermission = (permissions?: string[]) => {
     if (!permissions || permissions.length === 0) return true;
@@ -92,45 +111,103 @@ export default function PlatformAdminLayout() {
   return (
     <div className="min-h-screen bg-background">
       {/* Sidebar - Desktop */}
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
-        <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-neutral-950 border-r border-border px-6 pb-4">
+      <aside 
+        className={cn(
+          "hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:flex-col transition-all duration-300 ease-in-out",
+          sidebarCollapsed ? "lg:w-16" : "lg:w-64"
+        )}
+      >
+        <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-neutral-950 border-r border-border pb-4">
           {/* Logo */}
-          <div className="flex h-16 shrink-0 items-center">
+          <div className={cn(
+            "flex h-16 shrink-0 items-center transition-all duration-300",
+            sidebarCollapsed ? "justify-center px-2" : "px-6"
+          )}>
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary-500 flex items-center justify-center">
+              <div className="h-8 w-8 rounded-lg bg-primary-500 flex items-center justify-center shrink-0">
                 <span className="text-white font-bold text-lg">R</span>
               </div>
-              <div>
-                <h1 className="text-white font-bold text-lg">RestaurantOS</h1>
-                <p className="text-xs text-muted-foreground">Platform Admin</p>
-              </div>
+              {!sidebarCollapsed && (
+                <div className="overflow-hidden transition-all duration-300">
+                  <h1 className="text-white font-bold text-lg whitespace-nowrap">RestaurantOS</h1>
+                  <p className="text-xs text-muted-foreground">Platform Admin</p>
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* Toggle Button */}
+          <div className={cn(
+            "transition-all duration-300",
+            sidebarCollapsed ? "px-2" : "px-4"
+          )}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className={cn(
+                "w-full text-gray-400 hover:text-white hover:bg-neutral-900 transition-all duration-300",
+                sidebarCollapsed && "justify-center px-0"
+              )}
+            >
+              {sidebarCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <>
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  <span className="text-xs">Collapse</span>
+                </>
+              )}
+            </Button>
           </div>
 
           {/* Navigation */}
           <nav className="flex flex-1 flex-col">
             <ul role="list" className="flex flex-1 flex-col gap-y-7">
               <li>
-                <ul role="list" className="-mx-2 space-y-1">
-                  {filteredMenuItems.map((item) => {
-                    const isActive = location.pathname === item.href;
-                    return (
-                      <li key={item.title}>
+                <ul role="list" className={cn(
+                  "space-y-1 transition-all duration-300",
+                  sidebarCollapsed ? "px-2" : "-mx-2 px-4"
+                )}>
+                  <TooltipProvider delayDuration={0}>
+                    {filteredMenuItems.map((item) => {
+                      const isActive = location.pathname === item.href;
+                      const linkContent = (
                         <Link
                           to={item.href}
                           className={cn(
-                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
+                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300',
                             isActive
                               ? 'bg-primary-500 text-white'
-                              : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                              : 'text-gray-400 hover:text-white hover:bg-neutral-900',
+                            sidebarCollapsed && 'justify-center'
                           )}
                         >
                           <item.icon className="h-5 w-5 shrink-0" />
-                          {item.title}
+                          {!sidebarCollapsed && (
+                            <span className="transition-opacity duration-300">{item.title}</span>
+                          )}
                         </Link>
-                      </li>
-                    );
-                  })}
+                      );
+
+                      return (
+                        <li key={item.title}>
+                          {sidebarCollapsed ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                {linkContent}
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="font-semibold">
+                                {item.title}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            linkContent
+                          )}
+                        </li>
+                      );
+                    })}
+                  </TooltipProvider>
                 </ul>
               </li>
             </ul>
@@ -194,7 +271,10 @@ export default function PlatformAdminLayout() {
       </div>
 
       {/* Main content */}
-      <div className="lg:pl-64">
+      <div className={cn(
+        "transition-all duration-300 ease-in-out",
+        sidebarCollapsed ? "lg:pl-16" : "lg:pl-64"
+      )}>
         {/* Top bar */}
         <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border bg-background px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
           <Button
