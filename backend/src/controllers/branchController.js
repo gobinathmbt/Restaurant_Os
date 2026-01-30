@@ -33,8 +33,6 @@ export const getBranches = async (req, res, next) => {
 
     const [branches, total] = await Promise.all([
       Branch.find(query)
-        .populate('createdBy', 'name email')
-        .populate('updatedBy', 'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit)),
@@ -70,9 +68,7 @@ export const getBranchById = async (req, res, next) => {
     const companyDB = getCompanyDB(companyId);
     const Branch = getBranchModel(companyDB);
 
-    const branch = await Branch.findById(id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const branch = await Branch.findById(id);
 
     if (!branch) {
       return res.status(404).json({
@@ -124,9 +120,6 @@ export const createBranch = async (req, res, next) => {
       ...req.body,
       createdBy: userId
     });
-
-    // Populate creator info
-    await branch.populate('createdBy', 'name email');
 
     logger.info('Branch created', { branchId: branch._id, companyId, createdBy: userId });
 
@@ -233,8 +226,6 @@ export const updateBranch = async (req, res, next) => {
     Object.assign(branch, req.body);
     branch.updatedBy = userId;
     await branch.save();
-
-    await branch.populate(['createdBy', 'updatedBy'], 'name email');
 
     logger.info('Branch updated', { branchId: branch._id, companyId, updatedBy: userId });
 

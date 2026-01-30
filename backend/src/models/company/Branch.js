@@ -59,12 +59,10 @@ const branchSchema = new mongoose.Schema({
     default: true
   },
   createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'CompanyUser'
+    type: mongoose.Schema.Types.ObjectId
   },
   updatedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'CompanyUser'
+    type: mongoose.Schema.Types.ObjectId
   }
 }, {
   timestamps: true

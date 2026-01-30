@@ -31,10 +31,6 @@ interface Branch {
   fssaiLicense?: string;
   isActive: boolean;
   createdAt: string;
-  createdBy?: {
-    name: string;
-    email: string;
-  };
 }
 
 export default function Branches() {
