@@ -19,10 +19,6 @@ export default function CompanySettings() {
             <Building2 className="h-4 w-4" />
             <span className="hidden sm:inline">Company</span>
           </TabsTrigger>
-          <TabsTrigger value="users" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">Users</span>
-          </TabsTrigger>
           <TabsTrigger value="billing" className="flex items-center gap-2">
             <CreditCard className="h-4 w-4" />
             <span className="hidden sm:inline">Billing</span>
@@ -51,20 +47,6 @@ export default function CompanySettings() {
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground">Company settings coming soon...</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="users" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>User Management</CardTitle>
-              <CardDescription>
-                Manage staff accounts and permissions
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">User management coming soon...</p>
             </CardContent>
           </Card>
         </TabsContent>
