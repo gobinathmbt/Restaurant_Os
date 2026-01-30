@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -177,12 +177,13 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{user ? 'Edit User' : 'Create New User'}</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <DialogBody>
+          <form id="user-form" onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Info */}
           <div className="space-y-4">
             <h3 className="font-semibold">Basic Information</h3>
@@ -280,17 +281,17 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
               )}
             </div>
           )}
+          </form>
+        </DialogBody>
 
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Saving...' : user ? 'Update User' : 'Create User'}
-            </Button>
-          </div>
-        </form>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button type="submit" form="user-form" disabled={loading}>
+            {loading ? 'Saving...' : user ? 'Update User' : 'Create User'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

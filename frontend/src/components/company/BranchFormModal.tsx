@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
@@ -216,12 +216,13 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{branch ? 'Edit Branch' : 'Create New Branch'}</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <DialogBody>
+          <form id="branch-form" onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Info */}
           <div className="space-y-4">
             <h3 className="font-semibold">Basic Information</h3>
@@ -605,17 +606,17 @@ export default function BranchFormModal({ open, onClose, branch, onSuccess }: Br
               </div>
             </div>
           </div>
+          </form>
+        </DialogBody>
 
-          {/* Actions */}
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Saving...' : branch ? 'Update Branch' : 'Create Branch'}
-            </Button>
-          </div>
-        </form>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button type="submit" form="branch-form" disabled={loading}>
+            {loading ? 'Saving...' : branch ? 'Update Branch' : 'Create Branch'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
