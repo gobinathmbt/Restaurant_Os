@@ -102,10 +102,121 @@ export const platformConfigServices = {
   getStats: () => apiClient.get("/api/platform-config/stats"),
 };
 
+// Inventory Services
+export const inventoryServices = {
+  // Inventory Items
+  getInventoryItems: (branchId: string, params?: { page?: number; limit?: number; search?: string; type?: string; category?: string; lowStock?: boolean }) =>
+    apiClient.get("/api/inventory/items", { params: { branchId, ...params } }),
+
+  getInventoryItem: (id: string) =>
+    apiClient.get(`/api/inventory/items/${id}`),
+
+  createInventoryItem: (branchId: string, data: any) =>
+    apiClient.post("/api/inventory/items", { ...data, branchId }),
+
+  updateInventoryItem: (id: string, data: any) =>
+    apiClient.put(`/api/inventory/items/${id}`, data),
+
+  deleteInventoryItem: (id: string) =>
+    apiClient.delete(`/api/inventory/items/${id}`),
+
+  getLowStockItems: (branchId: string) =>
+    apiClient.get("/api/inventory/items/low-stock", { params: { branchId } }),
+
+  getExpiringItems: (branchId: string, daysAhead?: number) =>
+    apiClient.get("/api/inventory/items/expiring", { params: { branchId, daysAhead } }),
+
+  getInventoryCategories: (branchId: string) =>
+    apiClient.get("/api/inventory/items/categories", { params: { branchId } }),
+
+  // GRN (Goods Receipt Notes)
+  getGRNs: (branchId: string, params?: { page?: number; limit?: number; supplier?: string; status?: string; startDate?: string; endDate?: string }) =>
+    apiClient.get("/api/inventory/grn", { params: { branchId, ...params } }),
+
+  getGRN: (id: string) =>
+    apiClient.get(`/api/inventory/grn/${id}`),
+
+  createGRN: (branchId: string, data: any) =>
+    apiClient.post("/api/inventory/grn", { ...data, branchId }),
+
+  // Stock Adjustments
+  getStockAdjustments: (branchId: string, params?: { page?: number; limit?: number; startDate?: string; endDate?: string; type?: string; reason?: string }) =>
+    apiClient.get("/api/inventory/adjustments", { params: { branchId, ...params } }),
+
+  createStockAdjustment: (branchId: string, data: any) =>
+    apiClient.post("/api/inventory/adjustments", { ...data, branchId }),
+
+  // Stock Transfers
+  getStockTransfers: (branchId: string, params?: { page?: number; limit?: number; status?: string }) =>
+    apiClient.get("/api/inventory/transfers", { params: { branchId, ...params } }),
+
+  createStockTransfer: (data: any) =>
+    apiClient.post("/api/inventory/transfers", data),
+
+  approveStockTransfer: (id: string) =>
+    apiClient.put(`/api/inventory/transfers/${id}/approve`),
+
+  rejectStockTransfer: (id: string, reason: string) =>
+    apiClient.put(`/api/inventory/transfers/${id}/reject`, { reason }),
+};
+
+// Recipe Services
+export const recipeServices = {
+  // Get all recipes
+  getRecipes: (params?: { page?: number; limit?: number; search?: string; finishedGood?: string }) =>
+    apiClient.get("/api/recipes", { params }),
+
+  // Get single recipe
+  getRecipe: (id: string) =>
+    apiClient.get(`/api/recipes/${id}`),
+
+  // Create recipe
+  createRecipe: (data: any) =>
+    apiClient.post("/api/recipes", data),
+
+  // Update recipe
+  updateRecipe: (id: string, data: any) =>
+    apiClient.put(`/api/recipes/${id}`, data),
+
+  // Delete recipe
+  deleteRecipe: (id: string) =>
+    apiClient.delete(`/api/recipes/${id}`),
+};
+
+// Supplier Services
+export const supplierServices = {
+  // Get all suppliers
+  getSuppliers: (params?: { page?: number; limit?: number; search?: string; category?: string; isActive?: boolean }) =>
+    apiClient.get("/api/suppliers", { params }),
+
+  // Get single supplier
+  getSupplier: (id: string) =>
+    apiClient.get(`/api/suppliers/${id}`),
+
+  // Create supplier
+  createSupplier: (data: any) =>
+    apiClient.post("/api/suppliers", data),
+
+  // Update supplier
+  updateSupplier: (id: string, data: any) =>
+    apiClient.put(`/api/suppliers/${id}`, data),
+
+  // Delete supplier
+  deleteSupplier: (id: string) =>
+    apiClient.delete(`/api/suppliers/${id}`),
+
+  // Toggle supplier status
+  toggleSupplierStatus: (id: string) =>
+    apiClient.patch(`/api/suppliers/${id}/toggle-status`),
+};
+
 export default {
   auth: authServices,
   notifications: notificationServices,
   branches: branchServices,
   users: userServices,
   platformConfig: platformConfigServices,
+  inventory: inventoryServices,
+  recipes: recipeServices,
+  suppliers: supplierServices,
 };
