@@ -264,7 +264,7 @@ export default function SystemConfigTab() {
   } : undefined;
 
   return (
-    <>
+    <div className="h-full flex flex-col">
       <DataTableLayout
         statChips={stats ? [
           { label: 'Total', value: stats.total, variant: 'outline' },
@@ -329,6 +329,6 @@ export default function SystemConfigTab() {
         }}
         onSave={handleSave}
       />
-    </>
+    </div>
   );
 }
