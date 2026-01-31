@@ -10,7 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Check, ChevronsUpDown, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { userServices, branchServices } from '@/api/services';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +37,7 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchSelectorOpen, setBranchSelectorOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -109,6 +114,17 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
     }));
   };
 
+  const handleRemoveBranch = (branchId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      branchIds: prev.branchIds.filter(id => id !== branchId)
+    }));
+  };
+
+  const getSelectedBranches = () => {
+    return branches.filter(branch => formData.branchIds.includes(branch._id));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -125,6 +141,16 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
       toast({
         title: "Validation Error",
         description: "Password is required for new users",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate branch selection for company_admin and employee
+    if ((formData.role === 'company_admin' || formData.role === 'employee') && formData.branchIds.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one branch must be selected for this role",
         variant: "destructive",
       });
       return;
@@ -262,29 +288,74 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
           {/* Branch Access */}
           {(formData.role === 'company_admin' || formData.role === 'employee') && (
             <div className="space-y-4">
-              <h3 className="font-semibold">Branch Access</h3>
+              <h3 className="font-semibold">Branch Access *</h3>
               <p className="text-sm text-muted-foreground">
-                Select which branches this user can access
+                Select which branches this user can access (required)
               </p>
               {branches.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No branches available</p>
               ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto border rounded-md p-4">
-                  {branches.map((branch) => (
-                    <div key={branch._id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={branch._id}
-                        checked={formData.branchIds.includes(branch._id)}
-                        onCheckedChange={() => handleBranchToggle(branch._id)}
-                      />
-                      <label
-                        htmlFor={branch._id}
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                <div className="space-y-3">
+                  <Popover open={branchSelectorOpen} onOpenChange={setBranchSelectorOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={branchSelectorOpen}
+                        className="w-full justify-between"
                       >
-                        {branch.name} ({branch.code})
-                      </label>
+                        {formData.branchIds.length > 0
+                          ? `${formData.branchIds.length} branch${formData.branchIds.length > 1 ? 'es' : ''} selected`
+                          : "Select branches..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search branches..." />
+                        <CommandEmpty>No branches found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {branches.map((branch) => (
+                              <CommandItem
+                                key={branch._id}
+                                value={`${branch.name} ${branch.code}`}
+                                onSelect={() => {
+                                  handleBranchToggle(branch._id);
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    formData.branchIds.includes(branch._id) ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{branch.name}</span>
+                                  <span className="text-xs text-muted-foreground">{branch.code}</span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Selected Branches Display */}
+                  {formData.branchIds.length > 0 && (
+                    <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
+                      {getSelectedBranches().map((branch) => (
+                        <Badge key={branch._id} variant="secondary" className="gap-1">
+                          {branch.name} ({branch.code})
+                          <X
+                            className="h-3 w-3 cursor-pointer hover:text-destructive"
+                            onClick={() => handleRemoveBranch(branch._id)}
+                          />
+                        </Badge>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>

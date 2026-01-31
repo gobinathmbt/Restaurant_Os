@@ -1,6 +1,7 @@
 import CompanyUser from '../models/platform/CompanyUser.js';
 import Company from '../models/platform/Company.js';
 import notificationService from '../services/notificationService.js';
+import staffWelcomeEmailService from '../services/emailTemplates/staffWelcomeEmailService.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -149,6 +150,14 @@ export const createUser = async (req, res, next) => {
       });
     }
 
+    // Validate branch selection for company_admin and employee
+    if ((role === 'company_admin' || role === 'employee') && (!branchIds || branchIds.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one branch must be selected for company_admin and employee roles'
+      });
+    }
+
     // Check role-based permissions
     const allowedRoles = {
       company_super_admin_primary: ['company_super_admin_secondary', 'company_admin', 'employee'],
@@ -187,86 +196,136 @@ export const createUser = async (req, res, next) => {
 
     logger.info('User created', { userId: newUser._id, companyId, createdBy: userId, role });
 
-    // Send notifications based on creator role
+    // Send welcome email and notifications based on role hierarchy
     try {
       const creator = await CompanyUser.findById(userId);
       const company = await Company.findOne({ companyId });
 
-      if (creatorRole === 'company_admin') {
-        // Notify both super admins
-        const superAdmins = await CompanyUser.find({
-          companyId,
-          role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] }
-        });
+      // Collect BCC emails and notification recipients based on role
+      let bccEmails = [];
+      let notificationRecipients = [];
 
-        for (const admin of superAdmins) {
-          await notificationService.sendToCompanyUser(companyId, admin._id, {
-            category: 'staff',
-            event: 'userCreated',
-            title: 'New User Created',
-            message: `${creator.name} (Admin) created a new ${role.replace('company_', '').replace('_', ' ')}: ${name} (${email})`,
-            data: {
-              userId: newUser._id,
-              userName: name,
-              userEmail: email,
-              userRole: role,
-              createdBy: creator.name,
-              creatorRole: creatorRole,
-              branchIds: branchIds || [],
-              createdAt: newUser.createdAt
-            },
-            priority: 'medium',
-            actionUrl: `/staff/${newUser._id}`
-          });
-        }
-      } else if (creatorRole === 'company_super_admin_secondary') {
-        // Notify primary admin
+      if (role === 'company_super_admin_secondary') {
+        // Notify primary admin and all other secondary admins
         const primaryAdmin = await CompanyUser.findOne({
           companyId,
           role: 'company_super_admin_primary'
         });
 
+        const otherSecondaryAdmins = await CompanyUser.find({
+          companyId,
+          role: 'company_super_admin_secondary',
+          _id: { $ne: newUser._id }
+        });
+
         if (primaryAdmin) {
-          await notificationService.sendToCompanyUser(companyId, primaryAdmin._id, {
-            category: 'staff',
-            event: 'userCreated',
-            title: 'New User Created',
-            message: `${creator.name} (Super Admin) created a new ${role.replace('company_', '').replace('_', ' ')}: ${name} (${email})`,
-            data: {
-              userId: newUser._id,
-              userName: name,
-              userEmail: email,
-              userRole: role,
-              createdBy: creator.name,
-              creatorRole: creatorRole,
-              branchIds: branchIds || [],
-              createdAt: newUser.createdAt
-            },
-            priority: 'medium',
-            actionUrl: `/staff/${newUser._id}`
-          });
+          bccEmails.push(primaryAdmin.email);
+          notificationRecipients.push(primaryAdmin);
         }
-      } else if (creatorRole === 'company_super_admin_primary') {
-        // Only notify the creator
-        await notificationService.sendToCompanyUser(companyId, userId, {
+
+        otherSecondaryAdmins.forEach(admin => {
+          bccEmails.push(admin.email);
+          notificationRecipients.push(admin);
+        });
+
+      } else if (role === 'company_admin') {
+        // Notify all super admins and other admins in the same branches
+        const superAdmins = await CompanyUser.find({
+          companyId,
+          role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] }
+        });
+
+        const otherAdmins = await CompanyUser.find({
+          companyId,
+          role: 'company_admin',
+          branchIds: { $in: branchIds },
+          _id: { $ne: newUser._id }
+        });
+
+        superAdmins.forEach(admin => {
+          bccEmails.push(admin.email);
+          notificationRecipients.push(admin);
+        });
+
+        otherAdmins.forEach(admin => {
+          bccEmails.push(admin.email);
+          notificationRecipients.push(admin);
+        });
+
+      } else if (role === 'employee') {
+        // Notify all super admins, admins, and other employees in the same branches
+        const superAdmins = await CompanyUser.find({
+          companyId,
+          role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] }
+        });
+
+        const branchAdmins = await CompanyUser.find({
+          companyId,
+          role: 'company_admin',
+          branchIds: { $in: branchIds }
+        });
+
+        const otherEmployees = await CompanyUser.find({
+          companyId,
+          role: 'employee',
+          branchIds: { $in: branchIds },
+          _id: { $ne: newUser._id }
+        });
+
+        superAdmins.forEach(admin => {
+          bccEmails.push(admin.email);
+          notificationRecipients.push(admin);
+        });
+
+        branchAdmins.forEach(admin => {
+          bccEmails.push(admin.email);
+          notificationRecipients.push(admin);
+        });
+
+        otherEmployees.forEach(emp => {
+          bccEmails.push(emp.email);
+          notificationRecipients.push(emp);
+        });
+      }
+
+      // Remove duplicates from BCC emails
+      bccEmails = [...new Set(bccEmails)];
+
+      // Send welcome email to the new user with BCC to relevant users
+      await staffWelcomeEmailService.sendStaffWelcomeEmail({
+        userName: name,
+        userEmail: email,
+        userRole: role,
+        companyId,
+        companyName: company?.companyName || 'Your Company',
+        branchIds: branchIds || [],
+        createdBy: creator.name,
+        bccEmails
+      });
+
+      // Send in-app notifications to all relevant users
+      for (const recipient of notificationRecipients) {
+        await notificationService.sendToCompanyUser(companyId, recipient._id, {
           category: 'staff',
           event: 'userCreated',
-          title: 'User Created Successfully',
-          message: `You created a new ${role.replace('company_', '').replace('_', ' ')}: ${name} (${email})`,
+          title: 'New Team Member Added',
+          message: `${creator.name} created a new ${role.replace('company_', '').replace('_', ' ')}: ${name} (${email})`,
           data: {
             userId: newUser._id,
             userName: name,
             userEmail: email,
             userRole: role,
+            createdBy: creator.name,
+            creatorRole: creatorRole,
             branchIds: branchIds || [],
             createdAt: newUser.createdAt
           },
-          priority: 'low',
+          priority: 'medium',
           actionUrl: `/staff/${newUser._id}`
         });
       }
 
-      // Notify the new user
+      // Send welcome notification to the new user
       await notificationService.sendToCompanyUser(companyId, newUser._id, {
         category: 'system',
         event: 'accountCreated',
@@ -275,13 +334,22 @@ export const createUser = async (req, res, next) => {
         data: {
           companyName: company?.companyName,
           role,
-          createdBy: creator.name
+          createdBy: creator.name,
+          branchIds: branchIds || []
         },
         priority: 'high',
         actionUrl: '/settings/profile'
       });
+
+      logger.info('Welcome email and notifications sent', { 
+        userId: newUser._id, 
+        bccCount: bccEmails.length,
+        notificationCount: notificationRecipients.length 
+      });
+
     } catch (notifError) {
-      logger.error('Failed to send user creation notification', notifError);
+      logger.error('Failed to send user creation notifications', notifError);
+      // Don't fail the user creation if notifications fail
     }
 
     res.status(201).json({
