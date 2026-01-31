@@ -113,6 +113,20 @@
   html {
     @apply antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-size: 15px; /* Reduced from default 16px */
+  }
+
+  /* Responsive font sizing */
+  @media (max-width: 640px) {
+    html {
+      font-size: 18px; /* Even smaller on mobile */
+    }
+  }
+
+  @media (min-width: 1920px) {
+    html {
+      font-size: 18px; /* Slightly larger on very large screens */
+    }
   }
 
   body {
