@@ -14,6 +14,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { platformConfigServices } from '@/api/services';
 
 interface PlatformConfig {
   _id: string;
@@ -41,29 +43,69 @@ interface ConfigEditModalProps {
 }
 
 export default function ConfigEditModal({ config, open, onClose, onSave }: ConfigEditModalProps) {
+  const { toast } = useToast();
   const [configValue, setConfigValue] = useState<string>('');
+  const [actualValue, setActualValue] = useState<any>(null);
   const [description, setDescription] = useState<string>('');
   const [isActive, setIsActive] = useState<boolean>(true);
   const [showSecret, setShowSecret] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isFetchingSecret, setIsFetchingSecret] = useState<boolean>(false);
 
   useEffect(() => {
-    if (config) {
-      // Handle different value types
-      if (config.configValue !== null && config.configValue !== undefined) {
-        if (typeof config.configValue === 'object') {
-          setConfigValue(JSON.stringify(config.configValue, null, 2));
-        } else {
-          setConfigValue(String(config.configValue));
+    const fetchActualValue = async () => {
+      if (config && config.isSecret && open) {
+        // Fetch actual secret value from backend
+        setIsFetchingSecret(true);
+        try {
+          const response = await platformConfigServices.getConfig(config._id);
+          const data = response.data.data;
+          setActualValue(data.configValue);
+          
+          // Set the actual value for editing
+          if (data.configValue !== null && data.configValue !== undefined) {
+            if (typeof data.configValue === 'object') {
+              setConfigValue(JSON.stringify(data.configValue, null, 2));
+            } else {
+              setConfigValue(String(data.configValue));
+            }
+          } else {
+            setConfigValue('');
+          }
+        } catch (error: any) {
+          toast({
+            title: "Error",
+            description: error.response?.data?.message || 'Failed to fetch secret value',
+            variant: "destructive",
+          });
+          // Fallback to masked value
+          setConfigValue('***HIDDEN***');
+        } finally {
+          setIsFetchingSecret(false);
         }
-      } else {
-        setConfigValue('');
+      } else if (config && !config.isSecret) {
+        // For non-secret values, use the value directly
+        if (config.configValue !== null && config.configValue !== undefined) {
+          if (typeof config.configValue === 'object') {
+            setConfigValue(JSON.stringify(config.configValue, null, 2));
+          } else {
+            setConfigValue(String(config.configValue));
+          }
+        } else {
+          setConfigValue('');
+        }
+        setActualValue(config.configValue);
       }
-      setDescription(config.description || '');
-      setIsActive(config.isActive);
-      setShowSecret(false);
-    }
-  }, [config]);
+      
+      if (config) {
+        setDescription(config.description || '');
+        setIsActive(config.isActive);
+        setShowSecret(false);
+      }
+    };
+
+    fetchActualValue();
+  }, [config, open]);
 
   const handleSave = async () => {
     if (!config) return;
@@ -103,6 +145,7 @@ export default function ConfigEditModal({ config, open, onClose, onSave }: Confi
 
   const isSecretField = config.isSecret;
   const displayValue = isSecretField && !showSecret ? '***HIDDEN***' : configValue;
+  const isLoadingValue = isFetchingSecret;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -114,7 +157,14 @@ export default function ConfigEditModal({ config, open, onClose, onSave }: Confi
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 px-6 py-4">
+        {isLoadingValue ? (
+          <div className="flex items-center justify-center py-8 px-6">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-3 text-muted-foreground">Loading configuration...</span>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-4 px-6 py-4">
           {/* Config Key (Read-only) */}
           <div className="space-y-2">
             <Label>Configuration Key</Label>
@@ -237,6 +287,8 @@ export default function ConfigEditModal({ config, open, onClose, onSave }: Confi
             Save Changes
           </Button>
         </DialogFooter>
+        </>
+        )}
       </DialogContent>
     </Dialog>
   );

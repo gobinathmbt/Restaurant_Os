@@ -73,6 +73,7 @@ export const getAllConfigs = async (req, res, next) => {
  * Get single platform configuration by ID
  * GET /api/platform-config/:id
  * Access: Platform Super Admin only
+ * Returns actual secret values (not masked)
  */
 export const getConfigById = async (req, res, next) => {
   try {
@@ -88,13 +89,15 @@ export const getConfigById = async (req, res, next) => {
       });
     }
 
-    // Mask secret value
+    // Return actual value (including secrets) for editing
     const configObj = config.toObject();
-    if (configObj.isSecret && configObj.configValue) {
-      configObj.configValue = '***HIDDEN***';
-    }
 
-    logger.info('Platform config fetched', { userId: req.user.userId, configId: id });
+    logger.info('Platform config fetched with secret value', { 
+      userId: req.user.userId, 
+      configId: id,
+      configKey: config.configKey,
+      isSecret: config.isSecret 
+    });
 
     res.json({
       success: true,
