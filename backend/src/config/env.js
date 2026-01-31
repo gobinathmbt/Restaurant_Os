@@ -130,13 +130,31 @@ export const ENV = {
   // Additional configuration that can be added
   RAZORPAY_KEY_ID: null,
   RAZORPAY_KEY_SECRET: null,
+  CASHFREE_APP_ID: null,
+  CASHFREE_SECRET_KEY: null,
   SMTP_HOST: null,
   SMTP_PORT: null,
   SMTP_USER: null,
   SMTP_PASS: null,
+  SMTP_FROM_EMAIL: null,
+  SMTP_FROM_NAME: null,
+  
+  // AWS S3 Storage Configuration
   AWS_S3_BUCKET: null,
+  AWS_S3_REGION: null,
   AWS_ACCESS_KEY_ID: null,
   AWS_SECRET_ACCESS_KEY: null,
+  AWS_S3_URL: null,
+  
+  // SMS Configuration
+  SMS_PROVIDER: null,
+  SMS_API_KEY: null,
+  SMS_SENDER_ID: null,
+  
+  // Notification Configuration
+  WHATSAPP_API_KEY: null,
+  WHATSAPP_PHONE_NUMBER_ID: null,
+  PUSH_NOTIFICATION_KEY: null,
 };
 
 /**
@@ -158,17 +176,33 @@ export const initializeConfig = async () => {
     // Load payment configuration
     ENV.RAZORPAY_KEY_ID = await getConfig('RAZORPAY_KEY_ID', 'RAZORPAY_KEY_ID');
     ENV.RAZORPAY_KEY_SECRET = await getConfig('RAZORPAY_KEY_SECRET', 'RAZORPAY_KEY_SECRET');
+    ENV.CASHFREE_APP_ID = await getConfig('CASHFREE_APP_ID', 'CASHFREE_APP_ID');
+    ENV.CASHFREE_SECRET_KEY = await getConfig('CASHFREE_SECRET_KEY', 'CASHFREE_SECRET_KEY');
     
     // Load email configuration
     ENV.SMTP_HOST = await getConfig('SMTP_HOST', 'SMTP_HOST');
     ENV.SMTP_PORT = await getConfig('SMTP_PORT', 'SMTP_PORT', 587);
     ENV.SMTP_USER = await getConfig('SMTP_USER', 'SMTP_USER');
     ENV.SMTP_PASS = await getConfig('SMTP_PASS', 'SMTP_PASS');
+    ENV.SMTP_FROM_EMAIL = await getConfig('SMTP_FROM_EMAIL', 'SMTP_FROM_EMAIL');
+    ENV.SMTP_FROM_NAME = await getConfig('SMTP_FROM_NAME', 'SMTP_FROM_NAME', 'RestaurantOS');
     
-    // Load storage configuration
+    // Load AWS S3 storage configuration
     ENV.AWS_S3_BUCKET = await getConfig('AWS_S3_BUCKET', 'AWS_S3_BUCKET');
+    ENV.AWS_S3_REGION = await getConfig('AWS_S3_REGION', 'AWS_S3_REGION', 'us-east-1');
     ENV.AWS_ACCESS_KEY_ID = await getConfig('AWS_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID');
     ENV.AWS_SECRET_ACCESS_KEY = await getConfig('AWS_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY');
+    ENV.AWS_S3_URL = await getConfig('AWS_S3_URL', 'AWS_S3_URL');
+    
+    // Load SMS configuration
+    ENV.SMS_PROVIDER = await getConfig('SMS_PROVIDER', 'SMS_PROVIDER');
+    ENV.SMS_API_KEY = await getConfig('SMS_API_KEY', 'SMS_API_KEY');
+    ENV.SMS_SENDER_ID = await getConfig('SMS_SENDER_ID', 'SMS_SENDER_ID');
+    
+    // Load notification configuration
+    ENV.WHATSAPP_API_KEY = await getConfig('WHATSAPP_API_KEY', 'WHATSAPP_API_KEY');
+    ENV.WHATSAPP_PHONE_NUMBER_ID = await getConfig('WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_PHONE_NUMBER_ID');
+    ENV.PUSH_NOTIFICATION_KEY = await getConfig('PUSH_NOTIFICATION_KEY', 'PUSH_NOTIFICATION_KEY');
     
     logger.info('Platform configuration loaded successfully');
     

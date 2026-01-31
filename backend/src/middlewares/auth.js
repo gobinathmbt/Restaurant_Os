@@ -145,3 +145,39 @@ export const authorize = (...allowedRoles) => {
     next();
   };
 };
+
+/**
+ * Require Platform Super Admin Middleware
+ * Ensures only platform super admin (primary) can access the resource
+ */
+export const requirePlatformSuperAdmin = (req, res, next) => {
+  // Check if user is authenticated
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication required',
+    });
+  }
+
+  // Check if user is platform admin
+  if (req.user.userType !== 'platform') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Platform admin access required.',
+    });
+  }
+
+  // Check if user is platform super admin primary
+  if (req.user.role !== 'platform_super_admin_primary') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Platform super admin access required.',
+    });
+  }
+
+  logger.debug('Platform super admin authorized', {
+    userId: req.user.userId,
+  });
+
+  next();
+};

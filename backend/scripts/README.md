@@ -61,7 +61,47 @@ Seeds initial platform configuration data.
 node scripts/seed-platform-config.js
 ```
 
-### 3. Verify Database Indexes
+### 3. Seed Platform Configurations
+**File:** `seed-platform-configs.js`
+
+Populates the PlatformConfig collection with initial configuration values for authentication, payment, email, storage (AWS S3), SMS, and notifications.
+
+**Usage:**
+```bash
+node scripts/seed-platform-configs.js
+```
+
+**Configuration Categories:**
+- **Authentication** - JWT secrets, Google OAuth credentials
+- **Payment** - Razorpay, Cashfree API keys
+- **Email** - SMTP server settings
+- **Storage** - AWS S3 bucket configuration (bucket name, region, access keys, URL)
+- **SMS** - SMS provider settings
+- **Notification** - WhatsApp, Push notification keys
+
+**Features:**
+- Automatically reads from environment variables
+- Skips existing configurations (safe to run multiple times)
+- Marks sensitive values as secret (masked in UI)
+- Provides summary of configurations by category
+
+**Example Output:**
+```
+✅ Created configuration: JWT_SECRET
+✅ Created configuration: AWS_S3_BUCKET
+✅ Created configuration: AWS_S3_REGION
+✅ Created configuration: AWS_ACCESS_KEY_ID
+...
+Configuration Summary:
+  auth: 5 total, 5 active
+  payment: 4 total, 2 active
+  email: 6 total, 6 active
+  storage: 5 total, 5 active
+  sms: 3 total, 0 active
+  notification: 3 total, 0 active
+```
+
+### 4. Verify Database Indexes
 **File:** `verify-indexes.js`
 
 Verifies that all database indexes are created correctly.
