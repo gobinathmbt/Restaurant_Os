@@ -1,18 +1,23 @@
 import axios from 'axios';
 import { logger } from '../utils/logger.js';
+import { ENV } from '../config/env.js';
 
 class SMSService {
   constructor() {
-    this.provider = process.env.SMS_PROVIDER || 'twilio'; // twilio, aws-sns, etc.
-    this.initializeProvider();
+    this.provider = null;
+    this.twilioAccountSid = null;
+    this.twilioAuthToken = null;
+    this.twilioPhoneNumber = null;
   }
 
-  initializeProvider() {
+  initialize() {
+    this.provider = ENV.SMS_PROVIDER;
+    
     switch (this.provider) {
       case 'twilio':
-        this.twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
-        this.twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-        this.twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+        this.twilioAccountSid = ENV.TWILIO_ACCOUNT_SID;
+        this.twilioAuthToken = ENV.TWILIO_AUTH_TOKEN;
+        this.twilioPhoneNumber = ENV.TWILIO_PHONE_NUMBER;
         break;
       case 'aws-sns':
         // AWS SNS configuration
@@ -22,8 +27,19 @@ class SMSService {
     }
   }
 
+  // Reinitialize with latest config
+  reinitialize() {
+    this.initialize();
+    logger.info('SMS service reinitialized with updated configuration');
+  }
+
   async sendNotification(to, data) {
     try {
+      // Initialize if not already done
+      if (!this.provider) {
+        this.initialize();
+      }
+
       const { message } = data;
 
       switch (this.provider) {
@@ -79,7 +95,7 @@ class SMSService {
 
   async sendVerificationCode(to, code) {
     return await this.sendNotification(to, {
-      message: `Your RestaurantOS verification code is: ${code}. Valid for 10 minutes.`
+      message: `Your ${ENV.SMTP_FROM_NAME || 'RestaurantOS'} verification code is: ${code}. Valid for 10 minutes.`
     });
   }
 }

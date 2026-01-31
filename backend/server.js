@@ -14,7 +14,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import http from 'http';
 import { connectPlatformDB, setupGracefulShutdown } from './src/config/database.js';
-import { initializeConfig, ENV } from './src/config/env.js';
+import { initializeConfig, setupConfigRefresh, ENV } from './src/config/env.js';
 import { errorHandler } from './src/middlewares/errorHandler.js';
 import { logger } from './src/utils/logger.js';
 import authRoutes from './src/routes/authRoutes.js';
@@ -30,11 +30,10 @@ dotenv.config();
 // Create Express application
 const app = express();
 const server = http.createServer(app);
-const PORT = process.env.PORT || 5000;
 
 // Configure middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: ENV.FRONTEND_URL,
   credentials: true,
 }));
 app.use(express.json());
@@ -55,6 +54,9 @@ const startServer = async () => {
     // Step 2: Initialize configuration from PlatformConfig collection
     logger.info('Step 2: Loading platform configuration...');
     await initializeConfig();
+
+    // Step 2.5: Setup automatic configuration refresh every 5 minutes
+    setupConfigRefresh();
 
     // Step 3: Initialize Socket.IO
     logger.info('Step 3: Initializing Socket.IO...');
@@ -105,10 +107,10 @@ const startServer = async () => {
     app.use(errorHandler);
 
     // Step 5: Start server
-    server.listen(PORT, () => {
-      logger.info(`Server running on port ${PORT}`);
+    server.listen(ENV.PORT, () => {
+      logger.info(`Server running on port ${ENV.PORT}`);
       logger.info(`Environment: ${ENV.NODE_ENV}`);
-      logger.info(`Health check: http://localhost:${PORT}/health`);
+      logger.info(`Health check: http://localhost:${ENV.PORT}/health`);
       logger.info('Restaurant Operating System Backend is ready! 🚀');
     });
 

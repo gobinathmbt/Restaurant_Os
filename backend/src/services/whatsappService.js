@@ -1,15 +1,33 @@
 import axios from 'axios';
 import { logger } from '../utils/logger.js';
+import { ENV } from '../config/env.js';
 
 class WhatsAppService {
   constructor() {
-    this.apiUrl = process.env.WHATSAPP_API_URL;
-    this.apiKey = process.env.WHATSAPP_API_KEY;
-    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    this.apiUrl = null;
+    this.apiKey = null;
+    this.phoneNumberId = null;
+  }
+
+  initialize() {
+    this.apiUrl = ENV.WHATSAPP_API_URL;
+    this.apiKey = ENV.WHATSAPP_API_KEY;
+    this.phoneNumberId = ENV.WHATSAPP_PHONE_NUMBER_ID;
+  }
+
+  // Reinitialize with latest config
+  reinitialize() {
+    this.initialize();
+    logger.info('WhatsApp service reinitialized with updated configuration');
   }
 
   async sendNotification(to, data) {
     try {
+      // Initialize if not already done
+      if (!this.apiUrl) {
+        this.initialize();
+      }
+
       if (!this.apiUrl || !this.apiKey) {
         logger.warn('WhatsApp service not configured');
         return null;
@@ -61,7 +79,12 @@ class WhatsAppService {
   }
 
   async verifyWebhook(mode, token, challenge) {
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    // Initialize if not already done
+    if (!this.apiUrl) {
+      this.initialize();
+    }
+
+    const verifyToken = ENV.WHATSAPP_VERIFY_TOKEN;
 
     if (mode === 'subscribe' && token === verifyToken) {
       logger.info('WhatsApp webhook verified');

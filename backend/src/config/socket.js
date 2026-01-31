@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger.js';
+import { ENV } from './env.js';
 import notificationService from '../services/notificationService.js';
 
 class SocketManager {
@@ -15,7 +16,7 @@ class SocketManager {
   initialize(server) {
     this.io = new Server(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+        origin: ENV.FRONTEND_URL,
         methods: ['GET', 'POST'],
         credentials: true
       },
@@ -261,7 +262,7 @@ class SocketManager {
         return next(new Error('Authentication token required'));
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, ENV.JWT_SECRET);
 
       // Check if user is a platform admin
       const { default: PlatformAdmin } = await import('../models/platform/PlatformAdmin.js');
@@ -296,7 +297,7 @@ class SocketManager {
         return next(new Error('Authentication token required'));
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, ENV.JWT_SECRET);
 
       // Check if user is a company user
       const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');

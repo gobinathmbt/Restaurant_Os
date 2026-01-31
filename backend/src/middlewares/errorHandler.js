@@ -5,6 +5,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { ENV } from '../config/env.js';
 
 /**
  * Global error handler middleware
@@ -34,7 +35,7 @@ export const errorHandler = (err, req, res, next) => {
   };
 
   // Include stack trace only in development environment
-  if (process.env.NODE_ENV === 'development') {
+  if (ENV.NODE_ENV === 'development') {
     errorResponse.stack = err.stack;
     errorResponse.error = err;
   }

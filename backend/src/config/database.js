@@ -5,6 +5,7 @@
 
 import mongoose from 'mongoose';
 import { logger } from '../utils/logger.js';
+import { ENV } from './env.js';
 
 // Store company database connections for reuse
 const companyConnections = new Map();
@@ -16,7 +17,7 @@ const companyConnections = new Map();
  */
 export const connectPlatformDB = async () => {
   try {
-    const platformDbUri = process.env.PLATFORM_DB_URI;
+    const platformDbUri = ENV.PLATFORM_DB_URI;
     
     if (!platformDbUri) {
       throw new Error('PLATFORM_DB_URI environment variable is not defined');
@@ -73,7 +74,7 @@ export const getCompanyDB = (companyId) => {
     }
 
     // Create new connection
-    const companyDbBaseUri = process.env.COMPANY_DB_BASE_URI;
+    const companyDbBaseUri = ENV.COMPANY_DB_BASE_URI;
     
     if (!companyDbBaseUri) {
       throw new Error('COMPANY_DB_BASE_URI environment variable is not defined');

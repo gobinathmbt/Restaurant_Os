@@ -4,6 +4,7 @@
  * 
  * This module loads configuration from the PlatformConfig database collection
  * and falls back to environment variables if the database is unavailable.
+ * Configuration is cached for 5 minutes to reduce database queries.
  */
 
 import { logger } from '../utils/logger.js';
@@ -104,36 +105,48 @@ export const clearConfigCache = () => {
 };
 
 /**
+ * Refresh configuration from database
+ * Forces a reload of configuration from database
+ */
+export const refreshConfig = async () => {
+  clearConfigCache();
+  await initializeConfig();
+  logger.info('Configuration refreshed from database');
+};
+
+/**
  * Environment configuration object
- * These values are loaded at startup and can be refreshed
+ * These values are loaded at startup and refreshed every 5 minutes
  */
 export const ENV = {
-  // Server configuration (from environment only)
+  // Server configuration (from environment only - not in database)
   PORT: process.env.PORT || 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
   
-  // Database URIs (from environment only)
+  // Database URIs (from environment only - not in database)
   PLATFORM_DB_URI: process.env.PLATFORM_DB_URI,
   COMPANY_DB_BASE_URI: process.env.COMPANY_DB_BASE_URI,
   
-  // Frontend URL (from environment only)
+  // Frontend URL (from environment only - not in database)
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   
-  // These will be loaded from PlatformConfig database at runtime
-  // Fallback to environment variables if database is unavailable
+  // Authentication Configuration
   JWT_SECRET: null,
   JWT_EXPIRE: null,
   GOOGLE_CLIENT_ID: null,
   GOOGLE_CLIENT_SECRET: null,
   GOOGLE_CALLBACK_URL: null,
   
-  // Additional configuration that can be added
+  // Payment Configuration
   RAZORPAY_KEY_ID: null,
   RAZORPAY_KEY_SECRET: null,
   CASHFREE_APP_ID: null,
   CASHFREE_SECRET_KEY: null,
+  
+  // Email Configuration
   SMTP_HOST: null,
   SMTP_PORT: null,
+  SMTP_SECURE: null,
   SMTP_USER: null,
   SMTP_PASS: null,
   SMTP_FROM_EMAIL: null,
@@ -150,10 +163,17 @@ export const ENV = {
   SMS_PROVIDER: null,
   SMS_API_KEY: null,
   SMS_SENDER_ID: null,
+  TWILIO_ACCOUNT_SID: null,
+  TWILIO_AUTH_TOKEN: null,
+  TWILIO_PHONE_NUMBER: null,
   
-  // Notification Configuration
+  // WhatsApp Configuration
+  WHATSAPP_API_URL: null,
   WHATSAPP_API_KEY: null,
   WHATSAPP_PHONE_NUMBER_ID: null,
+  WHATSAPP_VERIFY_TOKEN: null,
+  
+  // Notification Configuration
   PUSH_NOTIFICATION_KEY: null,
 };
 
@@ -169,40 +189,48 @@ export const initializeConfig = async () => {
     // Load authentication configuration
     ENV.JWT_SECRET = await getConfig('JWT_SECRET', 'JWT_SECRET', 'default_jwt_secret_change_me_in_production');
     ENV.JWT_EXPIRE = await getConfig('JWT_EXPIRE', 'JWT_EXPIRE', '7d');
-    ENV.GOOGLE_CLIENT_ID = await getConfig('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_ID');
-    ENV.GOOGLE_CLIENT_SECRET = await getConfig('GOOGLE_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET');
+    ENV.GOOGLE_CLIENT_ID = await getConfig('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_ID', '');
+    ENV.GOOGLE_CLIENT_SECRET = await getConfig('GOOGLE_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET', '');
     ENV.GOOGLE_CALLBACK_URL = await getConfig('GOOGLE_CALLBACK_URL', 'GOOGLE_CALLBACK_URL', 'http://localhost:5000/api/auth/google/callback');
     
     // Load payment configuration
-    ENV.RAZORPAY_KEY_ID = await getConfig('RAZORPAY_KEY_ID', 'RAZORPAY_KEY_ID');
-    ENV.RAZORPAY_KEY_SECRET = await getConfig('RAZORPAY_KEY_SECRET', 'RAZORPAY_KEY_SECRET');
-    ENV.CASHFREE_APP_ID = await getConfig('CASHFREE_APP_ID', 'CASHFREE_APP_ID');
-    ENV.CASHFREE_SECRET_KEY = await getConfig('CASHFREE_SECRET_KEY', 'CASHFREE_SECRET_KEY');
+    ENV.RAZORPAY_KEY_ID = await getConfig('RAZORPAY_KEY_ID', 'RAZORPAY_KEY_ID', '');
+    ENV.RAZORPAY_KEY_SECRET = await getConfig('RAZORPAY_KEY_SECRET', 'RAZORPAY_KEY_SECRET', '');
+    ENV.CASHFREE_APP_ID = await getConfig('CASHFREE_APP_ID', 'CASHFREE_APP_ID', '');
+    ENV.CASHFREE_SECRET_KEY = await getConfig('CASHFREE_SECRET_KEY', 'CASHFREE_SECRET_KEY', '');
     
     // Load email configuration
-    ENV.SMTP_HOST = await getConfig('SMTP_HOST', 'SMTP_HOST');
+    ENV.SMTP_HOST = await getConfig('SMTP_HOST', 'SMTP_HOST', 'smtp.gmail.com');
     ENV.SMTP_PORT = await getConfig('SMTP_PORT', 'SMTP_PORT', 587);
-    ENV.SMTP_USER = await getConfig('SMTP_USER', 'SMTP_USER');
-    ENV.SMTP_PASS = await getConfig('SMTP_PASS', 'SMTP_PASS');
-    ENV.SMTP_FROM_EMAIL = await getConfig('SMTP_FROM_EMAIL', 'SMTP_FROM_EMAIL');
+    ENV.SMTP_SECURE = await getConfig('SMTP_SECURE', 'SMTP_SECURE', false);
+    ENV.SMTP_USER = await getConfig('SMTP_USER', 'SMTP_USER', '');
+    ENV.SMTP_PASS = await getConfig('SMTP_PASS', 'SMTP_PASS', '');
+    ENV.SMTP_FROM_EMAIL = await getConfig('SMTP_FROM_EMAIL', 'SMTP_FROM_EMAIL', 'noreply@restaurantos.com');
     ENV.SMTP_FROM_NAME = await getConfig('SMTP_FROM_NAME', 'SMTP_FROM_NAME', 'RestaurantOS');
     
     // Load AWS S3 storage configuration
-    ENV.AWS_S3_BUCKET = await getConfig('AWS_S3_BUCKET', 'AWS_S3_BUCKET');
+    ENV.AWS_S3_BUCKET = await getConfig('AWS_S3_BUCKET', 'AWS_S3_BUCKET', '');
     ENV.AWS_S3_REGION = await getConfig('AWS_S3_REGION', 'AWS_S3_REGION', 'us-east-1');
-    ENV.AWS_ACCESS_KEY_ID = await getConfig('AWS_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID');
-    ENV.AWS_SECRET_ACCESS_KEY = await getConfig('AWS_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY');
-    ENV.AWS_S3_URL = await getConfig('AWS_S3_URL', 'AWS_S3_URL');
+    ENV.AWS_ACCESS_KEY_ID = await getConfig('AWS_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID', '');
+    ENV.AWS_SECRET_ACCESS_KEY = await getConfig('AWS_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY', '');
+    ENV.AWS_S3_URL = await getConfig('AWS_S3_URL', 'AWS_S3_URL', '');
     
     // Load SMS configuration
-    ENV.SMS_PROVIDER = await getConfig('SMS_PROVIDER', 'SMS_PROVIDER');
-    ENV.SMS_API_KEY = await getConfig('SMS_API_KEY', 'SMS_API_KEY');
-    ENV.SMS_SENDER_ID = await getConfig('SMS_SENDER_ID', 'SMS_SENDER_ID');
+    ENV.SMS_PROVIDER = await getConfig('SMS_PROVIDER', 'SMS_PROVIDER', 'twilio');
+    ENV.SMS_API_KEY = await getConfig('SMS_API_KEY', 'SMS_API_KEY', '');
+    ENV.SMS_SENDER_ID = await getConfig('SMS_SENDER_ID', 'SMS_SENDER_ID', '');
+    ENV.TWILIO_ACCOUNT_SID = await getConfig('TWILIO_ACCOUNT_SID', 'TWILIO_ACCOUNT_SID', '');
+    ENV.TWILIO_AUTH_TOKEN = await getConfig('TWILIO_AUTH_TOKEN', 'TWILIO_AUTH_TOKEN', '');
+    ENV.TWILIO_PHONE_NUMBER = await getConfig('TWILIO_PHONE_NUMBER', 'TWILIO_PHONE_NUMBER', '');
+    
+    // Load WhatsApp configuration
+    ENV.WHATSAPP_API_URL = await getConfig('WHATSAPP_API_URL', 'WHATSAPP_API_URL', 'https://graph.facebook.com/v17.0');
+    ENV.WHATSAPP_API_KEY = await getConfig('WHATSAPP_API_KEY', 'WHATSAPP_API_KEY', '');
+    ENV.WHATSAPP_PHONE_NUMBER_ID = await getConfig('WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_PHONE_NUMBER_ID', '');
+    ENV.WHATSAPP_VERIFY_TOKEN = await getConfig('WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_VERIFY_TOKEN', '');
     
     // Load notification configuration
-    ENV.WHATSAPP_API_KEY = await getConfig('WHATSAPP_API_KEY', 'WHATSAPP_API_KEY');
-    ENV.WHATSAPP_PHONE_NUMBER_ID = await getConfig('WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_PHONE_NUMBER_ID');
-    ENV.PUSH_NOTIFICATION_KEY = await getConfig('PUSH_NOTIFICATION_KEY', 'PUSH_NOTIFICATION_KEY');
+    ENV.PUSH_NOTIFICATION_KEY = await getConfig('PUSH_NOTIFICATION_KEY', 'PUSH_NOTIFICATION_KEY', '');
     
     logger.info('Platform configuration loaded successfully');
     
@@ -213,12 +241,31 @@ export const initializeConfig = async () => {
       GOOGLE_CLIENT_ID: ENV.GOOGLE_CLIENT_ID ? '***' : 'not set',
       RAZORPAY_KEY_ID: ENV.RAZORPAY_KEY_ID ? '***' : 'not set',
       SMTP_HOST: ENV.SMTP_HOST || 'not set',
+      AWS_S3_BUCKET: ENV.AWS_S3_BUCKET || 'not set',
+      SMS_PROVIDER: ENV.SMS_PROVIDER || 'not set',
     });
 
   } catch (error) {
     logger.error('Failed to initialize platform configuration:', error);
     throw error;
   }
+};
+
+/**
+ * Setup periodic configuration refresh
+ * Refreshes configuration from database every 5 minutes
+ */
+export const setupConfigRefresh = () => {
+  setInterval(async () => {
+    try {
+      logger.debug('Refreshing configuration from database...');
+      await refreshConfig();
+    } catch (error) {
+      logger.error('Failed to refresh configuration:', error);
+    }
+  }, CACHE_TTL);
+  
+  logger.info('Configuration auto-refresh enabled (every 5 minutes)');
 };
 
 /**

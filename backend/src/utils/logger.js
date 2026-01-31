@@ -4,6 +4,8 @@
  * Supports conditional debug logging based on NODE_ENV
  */
 
+import { ENV } from '../config/env.js';
+
 export const logger = {
   /**
    * Log informational messages
@@ -38,7 +40,9 @@ export const logger = {
    * @param {object} data - Optional data to log
    */
   debug: (message, data = {}) => {
-    if (process.env.NODE_ENV === 'development') {
+    // Check ENV.NODE_ENV if available, otherwise fall back to process.env
+    const nodeEnv = ENV?.NODE_ENV || process.env.NODE_ENV;
+    if (nodeEnv === 'development') {
       console.log(`🐛 [DEBUG] ${message}`, Object.keys(data).length > 0 ? data : '');
     }
   },

@@ -1,27 +1,38 @@
 import nodemailer from 'nodemailer';
 import { logger } from '../utils/logger.js';
+import { ENV } from '../config/env.js';
 
 class EmailService {
   constructor() {
     this.transporter = null;
-    this.initialize();
   }
 
   initialize() {
     // Configure email transporter
     this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: process.env.SMTP_SECURE === 'true',
+      host: ENV.SMTP_HOST,
+      port: ENV.SMTP_PORT,
+      secure: ENV.SMTP_SECURE === true || ENV.SMTP_SECURE === 'true',
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
+        user: ENV.SMTP_USER,
+        pass: ENV.SMTP_PASS
       }
     });
   }
 
+  // Reinitialize transporter with latest config
+  reinitialize() {
+    this.initialize();
+    logger.info('Email service reinitialized with updated configuration');
+  }
+
   async sendNotificationEmail(to, data) {
     try {
+      // Reinitialize if transporter doesn't exist
+      if (!this.transporter) {
+        this.initialize();
+      }
+
       const { title, message, actionUrl, priority } = data;
 
       const priorityColors = {
@@ -54,7 +65,7 @@ class EmailService {
               ${actionUrl ? `<a href="${actionUrl}" class="button">View Details</a>` : ''}
             </div>
             <div class="footer">
-              <p>RestaurantOS - Restaurant Management Platform</p>
+              <p>${ENV.SMTP_FROM_NAME} - Restaurant Management Platform</p>
               <p>This is an automated notification. Please do not reply to this email.</p>
             </div>
           </div>
@@ -63,7 +74,7 @@ class EmailService {
       `;
 
       const mailOptions = {
-        from: `"RestaurantOS" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+        from: `"${ENV.SMTP_FROM_NAME}" <${ENV.SMTP_FROM_EMAIL || ENV.SMTP_USER}>`,
         to,
         subject: title,
         html
@@ -79,7 +90,7 @@ class EmailService {
   }
 
   async sendVerificationEmail(to, verificationToken) {
-    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
+    const verificationUrl = `${ENV.FRONTEND_URL}/verify-email?token=${verificationToken}`;
     
     return await this.sendNotificationEmail(to, {
       title: 'Verify Your Email Address',
@@ -91,6 +102,11 @@ class EmailService {
 
   async testConnection() {
     try {
+      // Reinitialize if transporter doesn't exist
+      if (!this.transporter) {
+        this.initialize();
+      }
+      
       await this.transporter.verify();
       logger.info('Email service connection verified');
       return true;
