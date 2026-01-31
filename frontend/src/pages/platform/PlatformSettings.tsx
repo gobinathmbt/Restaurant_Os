@@ -16,14 +16,32 @@ import { toast } from 'sonner';
 import NotificationSettings from '@/components/notifications/NotificationSettings';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import ConfigEditModal from '@/components/platform/ConfigEditModal';
-import {
-  getAllConfigs,
-  getConfigStats,
-  updateConfig,
-  toggleConfigStatus,
-  PlatformConfig,
-  PlatformConfigStats,
-} from '@/api/platformConfig';
+import { platformConfigServices } from '@/api/services';
+
+interface PlatformConfig {
+  _id: string;
+  configKey: string;
+  configValue: any;
+  description?: string;
+  category: 'auth' | 'payment' | 'email' | 'storage' | 'api' | 'system' | 'sms' | 'notification';
+  isSecret: boolean;
+  isActive: boolean;
+  isEditable: boolean;
+  lastModifiedBy?: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PlatformConfigStats {
+  total: number;
+  active: number;
+  inactive: number;
+  byCategory: Record<string, number>;
+}
 
 export default function PlatformSettings() {
   const [activeTab, setActiveTab] = useState('system');
@@ -57,7 +75,8 @@ export default function PlatformSettings() {
       if (categoryFilter !== 'all') params.category = categoryFilter;
       if (statusFilter !== 'all') params.isActive = statusFilter === 'active';
 
-      const data = await getAllConfigs(params);
+      const response = await platformConfigServices.getConfigs(params);
+      const data = response.data.data;
       setConfigs(data.configs);
       setTotalCount(data.pagination.total);
       setTotalPages(data.pagination.pages);
@@ -71,8 +90,8 @@ export default function PlatformSettings() {
   // Fetch stats
   const fetchStats = async () => {
     try {
-      const data = await getConfigStats();
-      setStats(data);
+      const response = await platformConfigServices.getStats();
+      setStats(response.data.data);
     } catch (error: any) {
       console.error('Failed to fetch stats:', error);
     }
@@ -92,7 +111,7 @@ export default function PlatformSettings() {
 
   const handleSave = async (id: string, data: any) => {
     try {
-      await updateConfig(id, data);
+      await platformConfigServices.updateConfig(id, data);
       toast.success('Configuration updated successfully');
       fetchConfigs();
       fetchStats();
@@ -104,7 +123,7 @@ export default function PlatformSettings() {
 
   const handleToggleStatus = async (config: PlatformConfig) => {
     try {
-      await toggleConfigStatus(config._id);
+      await platformConfigServices.toggleConfigStatus(config._id);
       toast.success(`Configuration ${config.isActive ? 'disabled' : 'enabled'} successfully`);
       fetchConfigs();
       fetchStats();

@@ -14,7 +14,24 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
-import { PlatformConfig } from '@/api/platformConfig';
+
+interface PlatformConfig {
+  _id: string;
+  configKey: string;
+  configValue: any;
+  description?: string;
+  category: 'auth' | 'payment' | 'email' | 'storage' | 'api' | 'system' | 'sms' | 'notification';
+  isSecret: boolean;
+  isActive: boolean;
+  isEditable: boolean;
+  lastModifiedBy?: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface ConfigEditModalProps {
   config: PlatformConfig | null;

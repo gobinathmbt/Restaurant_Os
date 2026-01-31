@@ -82,9 +82,30 @@ export const userServices = {
   toggleUserStatus: (id: string) => apiClient.patch(`/api/users/${id}/toggle-status`),
 };
 
+// Platform Config Services
+export const platformConfigServices = {
+  // Get all platform configurations
+  getConfigs: (params?: { page?: number; limit?: number; search?: string; category?: string; isActive?: boolean }) =>
+    apiClient.get("/api/platform-config", { params }),
+
+  // Get single configuration
+  getConfig: (id: string) => apiClient.get(`/api/platform-config/${id}`),
+
+  // Update configuration
+  updateConfig: (id: string, data: { configValue?: any; description?: string; isActive?: boolean }) =>
+    apiClient.put(`/api/platform-config/${id}`, data),
+
+  // Toggle configuration status
+  toggleConfigStatus: (id: string) => apiClient.patch(`/api/platform-config/${id}/toggle`),
+
+  // Get configuration statistics
+  getStats: () => apiClient.get("/api/platform-config/stats"),
+};
+
 export default {
   auth: authServices,
   notifications: notificationServices,
   branches: branchServices,
   users: userServices,
+  platformConfig: platformConfigServices,
 };
