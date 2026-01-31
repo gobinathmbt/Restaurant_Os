@@ -22,6 +22,9 @@ import notificationRoutes from './src/routes/notificationRoutes.js';
 import branchRoutes from './src/routes/branchRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import platformConfigRoutes from './src/routes/platformConfigRoutes.js';
+import inventoryRoutes from './src/routes/inventory.js';
+import recipeRoutes from './src/routes/recipes.js';
+import supplierRoutes from './src/routes/suppliers.js';
 import socketManager from './src/config/socket.js';
 
 // Load environment variables from .env file
@@ -69,6 +72,9 @@ const startServer = async () => {
     app.use('/api/branches', branchRoutes);
     app.use('/api/users', userRoutes);
     app.use('/api/platform-config', platformConfigRoutes);
+    app.use('/api/inventory', inventoryRoutes);
+    app.use('/api/recipes', recipeRoutes);
+    app.use('/api/suppliers', supplierRoutes);
 
     // Health check endpoint
     app.get('/health', (req, res) => {
