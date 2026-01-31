@@ -302,7 +302,7 @@ export const updateUser = async (req, res, next) => {
   try {
     const { companyId, userId: currentUserId, role: creatorRole } = req.user;
     const { id } = req.params;
-    const { name, email, role, branchIds, isActive } = req.body;
+    const { name, email, role, branchIds, isActive, password } = req.body;
 
     // Find user
     const user = await CompanyUser.findOne({ _id: id, companyId });
@@ -311,6 +311,18 @@ export const updateUser = async (req, res, next) => {
         success: false,
         message: 'User not found'
       });
+    }
+
+    // Only company_super_admin_primary can update passwords
+    if (password) {
+      if (creatorRole !== 'company_super_admin_primary') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only primary admin can update user passwords'
+        });
+      }
+      // Password will be hashed by the pre-save hook
+      user.password = password;
     }
 
     // Check permissions for role change

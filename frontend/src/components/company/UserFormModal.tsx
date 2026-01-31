@@ -210,19 +210,27 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
                 />
               </div>
             </div>
-            <div>
-              <Label htmlFor="password">
-                Password {user ? '(leave blank to keep current)' : '*'}
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder="••••••••"
-                required={!user}
-              />
-            </div>
+            {/* Only show password field for primary admin or when creating new user */}
+            {(currentUser?.role === 'company_super_admin_primary' || !user) && (
+              <div>
+                <Label htmlFor="password">
+                  Password {user ? '(leave blank to keep current)' : '*'}
+                </Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder="••••••••"
+                  required={!user}
+                />
+                {user && currentUser?.role === 'company_super_admin_primary' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Only primary admin can update passwords
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Role */}
