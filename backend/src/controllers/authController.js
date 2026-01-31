@@ -141,6 +141,24 @@ export const registerCompany = async (req, res, next) => {
 
     logger.info('Company registered successfully', { companyId, email });
 
+    // Send welcome email to the new company admin with BCC to all platform admins
+    try {
+      const welcomeEmailService = await import('../services/emailTemplates/welcomeEmailService.js');
+      await welcomeEmailService.default.sendWelcomeEmail({
+        adminName,
+        email,
+        companyName,
+        companyId,
+        trialEndDate,
+        phone,
+        address
+      });
+      logger.info('Welcome email sent successfully', { companyId, email });
+    } catch (emailError) {
+      logger.error('Failed to send welcome email', emailError);
+      // Don't fail registration if email fails
+    }
+
     // Send notification to all platform admins about new company registration
     try {
       const notificationService = await import('../services/notificationService.js');
