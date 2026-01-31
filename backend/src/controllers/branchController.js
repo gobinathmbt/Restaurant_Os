@@ -6,16 +6,64 @@ import { logger } from '../utils/logger.js';
 
 /**
  * Get all branches for a company
+ * For company_admin: only return branches they have access to
+ * For super admins: return all branches
  */
 export const getBranches = async (req, res, next) => {
   try {
-    const { companyId } = req.user;
+    const { companyId, userId, role } = req.user;
     const { page = 1, limit = 10, search, isActive } = req.query;
 
     const companyDB = getCompanyDB(companyId);
     const Branch = getBranchModel(companyDB);
 
     const query = {};
+    
+    // If user is company_admin, filter by their assigned branches
+    if (role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      
+      if (!user || !user.branchIds || user.branchIds.length === 0) {
+        // Company admin has no branch access
+        return res.json({
+          success: true,
+          data: {
+            branches: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
+      
+      // Filter branches to only those the admin has access to
+      query._id = { $in: user.branchIds };
+    }
+    // Super admins (primary and secondary) can see all branches
+    // Employees shouldn't typically access this endpoint, but if they do, show their branches
+    else if (role === 'employee') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      
+      if (!user || !user.branchIds || user.branchIds.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            branches: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
+      
+      query._id = { $in: user.branchIds };
+    }
     
     if (search) {
       query.$or = [
@@ -59,10 +107,11 @@ export const getBranches = async (req, res, next) => {
 
 /**
  * Get single branch by ID
+ * For company_admin: only return if they have access to this branch
  */
 export const getBranchById = async (req, res, next) => {
   try {
-    const { companyId } = req.user;
+    const { companyId, userId, role } = req.user;
     const { id } = req.params;
 
     const companyDB = getCompanyDB(companyId);
@@ -75,6 +124,18 @@ export const getBranchById = async (req, res, next) => {
         success: false,
         message: 'Branch not found'
       });
+    }
+
+    // If user is company_admin or employee, check if they have access to this branch
+    if (role === 'company_admin' || role === 'employee') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      
+      if (!user || !user.branchIds || !user.branchIds.includes(id)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
     }
 
     res.json({
@@ -123,51 +184,60 @@ export const createBranch = async (req, res, next) => {
 
     logger.info('Branch created', { branchId: branch._id, companyId, createdBy: userId });
 
-    // Send notifications based on who created the branch
+    // Send notifications to all super admins
     try {
       const creator = await CompanyUser.findById(userId);
       
-      if (role === 'company_super_admin_secondary') {
-        // Notify primary admin
-        const primaryAdmin = await CompanyUser.findOne({
-          companyId,
-          role: 'company_super_admin_primary'
-        });
+      // Get all super admins (primary and secondary)
+      const superAdmins = await CompanyUser.find({
+        companyId,
+        role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] },
+        _id: { $ne: userId } // Exclude the creator
+      });
 
-        if (primaryAdmin) {
-          await notificationService.sendToCompanyUser(companyId, primaryAdmin._id, {
-            category: 'system',
-            event: 'branchCreated',
-            title: 'New Branch Created',
-            message: `${creator.name} created a new branch: ${branch.name} (${branch.code})`,
-            data: {
-              branchId: branch._id,
-              branchName: branch.name,
-              branchCode: branch.code,
-              createdBy: creator.name,
-              createdAt: branch.createdAt
-            },
-            priority: 'medium',
-            actionUrl: `/branches/${branch._id}`
-          });
-        }
-      } else if (role === 'company_super_admin_primary') {
-        // Only notify the creator (primary admin)
-        await notificationService.sendToCompanyUser(companyId, userId, {
+      // Send notification to all super admins
+      for (const admin of superAdmins) {
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
           category: 'system',
           event: 'branchCreated',
-          title: 'Branch Created Successfully',
-          message: `You created a new branch: ${branch.name} (${branch.code})`,
+          title: 'New Branch Created',
+          message: `${creator.name} created a new branch: ${branch.name} (${branch.code})`,
           data: {
             branchId: branch._id,
             branchName: branch.name,
             branchCode: branch.code,
+            branchAddress: branch.address,
+            createdBy: creator.name,
+            creatorRole: role,
             createdAt: branch.createdAt
           },
-          priority: 'low',
+          priority: 'medium',
           actionUrl: `/branches/${branch._id}`
         });
       }
+
+      // Send confirmation notification to the creator
+      await notificationService.sendToCompanyUser(companyId, userId, {
+        category: 'system',
+        event: 'branchCreated',
+        title: 'Branch Created Successfully',
+        message: `You created a new branch: ${branch.name} (${branch.code})`,
+        data: {
+          branchId: branch._id,
+          branchName: branch.name,
+          branchCode: branch.code,
+          branchAddress: branch.address,
+          createdAt: branch.createdAt
+        },
+        priority: 'low',
+        actionUrl: `/branches/${branch._id}`
+      });
+
+      logger.info('Branch creation notifications sent', { 
+        branchId: branch._id, 
+        notificationCount: superAdmins.length + 1 
+      });
+
     } catch (notifError) {
       logger.error('Failed to send branch creation notification', notifError);
     }
