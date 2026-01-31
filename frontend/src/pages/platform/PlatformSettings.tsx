@@ -14,9 +14,9 @@ export default function PlatformSettings() {
   const [activeTab, setActiveTab] = useState(isPlatformSuperAdmin ? 'system' : 'notifications');
 
   return (
-    <div className="h-[calc(100vh-4rem)] -m-6 overflow-hidden">
+    <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-        <TabsList className={`mx-6 mt-6 grid w-full ${isPlatformSuperAdmin ? 'grid-cols-5' : 'grid-cols-4'} lg:w-auto`}>
+        <TabsList className={`mx-6 mt-6 mb-0 grid w-full ${isPlatformSuperAdmin ? 'grid-cols-5' : 'grid-cols-4'} lg:w-auto flex-shrink-0`}>
         {isPlatformSuperAdmin && (
           <TabsTrigger value="system" className="flex items-center gap-2">
             <Database className="h-4 w-4" />
@@ -42,24 +42,24 @@ export default function PlatformSettings() {
       </TabsList>
 
       {isPlatformSuperAdmin && (
-        <TabsContent value="system" className="m-0 flex-1 overflow-hidden">
+        <TabsContent value="system" className="m-0 flex-1 min-h-0 overflow-hidden">
           <SystemConfigTab />
         </TabsContent>
       )}
 
-      <TabsContent value="notifications" className="m-6 overflow-auto">
+      <TabsContent value="notifications" className="m-6 flex-1 overflow-auto">
         <NotificationSettings userType="platform" />
       </TabsContent>
 
-      <TabsContent value="profile" className="m-6 overflow-auto">
+      <TabsContent value="profile" className="m-6 flex-1 overflow-auto">
         <ProfileTab />
       </TabsContent>
 
-      <TabsContent value="security" className="m-6 overflow-auto">
+      <TabsContent value="security" className="m-6 flex-1 overflow-auto">
         <SecurityTab />
       </TabsContent>
 
-      <TabsContent value="appearance" className="m-6 overflow-auto">
+      <TabsContent value="appearance" className="m-6 flex-1 overflow-auto">
         <AppearanceTab />
       </TabsContent>
     </Tabs>

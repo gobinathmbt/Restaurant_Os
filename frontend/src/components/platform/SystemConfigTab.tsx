@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Settings2, Edit, Power, Eye } from 'lucide-react';
+import { Settings2, Edit, Power, Eye, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Select,
   SelectContent,
@@ -11,7 +14,6 @@ import {
 } from '@/components/ui/select';
 import { TableCell, TableHead } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import DataTableLayout from '@/components/common/DataTableLayout';
 import ConfigEditModal from '@/components/platform/ConfigEditModal';
 import { platformConfigServices } from '@/api/services';
 
@@ -264,18 +266,37 @@ export default function SystemConfigTab() {
   } : undefined;
 
   return (
-    <div className="h-full flex flex-col">
-      <DataTableLayout
-        statChips={stats ? [
-          { label: 'Total', value: stats.total, variant: 'outline' },
-          { label: 'Active', value: stats.active, variant: 'default' },
-          { label: 'Inactive', value: stats.inactive, variant: 'secondary' },
-        ] : []}
-        searchValue={searchValue}
-        searchPlaceholder="Search configurations..."
-        onSearchChange={setSearchValue}
-        filterConfig={{
-          component: (
+    <div className="h-full flex flex-col bg-background">
+      {/* Fixed Header */}
+      <div className="bg-background border-b flex-shrink-0">
+        <div className="px-6 py-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Stats Chips */}
+            {stats && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="px-3 py-1 text-sm">
+                  Total: {stats.total}
+                </Badge>
+                <Badge variant="default" className="px-3 py-1 text-sm">
+                  Active: {stats.active}
+                </Badge>
+                <Badge variant="secondary" className="px-3 py-1 text-sm">
+                  Inactive: {stats.inactive}
+                </Badge>
+              </div>
+            )}
+
+            {/* Search */}
+            <div className="flex-1 max-w-xs">
+              <Input
+                placeholder="Search configurations..."
+                value={searchValue}
+                onChange={(e) => setSearchValue(e.target.value)}
+                className="h-9"
+              />
+            </div>
+
+            {/* Filters */}
             <div className="flex items-center gap-2">
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="h-9 w-[140px]">
@@ -304,21 +325,106 @@ export default function SystemConfigTab() {
                 </SelectContent>
               </Select>
             </div>
-          ),
-        }}
-        tableHeaders={tableHeaders}
-        tableBody={tableBody}
-        isLoading={isLoading}
-        emptyState={emptyState}
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalCount={totalCount}
-        rowsPerPage={rowsPerPage}
-        onPageChange={setCurrentPage}
-        onRowsPerPageChange={setRowsPerPage}
-        onRefresh={fetchConfigs}
-        cookiePrefix="platform_config"
-      />
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Refresh Button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={fetchConfigs}
+              disabled={isLoading}
+              className="h-9 w-9"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Table Content */}
+      <div className="flex-1 min-h-0 overflow-auto">
+        {isLoading ? (
+          <div className="flex justify-center items-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : configs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full p-8">
+            <Settings2 className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No configurations found</h3>
+            <p className="text-muted-foreground text-center">
+              No platform configurations match your filters.
+            </p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader className="sticky top-0 bg-background z-10 border-b">
+              <TableRow>{tableHeaders}</TableRow>
+            </TableHeader>
+            <TableBody>{tableBody}</TableBody>
+          </Table>
+        )}
+      </div>
+
+      {/* Fixed Footer with Pagination */}
+      <div className="bg-background border-t py-3 px-6 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          {/* Left: Rows per page */}
+          <div className="flex items-center gap-2">
+            <Label className="text-sm text-muted-foreground">Rows:</Label>
+            <Select
+              value={rowsPerPage.toString()}
+              onValueChange={(value) => {
+                setRowsPerPage(parseInt(value));
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="h-8 w-20 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Center: Pagination */}
+          {totalPages > 0 && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+                className="h-8 px-3"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground px-3">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => currentPage < totalPages && setCurrentPage(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+                className="h-8 px-3"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+
+          {/* Right: Total count */}
+          <div className="text-sm text-muted-foreground">
+            Total: {totalCount}
+          </div>
+        </div>
+      </div>
 
       <ConfigEditModal
         config={editingConfig}
