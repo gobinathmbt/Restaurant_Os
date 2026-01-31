@@ -107,14 +107,14 @@ export default function ConfigEditModal({ config, open, onClose, onSave }: Confi
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+        <DialogHeader className="px-6 pt-6">
           <DialogTitle>Edit Configuration</DialogTitle>
           <DialogDescription>
             Update the platform configuration settings
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 px-6 py-4">
           {/* Config Key (Read-only) */}
           <div className="space-y-2">
             <Label>Configuration Key</Label>
@@ -228,7 +228,7 @@ export default function ConfigEditModal({ config, open, onClose, onSave }: Confi
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="px-6 pb-6">
           <Button variant="outline" onClick={onClose} disabled={isLoading}>
             Cancel
           </Button>

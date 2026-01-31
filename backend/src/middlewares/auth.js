@@ -171,7 +171,15 @@ export const requirePlatformSuperAdmin = (req, res, next) => {
   if (req.user.role !== 'platform_super_admin') {
     return res.status(403).json({
       success: false,
-      message: 'Access denied. Platform super admin access required.',
+      message: 'Access denied. Platform super admin primary access required.',
+    });
+  }
+
+  // Check platformAdminPrimary flag
+  if (!req.user.platformAdminPrimary) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Platform super admin primary access required.',
     });
   }
 

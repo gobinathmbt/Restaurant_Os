@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Bell, User, Shield, Database, Palette, Settings2, Edit, Power } from 'lucide-react';
+import { Bell, User, Shield, Database, Palette, Settings2, Edit, Power, Eye } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,7 +12,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TableCell, TableHead } from '@/components/ui/table';
-import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import NotificationSettings from '@/components/notifications/NotificationSettings';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import ConfigEditModal from '@/components/platform/ConfigEditModal';
@@ -44,7 +45,12 @@ interface PlatformConfigStats {
 }
 
 export default function PlatformSettings() {
-  const [activeTab, setActiveTab] = useState('system');
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState('notifications');
+  
+  // Check if user is platform super admin primary
+  const isPlatformSuperAdmin = user?.role === 'platform_super_admin' && user?.platformAdminPrimary === true;
   
   // Config management state
   const [configs, setConfigs] = useState<PlatformConfig[]>([]);
@@ -57,6 +63,8 @@ export default function PlatformSettings() {
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  const [viewingSecretId, setViewingSecretId] = useState<string | null>(null);
+  const [secretValues, setSecretValues] = useState<Record<string, any>>({});
   
   // Edit modal state
   const [editingConfig, setEditingConfig] = useState<PlatformConfig | null>(null);
@@ -81,7 +89,11 @@ export default function PlatformSettings() {
       setTotalCount(data.pagination.total);
       setTotalPages(data.pagination.pages);
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to fetch configurations');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch configurations',
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -97,12 +109,35 @@ export default function PlatformSettings() {
     }
   };
 
+  // Fetch secret value
+  const fetchSecretValue = async (configId: string) => {
+    try {
+      setViewingSecretId(configId);
+      const response = await platformConfigServices.getConfig(configId);
+      const data = response.data.data;
+      setSecretValues(prev => ({ ...prev, [configId]: data.configValue }));
+      toast({
+        title: "Secret Revealed",
+        description: "Secret value is now visible",
+        variant: "default",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch secret value',
+        variant: "destructive",
+      });
+    } finally {
+      setViewingSecretId(null);
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'system') {
+    if (activeTab === 'system' && isPlatformSuperAdmin) {
       fetchConfigs();
       fetchStats();
     }
-  }, [activeTab, currentPage, rowsPerPage, searchValue, categoryFilter, statusFilter]);
+  }, [activeTab, currentPage, rowsPerPage, searchValue, categoryFilter, statusFilter, isPlatformSuperAdmin]);
 
   const handleEdit = (config: PlatformConfig) => {
     setEditingConfig(config);
@@ -112,11 +147,19 @@ export default function PlatformSettings() {
   const handleSave = async (id: string, data: any) => {
     try {
       await platformConfigServices.updateConfig(id, data);
-      toast.success('Configuration updated successfully');
+      toast({
+        title: "Success",
+        description: "Configuration updated successfully",
+        variant: "success",
+      });
       fetchConfigs();
       fetchStats();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to update configuration');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to update configuration',
+        variant: "destructive",
+      });
       throw error;
     }
   };
@@ -124,11 +167,19 @@ export default function PlatformSettings() {
   const handleToggleStatus = async (config: PlatformConfig) => {
     try {
       await platformConfigServices.toggleConfigStatus(config._id);
-      toast.success(`Configuration ${config.isActive ? 'disabled' : 'enabled'} successfully`);
+      toast({
+        title: "Success",
+        description: `Configuration ${config.isActive ? 'disabled' : 'enabled'} successfully`,
+        variant: "success",
+      });
       fetchConfigs();
       fetchStats();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to toggle configuration status');
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to toggle configuration status',
+        variant: "destructive",
+      });
     }
   };
 
@@ -148,6 +199,7 @@ export default function PlatformSettings() {
 
   const tableHeaders = (
     <>
+      <TableHead className="w-16">S.No</TableHead>
       <TableHead className="w-[250px]">Config Key</TableHead>
       <TableHead className="w-[120px]">Category</TableHead>
       <TableHead className="w-[200px]">Value</TableHead>
@@ -157,52 +209,70 @@ export default function PlatformSettings() {
     </>
   );
 
-  const tableBody = configs.map((config) => (
-    <tr key={config._id} className="border-b hover:bg-muted/50">
-      <TableCell className="font-mono text-sm">{config.configKey}</TableCell>
-      <TableCell>
-        <Badge variant="outline" className={`capitalize ${getCategoryColor(config.category)}`}>
-          {config.category}
-        </Badge>
-      </TableCell>
-      <TableCell className="font-mono text-xs max-w-[200px] truncate">
-        {config.isSecret ? (
-          <span className="text-muted-foreground">***HIDDEN***</span>
-        ) : typeof config.configValue === 'object' ? (
-          <span className="text-muted-foreground">Object</span>
-        ) : (
-          String(config.configValue || '-')
-        )}
-      </TableCell>
-      <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">
-        {config.description || '-'}
-      </TableCell>
-      <TableCell>
-        <Badge variant={config.isActive ? 'default' : 'secondary'}>
-          {config.isActive ? 'Active' : 'Inactive'}
-        </Badge>
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleEdit(config)}
-            disabled={!config.isEditable}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleToggleStatus(config)}
-          >
-            <Power className={`h-4 w-4 ${config.isActive ? 'text-green-600' : 'text-gray-400'}`} />
-          </Button>
-        </div>
-      </TableCell>
-    </tr>
-  ));
+  const tableBody = configs.map((config, index) => {
+    const displayValue = config.isSecret 
+      ? (secretValues[config._id] !== undefined ? String(secretValues[config._id]) : '***HIDDEN***')
+      : typeof config.configValue === 'object' 
+        ? 'Object' 
+        : String(config.configValue || '-');
+
+    return (
+      <tr key={config._id} className="border-b hover:bg-muted/50">
+        <TableCell className="font-medium text-muted-foreground">
+          {(currentPage - 1) * rowsPerPage + index + 1}
+        </TableCell>
+        <TableCell className="font-mono text-sm">{config.configKey}</TableCell>
+        <TableCell>
+          <Badge variant="outline" className={`capitalize ${getCategoryColor(config.category)}`}>
+            {config.category}
+          </Badge>
+        </TableCell>
+        <TableCell className="font-mono text-xs max-w-[200px]">
+          <div className="flex items-center gap-2">
+            <span className="truncate">{displayValue}</span>
+            {config.isSecret && secretValues[config._id] === undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => fetchSecretValue(config._id)}
+                disabled={viewingSecretId === config._id}
+                className="h-6 w-6 p-0"
+              >
+                <Eye className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        </TableCell>
+        <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">
+          {config.description || '-'}
+        </TableCell>
+        <TableCell>
+          <Badge variant={config.isActive ? 'default' : 'secondary'}>
+            {config.isActive ? 'Active' : 'Inactive'}
+          </Badge>
+        </TableCell>
+        <TableCell className="text-right">
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleEdit(config)}
+              disabled={!config.isEditable}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleToggleStatus(config)}
+            >
+              <Power className={`h-4 w-4 ${config.isActive ? 'text-green-600' : 'text-gray-400'}`} />
+            </Button>
+          </div>
+        </TableCell>
+      </tr>
+    );
+  });
 
   const emptyState = configs.length === 0 ? {
     icon: <Settings2 className="h-12 w-12" />,
@@ -213,11 +283,13 @@ export default function PlatformSettings() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
-          <TabsTrigger value="system" className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            <span className="hidden sm:inline">System Config</span>
-          </TabsTrigger>
+        <TabsList className={`grid w-full ${isPlatformSuperAdmin ? 'grid-cols-5' : 'grid-cols-4'} lg:w-auto`}>
+          {isPlatformSuperAdmin && (
+            <TabsTrigger value="system" className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              <span className="hidden sm:inline">System Config</span>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
             <span className="hidden sm:inline">Notifications</span>
@@ -236,8 +308,9 @@ export default function PlatformSettings() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="system" className="space-y-4">
-          <DataTableLayout
+        {isPlatformSuperAdmin && (
+          <TabsContent value="system" className="space-y-4">
+            <DataTableLayout
             statChips={stats ? [
               { label: 'Total', value: stats.total, variant: 'outline' },
               { label: 'Active', value: stats.active, variant: 'default' },
@@ -292,6 +365,7 @@ export default function PlatformSettings() {
             cookiePrefix="platform_config"
           />
         </TabsContent>
+        )}
 
         <TabsContent value="notifications" className="space-y-4">
           <NotificationSettings userType="platform" />
