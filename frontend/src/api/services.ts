@@ -130,7 +130,7 @@ export const inventoryServices = {
     apiClient.get("/api/inventory/items/categories", { params: { branchId } }),
 
   // GRN (Goods Receipt Notes)
-  getGRNs: (branchId: string, params?: { page?: number; limit?: number; supplier?: string; status?: string; startDate?: string; endDate?: string }) =>
+  getGRNs: (branchId: string, params?: { page?: number; limit?: number; search?: string; supplier?: string; status?: string; startDate?: string; endDate?: string }) =>
     apiClient.get("/api/inventory/grn", { params: { branchId, ...params } }),
 
   getGRN: (id: string) =>
@@ -140,14 +140,14 @@ export const inventoryServices = {
     apiClient.post("/api/inventory/grn", { ...data, branchId }),
 
   // Stock Adjustments
-  getStockAdjustments: (branchId: string, params?: { page?: number; limit?: number; startDate?: string; endDate?: string; type?: string; reason?: string }) =>
+  getStockAdjustments: (branchId: string, params?: { page?: number; limit?: number; search?: string; startDate?: string; endDate?: string; type?: string; reason?: string }) =>
     apiClient.get("/api/inventory/adjustments", { params: { branchId, ...params } }),
 
   createStockAdjustment: (branchId: string, data: any) =>
     apiClient.post("/api/inventory/adjustments", { ...data, branchId }),
 
   // Stock Transfers
-  getStockTransfers: (branchId: string, params?: { page?: number; limit?: number; status?: string }) =>
+  getStockTransfers: (branchId: string, params?: { page?: number; limit?: number; search?: string; status?: string }) =>
     apiClient.get("/api/inventory/transfers", { params: { branchId, ...params } }),
 
   createStockTransfer: (data: any) =>
