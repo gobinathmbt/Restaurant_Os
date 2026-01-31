@@ -308,10 +308,10 @@ export default function Branches() {
                     )}
                     {branch.settings?.taxSettings && (
                       <div className="text-muted-foreground">
-                        {branch.settings.taxSettings.cgst && (
+                        {branch.settings.taxSettings.cgst>0 && (
                           <div>CGST: {branch.settings.taxSettings.cgst}%</div>
                         )}
-                        {branch.settings.taxSettings.sgst && (
+                        {branch.settings.taxSettings.sgst > 0 && (
                           <div>SGST: {branch.settings.taxSettings.sgst}%</div>
                         )}
                       </div>
