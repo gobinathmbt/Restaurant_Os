@@ -49,8 +49,8 @@ const Auth = () => {
 
   // Redirect when authentication state changes
   useEffect(() => {
-    if (isAuthenticated && user && !loading) {
-      // Only redirect if we're authenticated and not in the middle of a login attempt
+    if (isAuthenticated && user) {
+      // Redirect immediately when authenticated
       const timer = setTimeout(() => {
         if (user.userType === 'platform') {
           navigate('/platform/dashboard', { replace: true });
@@ -61,7 +61,7 @@ const Auth = () => {
       
       return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, user, navigate, loading]);
+  }, [isAuthenticated, user, navigate]);
 
   const [loginData, setLoginData] = useState<LoginData>({
     email: '',
@@ -211,6 +211,7 @@ const Auth = () => {
           variant: "success",
         });
         
+        // Don't set loading to false here - let the redirect happen
         // Redirect will happen via useEffect when isAuthenticated changes
       } catch (loginError: any) {
         // If user doesn't exist (404), show registration form with pre-filled data
@@ -249,6 +250,12 @@ const Auth = () => {
           });
         }
         setLoading(false);
+      } finally {
+        // Ensure loading is reset even if something unexpected happens
+        // But only if authentication failed
+        if (!isAuthenticated) {
+          setLoading(false);
+        }
       }
     },
     onError: () => {
