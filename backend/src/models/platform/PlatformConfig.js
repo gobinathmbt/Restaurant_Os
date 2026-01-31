@@ -44,43 +44,5 @@ platformConfigSchema.index({ updatedAt: -1 }); // Recently modified configs
 platformConfigSchema.index({ category: 1, isActive: 1 }); // Active configs by category
 platformConfigSchema.index({ isActive: 1, isSecret: 1 }); // Active secret configs
 
-// Example configuration keys stored in this collection:
-// Authentication (category: 'auth')
-// - JWT_SECRET (isSecret: true)
-// - JWT_EXPIRE
-// - GOOGLE_CLIENT_ID
-// - GOOGLE_CLIENT_SECRET (isSecret: true)
-// - GOOGLE_CALLBACK_URL
-
-// Payment (category: 'payment')
-// - RAZORPAY_KEY_ID
-// - RAZORPAY_KEY_SECRET (isSecret: true)
-// - CASHFREE_APP_ID
-// - CASHFREE_SECRET_KEY (isSecret: true)
-
-// Email (category: 'email')
-// - SMTP_HOST
-// - SMTP_PORT
-// - SMTP_USER
-// - SMTP_PASS (isSecret: true)
-// - SMTP_FROM_EMAIL
-// - SMTP_FROM_NAME
-
-// Storage - AWS S3 (category: 'storage')
-// - AWS_S3_BUCKET
-// - AWS_S3_REGION
-// - AWS_ACCESS_KEY_ID (isSecret: true)
-// - AWS_SECRET_ACCESS_KEY (isSecret: true)
-// - AWS_S3_URL
-
-// SMS (category: 'sms')
-// - SMS_PROVIDER (e.g., 'twilio', 'msg91')
-// - SMS_API_KEY (isSecret: true)
-// - SMS_SENDER_ID
-
-// Notification (category: 'notification')
-// - WHATSAPP_API_KEY (isSecret: true)
-// - WHATSAPP_PHONE_NUMBER_ID
-// - PUSH_NOTIFICATION_KEY (isSecret: true)
 
 export default mongoose.model('PlatformConfig', platformConfigSchema);

@@ -120,15 +120,15 @@ export const refreshConfig = async () => {
  */
 export const ENV = {
   // Server configuration (from environment only - not in database)
-  PORT: process.env.PORT || 5000,
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  PORT:  5000,
+  NODE_ENV:  'development',
   
   // Database URIs (from environment only - not in database)
-  PLATFORM_DB_URI: process.env.PLATFORM_DB_URI,
-  COMPANY_DB_BASE_URI: process.env.COMPANY_DB_BASE_URI,
+  PLATFORM_DB_URI: "mongodb://localhost:27017/ros_platform",
+  COMPANY_DB_BASE_URI: "mongodb://localhost:27017/<dbname>",
   
   // Frontend URL (from environment only - not in database)
-  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
+  FRONTEND_URL:  'http://localhost:5173',
   
   // Authentication Configuration
   JWT_SECRET: null,
@@ -173,8 +173,6 @@ export const ENV = {
   WHATSAPP_PHONE_NUMBER_ID: null,
   WHATSAPP_VERIFY_TOKEN: null,
   
-  // Notification Configuration
-  PUSH_NOTIFICATION_KEY: null,
 };
 
 /**
@@ -228,9 +226,7 @@ export const initializeConfig = async () => {
     ENV.WHATSAPP_API_KEY = await getConfig('WHATSAPP_API_KEY', 'WHATSAPP_API_KEY', '');
     ENV.WHATSAPP_PHONE_NUMBER_ID = await getConfig('WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_PHONE_NUMBER_ID', '');
     ENV.WHATSAPP_VERIFY_TOKEN = await getConfig('WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_VERIFY_TOKEN', '');
-    
-    // Load notification configuration
-    ENV.PUSH_NOTIFICATION_KEY = await getConfig('PUSH_NOTIFICATION_KEY', 'PUSH_NOTIFICATION_KEY', '');
+
     
     logger.info('Platform configuration loaded successfully');
     
