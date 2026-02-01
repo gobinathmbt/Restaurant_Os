@@ -501,92 +501,99 @@ export default function SupplierFormModal({
                     Select which branches this supplier can serve
                   </p>
 
-                  {branches.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No branches available</p>
-                  ) : (
-                    <div className="space-y-3">
-                      <Popover open={branchSelectorOpen} onOpenChange={setBranchSelectorOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            aria-expanded={branchSelectorOpen}
-                            className="w-full justify-between"
-                          >
-                            {selectedBranches.length > 0
-                              ? `${selectedBranches.length} branch${selectedBranches.length > 1 ? "es" : ""} selected`
-                              : "Select branches..."}
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
+                  <div className="space-y-3">
+                    <Popover open={branchSelectorOpen} onOpenChange={setBranchSelectorOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={branchSelectorOpen}
+                          className="w-full justify-between"
+                        >
+                          {selectedBranches.length > 0
+                            ? `${selectedBranches.length} branch${selectedBranches.length > 1 ? "es" : ""} selected`
+                            : "Select branches..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
 
-                        <PopoverContent className="w-full p-0" align="start">
-                          <Command shouldFilter={false}>
-                            <CommandInput 
-                              placeholder="Search branches..." 
-                              value={branchSearch}
-                              onValueChange={setBranchSearch}
-                            />
-                            <CommandEmpty>
-                              {branchesLoading ? 'Loading...' : 'No branches found.'}
-                            </CommandEmpty>
-                            <CommandList>
-                              <CommandGroup>
-                                {branchesLoading ? (
-                                  <div className="py-6 text-center text-sm text-muted-foreground">
-                                    Loading branches...
-                                  </div>
-                                ) : (
-                                  branches.map((branch) => (
-                                    <CommandItem
-                                      key={branch._id}
-                                      value={`${branch.name} ${branch.code}`}
-                                      onSelect={() => handleBranchToggle(branch._id)}
-                                    >
-                                      <Check
-                                        className={cn(
-                                          "mr-2 h-4 w-4",
-                                          selectedBranches.includes(branch._id)
-                                            ? "opacity-100"
-                                            : "opacity-0"
-                                        )}
-                                      />
-                                      <div className="flex flex-col">
-                                        <span className="font-medium">{branch.name}</span>
-                                        <span className="text-xs text-muted-foreground">
-                                          {branch.code}
-                                        </span>
-                                      </div>
-                                    </CommandItem>
-                                  ))
-                                )}
-                              </CommandGroup>
-                              {branches.length >= 100 && !branchSearch && (
-                                <div className="px-2 py-1.5 text-xs text-amber-600 border-t">
-                                  Showing first 100 branches. Use search to find more.
+                      <PopoverContent className="w-full p-0" align="start">
+                        <Command shouldFilter={false}>
+                          <CommandInput 
+                            placeholder="Search branches..." 
+                            value={branchSearch}
+                            onValueChange={setBranchSearch}
+                          />
+                          <CommandEmpty>
+                            {branchesLoading 
+                              ? 'Loading branches...' 
+                              : branchSearch 
+                                ? `No branches found matching "${branchSearch}"`
+                                : 'No branches available'}
+                          </CommandEmpty>
+                          <CommandList>
+                            <CommandGroup>
+                              {branchesLoading ? (
+                                <div className="py-6 text-center text-sm text-muted-foreground">
+                                  Loading branches...
                                 </div>
+                              ) : (
+                                branches.map((branch) => (
+                                  <CommandItem
+                                    key={branch._id}
+                                    value={`${branch.name} ${branch.code}`}
+                                    onSelect={() => handleBranchToggle(branch._id)}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedBranches.includes(branch._id)
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    <div className="flex flex-col">
+                                      <span className="font-medium">{branch.name}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {branch.code}
+                                      </span>
+                                    </div>
+                                  </CommandItem>
+                                ))
                               )}
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
+                            </CommandGroup>
+                            {branches.length >= 100 && !branchSearch && !branchesLoading && (
+                              <div className="px-2 py-1.5 text-xs text-amber-600 border-t">
+                                Showing first 100 branches. Use search to find more.
+                              </div>
+                            )}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
 
-                      {/* Selected Branch Chips */}
-                      {selectedBranches.length > 0 && (
-                        <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
-                          {getSelectedBranches().map((branch) => (
-                            <Badge key={branch._id} variant="secondary" className="gap-1">
-                              {branch.name} ({branch.code})
-                              <X
-                                className="h-3 w-3 cursor-pointer hover:text-destructive"
-                                onClick={() => handleRemoveBranch(branch._id)}
-                              />
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    {/* Selected Branch Chips */}
+                    {selectedBranches.length > 0 && (
+                      <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
+                        {getSelectedBranches().map((branch) => (
+                          <Badge key={branch._id} variant="secondary" className="gap-1">
+                            {branch.name} ({branch.code})
+                            <X
+                              className="h-3 w-3 cursor-pointer hover:text-destructive"
+                              onClick={() => handleRemoveBranch(branch._id)}
+                            />
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Info message */}
+                    <p className="text-sm text-muted-foreground">
+                      {selectedBranches.length > 0 
+                        ? `${selectedBranches.length} branch${selectedBranches.length !== 1 ? 'es' : ''} selected`
+                        : 'Please select at least one branch'}
+                    </p>
+                  </div>
                 </div>
               </TabsContent>
 
