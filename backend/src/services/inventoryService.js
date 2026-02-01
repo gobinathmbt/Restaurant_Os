@@ -599,9 +599,12 @@ export const getGRNs = async (companyId, branchId, filters = {}) => {
     } = filters;
 
     // Build query
-    const query = {
-      branch: branchId
-    };
+    const query = {};
+
+    // Branch filter - only add if not "all"
+    if (branchId && branchId !== 'all') {
+      query.branch = branchId;
+    }
 
     // Supplier filter
     if (supplier) {
@@ -841,9 +844,12 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
     } = filters;
 
     // Build query
-    const query = {
-      branch: branchId
-    };
+    const query = {};
+
+    // Branch filter - only add if not "all"
+    if (branchId && branchId !== 'all') {
+      query.branch = branchId;
+    }
 
     // Date range filter
     if (startDate || endDate) {
@@ -1191,7 +1197,8 @@ export const getStockTransfers = async (companyId, branchId, filters = {}) => {
     const query = {};
 
     // Branch filter - return transfers where branch is from or to
-    if (branchId) {
+    // Skip if branchId is "all"
+    if (branchId && branchId !== 'all') {
       query.$or = [
         { fromBranch: branchId },
         { toBranch: branchId }

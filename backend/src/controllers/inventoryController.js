@@ -515,13 +515,24 @@ export const getGRNs = async (req, res, next) => {
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Verify branch access (skip verification for "all" if user is super admin)
+    if (branchId !== 'all') {
+      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
+    } else {
+      // Only super admins can use "all"
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only super admins can view all branches'
+        });
+      }
     }
 
     // Get GRNs
@@ -665,13 +676,24 @@ export const getStockAdjustments = async (req, res, next) => {
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Verify branch access (skip verification for "all" if user is super admin)
+    if (branchId !== 'all') {
+      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
+    } else {
+      // Only super admins can use "all"
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only super admins can view all branches'
+        });
+      }
     }
 
     // Get stock adjustments
@@ -795,14 +817,25 @@ export const getStockTransfers = async (req, res, next) => {
     const { companyId, userId, role } = req.user;
     const { branchId, ...filters } = req.query;
 
-    // If branchId is provided, verify access
+    // If branchId is provided, verify access (skip verification for "all" if user is super admin)
     if (branchId) {
-      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-      if (!hasAccess) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have access to this branch'
-        });
+      if (branchId !== 'all') {
+        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this branch'
+          });
+        }
+      } else {
+        // Only super admins can use "all"
+        const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+        if (!isSuperAdmin) {
+          return res.status(403).json({
+            success: false,
+            message: 'Only super admins can view all branches'
+          });
+        }
       }
     }
 
