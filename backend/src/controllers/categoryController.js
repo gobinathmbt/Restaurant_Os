@@ -1,0 +1,293 @@
+/**
+ * Category Controller
+ * HTTP request handlers for category management endpoints
+ */
+
+import * as categoryService from '../services/categoryService.js';
+import { logger } from '../utils/logger.js';
+
+/**
+ * Create category
+ * POST /api/categories
+ */
+export const createCategory = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const categoryData = req.body;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Create category
+    const category = await categoryService.createCategory(categoryData, companyId, userBranchIds);
+
+    logger.info('Category created via API', { 
+      categoryId: category._id, 
+      companyId, 
+      userId 
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Category created successfully',
+      data: { category }
+    });
+  } catch (error) {
+    logger.error('Create category error', error);
+    
+    if (error.message.includes('required') ||
+        error.message.includes('already exists') ||
+        error.message.includes('do not have access')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Get categories with filtering and pagination
+ * GET /api/categories
+ */
+export const getCategories = async (req, res, next) => {
+  try {
+    const { companyId, role, branchIds } = req.user;
+    const filters = req.query;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Get categories
+    const result = await categoryService.getCategories(companyId, filters, userBranchIds);
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    logger.error('Get categories error', error);
+    next(error);
+  }
+};
+
+/**
+ * Get category by ID
+ * GET /api/categories/:id
+ */
+export const getCategoryById = async (req, res, next) => {
+  try {
+    const { companyId, role, branchIds } = req.user;
+    const { id } = req.params;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Get category
+    const category = await categoryService.getCategoryById(id, companyId, userBranchIds);
+
+    res.json({
+      success: true,
+      data: { category }
+    });
+  } catch (error) {
+    logger.error('Get category by ID error', error);
+    
+    if (error.message === 'Category not found' || error.message === 'You do not have access to this category') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Update category
+ * PUT /api/categories/:id
+ */
+export const updateCategory = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id } = req.params;
+    const updateData = req.body;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Update category
+    const category = await categoryService.updateCategory(id, updateData, companyId, userBranchIds);
+
+    logger.info('Category updated via API', { 
+      categoryId: id, 
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Category updated successfully',
+      data: { category }
+    });
+  } catch (error) {
+    logger.error('Update category error', error);
+    
+    if (error.message === 'Category not found' || error.message === 'You do not have access to this category') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('already exists') ||
+        error.message.includes('do not have access')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Delete category (soft delete)
+ * DELETE /api/categories/:id
+ */
+export const deleteCategory = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id } = req.params;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Delete category
+    await categoryService.deleteCategory(id, companyId, userBranchIds);
+
+    logger.info('Category deleted via API', { 
+      categoryId: id, 
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Category deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Delete category error', error);
+    
+    if (error.message === 'Category not found' || error.message === 'You do not have access to this category') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Cannot delete category')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Toggle category status (activate/deactivate)
+ * PATCH /api/categories/:id/toggle-status
+ */
+export const toggleCategoryStatus = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id } = req.params;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Get current category
+    const currentCategory = await categoryService.getCategoryById(id, companyId, userBranchIds);
+
+    // Toggle isActive status
+    const category = await categoryService.updateCategory(
+      id, 
+      { isActive: !currentCategory.isActive }, 
+      companyId,
+      userBranchIds
+    );
+
+    logger.info('Category status toggled via API', { 
+      categoryId: id, 
+      newStatus: category.isActive,
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: `Category ${category.isActive ? 'activated' : 'deactivated'} successfully`,
+      data: { category }
+    });
+  } catch (error) {
+    logger.error('Toggle category status error', error);
+    
+    if (error.message === 'Category not found' || error.message === 'You do not have access to this category') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Get category tree for a branch
+ * GET /api/categories/tree/:branchId
+ */
+export const getCategoryTree = async (req, res, next) => {
+  try {
+    const { companyId, role, branchIds } = req.user;
+    const { branchId } = req.params;
+
+    // If user is company_admin, verify they have access to the branch
+    if (role === 'company_admin' && !branchIds.includes(branchId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Get category tree
+    const tree = await categoryService.getCategoryTree(branchId, companyId);
+
+    res.json({
+      success: true,
+      data: { tree }
+    });
+  } catch (error) {
+    logger.error('Get category tree error', error);
+    next(error);
+  }
+};

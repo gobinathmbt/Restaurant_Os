@@ -25,6 +25,7 @@ import platformConfigRoutes from './src/routes/platformConfigRoutes.js';
 import inventoryRoutes from './src/routes/inventory.js';
 import recipeRoutes from './src/routes/recipes.js';
 import supplierRoutes from './src/routes/suppliers.js';
+import categoryRoutes from './src/routes/categories.js';
 import socketManager from './src/config/socket.js';
 
 // Load environment variables from .env file
@@ -75,6 +76,7 @@ const startServer = async () => {
     app.use('/api/inventory', inventoryRoutes);
     app.use('/api/recipes', recipeRoutes);
     app.use('/api/suppliers', supplierRoutes);
+    app.use('/api/categories', categoryRoutes);
 
     // Health check endpoint
     app.get('/health', (req, res) => {

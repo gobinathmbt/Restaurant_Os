@@ -12,12 +12,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { inventoryServices, branchServices } from '@/api/services';
+import { inventoryServices, branchServices, categoryServices } from '@/api/services';
 import InventoryItemFormModal from '@/components/inventory/InventoryItemFormModal';
 import GRNFormModal from '@/components/inventory/GRNFormModal';
 import StockAdjustmentFormModal from '@/components/inventory/StockAdjustmentFormModal';
 import StockTransferFormModal from '@/components/inventory/StockTransferFormModal';
 import StockTransferApprovalModal from '@/components/inventory/StockTransferApprovalModal';
+import CategoryFormModal from '@/components/inventory/CategoryFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -97,6 +98,20 @@ interface StockTransfer {
   requestDate: string;
 }
 
+interface Category {
+  _id: string;
+  name: string;
+  description?: string;
+  type: string;
+  color: string;
+  displayOrder: number;
+  branchId: {
+    _id: string;
+    name: string;
+  };
+  isActive: boolean;
+}
+
 export default function Inventory() {
   const { user } = useAuth();
   const { setLoading, setLoadingMessage } = useLoading();
@@ -162,6 +177,22 @@ export default function Inventory() {
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
   const [isTransferApprovalOpen, setIsTransferApprovalOpen] = useState(false);
 
+  // Category tab state
+  const [categoryList, setCategoryList] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesSearch, setCategoriesSearch] = useState('');
+  const [categoriesTypeFilter, setCategoriesTypeFilter] = useState('');
+  const [categoriesPage, setCategoriesPage] = useState(1);
+  const [categoriesRowsPerPage, setCategoriesRowsPerPage] = useState(10);
+  const [categoriesTotalCount, setCategoriesTotalCount] = useState(0);
+  const [categoriesTotalPages, setCategoriesTotalPages] = useState(0);
+  const [isCategoryFormOpen, setIsCategoryFormOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [categoryDeleteDialog, setCategoryDeleteDialog] = useState<{ open: boolean; category: Category | null }>({
+    open: false,
+    category: null
+  });
+
   // Determine user's branch access
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
   const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
@@ -188,6 +219,8 @@ export default function Inventory() {
         fetchItems();
         fetchCategories();
         fetchAlertCounts();
+      } else if (activeTab === 'categories') {
+        fetchCategoryList();
       } else if (activeTab === 'grn') {
         fetchGRNs();
       } else if (activeTab === 'adjustments') {
@@ -197,6 +230,7 @@ export default function Inventory() {
       }
     }
   }, [selectedBranch, activeTab, itemsPage, itemsRowsPerPage, itemsSearch, itemsTypeFilter, itemsCategoryFilter,
+      categoriesPage, categoriesRowsPerPage, categoriesSearch, categoriesTypeFilter,
       grnsPage, grnsRowsPerPage, grnsSearch,
       adjustmentsPage, adjustmentsRowsPerPage, adjustmentsSearch,
       transfersPage, transfersRowsPerPage, transfersSearch, transfersStatusFilter]);
@@ -359,6 +393,33 @@ export default function Inventory() {
     }
   };
 
+  const fetchCategoryList = async () => {
+    if (!selectedBranch) return;
+    
+    try {
+      setCategoriesLoading(true);
+      const response = await categoryServices.getCategories({
+        page: categoriesPage,
+        limit: categoriesRowsPerPage,
+        search: categoriesSearch || undefined,
+        branchId: selectedBranch,
+        type: categoriesTypeFilter || undefined
+      });
+
+      setCategoryList(response.data.data.categories || []);
+      setCategoriesTotalCount(response.data.data.pagination.total);
+      setCategoriesTotalPages(response.data.data.pagination.totalPages);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch categories',
+        variant: "destructive",
+      });
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
   // Item handlers
   const handleCreateItem = () => {
     setSelectedItem(null);
@@ -455,6 +516,52 @@ export default function Inventory() {
     fetchAlertCounts();
   };
 
+  // Category handlers
+  const handleCreateCategory = () => {
+    setSelectedCategory(null);
+    setIsCategoryFormOpen(true);
+  };
+
+  const handleEditCategory = (category: Category) => {
+    setSelectedCategory(category);
+    setIsCategoryFormOpen(true);
+  };
+
+  const handleDeleteCategory = (category: Category) => {
+    setCategoryDeleteDialog({ open: true, category });
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!categoryDeleteDialog.category) return;
+
+    try {
+      setLoading(true);
+      setLoadingMessage('Deleting category...');
+      await categoryServices.deleteCategory(categoryDeleteDialog.category._id);
+      toast({
+        title: "Success",
+        description: "Category deleted successfully",
+        variant: "success",
+      });
+      fetchCategoryList();
+      setCategoryDeleteDialog({ open: false, category: null });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to delete category',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCategoryFormSuccess = () => {
+    setIsCategoryFormOpen(false);
+    setSelectedCategory(null);
+    fetchCategoryList();
+  };
+
   // Filter handlers
   const handleLowStockClick = () => {
     setItemsTypeFilter('');
@@ -545,8 +652,9 @@ export default function Inventory() {
           {/* Fixed Header with Tabs */}
           <div className="bg-background border-b flex-shrink-0">
             <div className="px-6 py-3">
-              <TabsList className="grid w-full max-w-2xl grid-cols-4">
+              <TabsList className="grid w-full max-w-3xl grid-cols-5">
                 <TabsTrigger value="items">Items</TabsTrigger>
+                <TabsTrigger value="categories">Categories</TabsTrigger>
                 <TabsTrigger value="grn">GRN</TabsTrigger>
                 <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
                 <TabsTrigger value="transfers">Transfers</TabsTrigger>
@@ -740,6 +848,143 @@ export default function Inventory() {
               onRowsPerPageChange={setItemsRowsPerPage}
               onRefresh={fetchItems}
               cookiePrefix="inventory-items"
+            />
+          </TabsContent>
+
+          {/* Categories Tab */}
+          <TabsContent value="categories" className="flex-1 m-0">
+            <DataTableLayout
+              statChips={[
+                { label: 'Total Categories', value: categoriesTotalCount, variant: 'default' },
+              ]}
+              actionButtons={[
+                {
+                  icon: <Plus className="h-4 w-4" />,
+                  tooltip: 'Add category',
+                  onClick: handleCreateCategory,
+                  variant: 'default',
+                },
+              ]}
+              searchValue={categoriesSearch}
+              searchPlaceholder="Search categories..."
+              onSearchChange={setCategoriesSearch}
+              filterConfig={{
+                component: (
+                  <div className="flex items-center gap-2">
+                    <Select value={categoriesTypeFilter} onValueChange={setCategoriesTypeFilter}>
+                      <SelectTrigger className="w-48 h-9">
+                        <SelectValue placeholder="All types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        <SelectItem value="both">Both</SelectItem>
+                        <SelectItem value="raw_material">Raw Material</SelectItem>
+                        <SelectItem value="finished_good">Finished Good</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )
+              }}
+              tableHeaders={
+                <>
+                  <TableHead className="w-16">S.No</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Color</TableHead>
+                  <TableHead>Display Order</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </>
+              }
+              tableBody={
+                <>
+                  {categoryList.map((category, index) => (
+                    <TableRow key={category._id}>
+                      <TableCell className="font-medium text-muted-foreground">
+                        {(categoriesPage - 1) * categoriesRowsPerPage + index + 1}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          <span className="font-medium">{category.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {category.description || <span className="text-muted-foreground">-</span>}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {category.type === 'both' ? 'Both' : 
+                           category.type === 'raw_material' ? 'Raw Material' : 'Finished Good'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-6 h-6 rounded border"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          <span className="text-xs text-muted-foreground">{category.color}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{category.displayOrder}</TableCell>
+                      <TableCell>
+                        <Badge variant={category.isActive ? 'default' : 'secondary'}>
+                          {category.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditCategory(category)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteCategory(category)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </>
+              }
+              isLoading={categoriesLoading}
+              emptyState={
+                categoryList.length === 0
+                  ? {
+                      icon: <Package className="h-12 w-12" />,
+                      title: 'No categories found',
+                      description: categoriesSearch || categoriesTypeFilter
+                        ? 'Try adjusting your filters'
+                        : 'Get started by adding your first category',
+                      action: !categoriesSearch && !categoriesTypeFilter ? (
+                        <Button onClick={handleCreateCategory}>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Category
+                        </Button>
+                      ) : undefined,
+                    }
+                  : undefined
+              }
+              currentPage={categoriesPage}
+              totalPages={categoriesTotalPages}
+              totalCount={categoriesTotalCount}
+              rowsPerPage={categoriesRowsPerPage}
+              onPageChange={setCategoriesPage}
+              onRowsPerPageChange={setCategoriesRowsPerPage}
+              onRefresh={fetchCategoryList}
+              cookiePrefix="inventory-categories"
             />
           </TabsContent>
 
@@ -1147,12 +1392,31 @@ export default function Inventory() {
         onSuccess={handleTransferApprovalSuccess}
       />
 
+      <CategoryFormModal
+        open={isCategoryFormOpen}
+        onClose={() => {
+          setIsCategoryFormOpen(false);
+          setSelectedCategory(null);
+        }}
+        category={selectedCategory}
+        branchId={selectedBranch}
+        onSuccess={handleCategoryFormSuccess}
+      />
+
       <DeleteConfirmDialog
         open={itemDeleteDialog.open}
         onClose={() => setItemDeleteDialog({ open: false, item: null })}
         onConfirm={confirmDeleteItem}
         title="Delete Inventory Item"
         description={`Are you sure you want to delete "${itemDeleteDialog.item?.name}"? This action cannot be undone.`}
+      />
+
+      <DeleteConfirmDialog
+        open={categoryDeleteDialog.open}
+        onClose={() => setCategoryDeleteDialog({ open: false, category: null })}
+        onConfirm={confirmDeleteCategory}
+        title="Delete Category"
+        description={`Are you sure you want to delete "${categoryDeleteDialog.category?.name}"? This action cannot be undone.`}
       />
     </>
   );

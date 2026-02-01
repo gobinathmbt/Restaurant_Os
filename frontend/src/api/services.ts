@@ -210,6 +210,37 @@ export const supplierServices = {
     apiClient.patch(`/api/suppliers/${id}/toggle-status`),
 };
 
+// Category Services
+export const categoryServices = {
+  // Get all categories
+  getCategories: (params?: { page?: number; limit?: number; search?: string; branchId?: string; type?: string; isActive?: boolean; parentId?: string }) =>
+    apiClient.get("/api/categories", { params }),
+
+  // Get single category
+  getCategory: (id: string) =>
+    apiClient.get(`/api/categories/${id}`),
+
+  // Create category
+  createCategory: (data: any) =>
+    apiClient.post("/api/categories", data),
+
+  // Update category
+  updateCategory: (id: string, data: any) =>
+    apiClient.put(`/api/categories/${id}`, data),
+
+  // Delete category
+  deleteCategory: (id: string) =>
+    apiClient.delete(`/api/categories/${id}`),
+
+  // Toggle category status
+  toggleCategoryStatus: (id: string) =>
+    apiClient.patch(`/api/categories/${id}/toggle-status`),
+
+  // Get category tree
+  getCategoryTree: (branchId: string) =>
+    apiClient.get(`/api/categories/tree/${branchId}`),
+};
+
 export default {
   auth: authServices,
   notifications: notificationServices,
@@ -219,4 +250,5 @@ export default {
   inventory: inventoryServices,
   recipes: recipeServices,
   suppliers: supplierServices,
+  categories: categoryServices,
 };
