@@ -5,6 +5,7 @@
 
 import { getCompanyDB } from '../config/database.js';
 import { getCategoryModel } from '../models/company/Category.js';
+import { getBranchModel } from '../models/company/Branch.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -18,6 +19,8 @@ export const createCategory = async (categoryData, companyId, userBranchIds = nu
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
 
     // Validate required fields
     if (!categoryData.name || !categoryData.branchId) {
@@ -45,6 +48,7 @@ export const createCategory = async (categoryData, companyId, userBranchIds = nu
     // Create category
     const category = new Category({
       ...categoryData,
+      parent: categoryData.parent || null,
       isActive: true
     });
 
@@ -70,6 +74,8 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
 
     const {
       page = 1,
@@ -155,6 +161,8 @@ export const getCategoryById = async (categoryId, companyId, userBranchIds = nul
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
 
     const category = await Category.findById(categoryId)
       .populate('branchId', 'name code')
@@ -191,6 +199,8 @@ export const updateCategory = async (categoryId, updateData, companyId, userBran
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
 
     // Get existing category
     const existingCategory = await Category.findById(categoryId);
@@ -250,6 +260,8 @@ export const deleteCategory = async (categoryId, companyId, userBranchIds = null
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
 
     const category = await Category.findById(categoryId);
     if (!category) {
@@ -292,6 +304,8 @@ export const getCategoryTree = async (branchId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
 
     const tree = await Category.getTree(branchId);
 

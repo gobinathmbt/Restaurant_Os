@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -109,6 +109,10 @@ interface Category {
     _id: string;
     name: string;
   };
+  parent?: {
+    _id: string;
+    name: string;
+  } | string;
   isActive: boolean;
 }
 
@@ -188,6 +192,7 @@ export default function Inventory() {
   const [categoriesTotalPages, setCategoriesTotalPages] = useState(0);
   const [isCategoryFormOpen, setIsCategoryFormOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [parentCategoryForNew, setParentCategoryForNew] = useState<Category | null>(null);
   const [categoryDeleteDialog, setCategoryDeleteDialog] = useState<{ open: boolean; category: Category | null }>({
     open: false,
     category: null
@@ -519,11 +524,19 @@ export default function Inventory() {
   // Category handlers
   const handleCreateCategory = () => {
     setSelectedCategory(null);
+    setParentCategoryForNew(null);
+    setIsCategoryFormOpen(true);
+  };
+
+  const handleCreateSubcategory = (parentCategory: Category) => {
+    setSelectedCategory(null);
+    setParentCategoryForNew(parentCategory);
     setIsCategoryFormOpen(true);
   };
 
   const handleEditCategory = (category: Category) => {
     setSelectedCategory(category);
+    setParentCategoryForNew(null);
     setIsCategoryFormOpen(true);
   };
 
@@ -559,6 +572,7 @@ export default function Inventory() {
   const handleCategoryFormSuccess = () => {
     setIsCategoryFormOpen(false);
     setSelectedCategory(null);
+    setParentCategoryForNew(null);
     fetchCategoryList();
   };
 
@@ -889,6 +903,7 @@ export default function Inventory() {
                 <>
                   <TableHead className="w-16">S.No</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Parent Category</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Color</TableHead>
@@ -899,64 +914,93 @@ export default function Inventory() {
               }
               tableBody={
                 <>
-                  {categoryList.map((category, index) => (
-                    <TableRow key={category._id}>
-                      <TableCell className="font-medium text-muted-foreground">
-                        {(categoriesPage - 1) * categoriesRowsPerPage + index + 1}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: category.color }}
-                          />
-                          <span className="font-medium">{category.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {category.description || <span className="text-muted-foreground">-</span>}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {category.type === 'both' ? 'Both' : 
-                           category.type === 'raw_material' ? 'Raw Material' : 'Finished Good'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-6 h-6 rounded border"
-                            style={{ backgroundColor: category.color }}
-                          />
-                          <span className="text-xs text-muted-foreground">{category.color}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{category.displayOrder}</TableCell>
-                      <TableCell>
-                        <Badge variant={category.isActive ? 'default' : 'secondary'}>
-                          {category.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEditCategory(category)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteCategory(category)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {categoryList.map((category, index) => {
+                    const parentName = typeof category.parent === 'object' && category.parent 
+                      ? category.parent.name 
+                      : null;
+                    const isMainCategory = !category.parent;
+                    
+                    return (
+                      <TableRow key={category._id}>
+                        <TableCell className="font-medium text-muted-foreground">
+                          {(categoriesPage - 1) * categoriesRowsPerPage + index + 1}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            <span className={`font-medium ${!isMainCategory ? 'ml-4' : ''}`}>
+                              {!isMainCategory && '↳ '}
+                              {category.name}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {parentName ? (
+                            <Badge variant="outline" className="bg-muted">
+                              {parentName}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">Main Category</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {category.description || <span className="text-muted-foreground">-</span>}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {category.type === 'both' ? 'Both' : 
+                             category.type === 'raw_material' ? 'Raw Material' : 'Finished Good'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-6 h-6 rounded border"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            <span className="text-xs text-muted-foreground">{category.color}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{category.displayOrder}</TableCell>
+                        <TableCell>
+                          <Badge variant={category.isActive ? 'default' : 'secondary'}>
+                            {category.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {isMainCategory && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleCreateSubcategory(category)}
+                                title="Add subcategory"
+                              >
+                                <FolderPlus className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditCategory(category)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteCategory(category)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </>
               }
               isLoading={categoriesLoading}
@@ -1397,10 +1441,12 @@ export default function Inventory() {
         onClose={() => {
           setIsCategoryFormOpen(false);
           setSelectedCategory(null);
+          setParentCategoryForNew(null);
         }}
         category={selectedCategory}
         branchId={selectedBranch}
         onSuccess={handleCategoryFormSuccess}
+        parentCategory={parentCategoryForNew}
       />
 
       <DeleteConfirmDialog

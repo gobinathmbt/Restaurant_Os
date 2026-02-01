@@ -24,7 +24,7 @@ interface Category {
   parent?: {
     _id: string;
     name: string;
-  };
+  } | string;
 }
 
 interface CategoryFormModalProps {
@@ -33,6 +33,7 @@ interface CategoryFormModalProps {
   category: Category | null;
   branchId: string;
   onSuccess: () => void;
+  parentCategory?: Category | null;
 }
 
 export default function CategoryFormModal({
@@ -40,31 +41,60 @@ export default function CategoryFormModal({
   onClose,
   category,
   branchId,
-  onSuccess
+  onSuccess,
+  parentCategory
 }: CategoryFormModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     type: 'both',
     color: '#6366f1',
-    displayOrder: 0
+    displayOrder: 0,
+    parent: ''
   });
 
   useEffect(() => {
+    if (open) {
+      fetchCategories();
+    }
     if (category && open) {
+      const parentId = typeof category.parent === 'object' && category.parent 
+        ? category.parent._id 
+        : (typeof category.parent === 'string' ? category.parent : '');
       setFormData({
         name: category.name || '',
         description: category.description || '',
         type: category.type || 'both',
         color: category.color || '#6366f1',
-        displayOrder: category.displayOrder || 0
+        displayOrder: category.displayOrder || 0,
+        parent: parentId
       });
     } else if (!category && open) {
       resetForm();
     }
-  }, [category, open]);
+  }, [category, open, parentCategory]);
+
+  const fetchCategories = async () => {
+    if (!branchId) return;
+    try {
+      const response = await categoryServices.getCategories({
+        branchId,
+        limit: 1000,
+        isActive: true
+      });
+      // Filter out current category to prevent self-parenting
+      const allCategories = response.data.data.categories || [];
+      const filteredCategories = category 
+        ? allCategories.filter((cat: Category) => cat._id !== category._id)
+        : allCategories;
+      setCategories(filteredCategories);
+    } catch (error) {
+      // Silently fail
+    }
+  };
 
   const resetForm = () => {
     setFormData({
@@ -72,7 +102,8 @@ export default function CategoryFormModal({
       description: '',
       type: 'both',
       color: '#6366f1',
-      displayOrder: 0
+      displayOrder: 0,
+      parent: parentCategory?._id || ''
     });
   };
 
@@ -114,7 +145,8 @@ export default function CategoryFormModal({
         branchId,
         type: formData.type,
         color: formData.color,
-        displayOrder: formData.displayOrder
+        displayOrder: formData.displayOrder,
+        parent: formData.parent || null
       };
 
       if (category) {
@@ -160,9 +192,11 @@ export default function CategoryFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{category ? 'Edit Category' : 'Add Category'}</DialogTitle>
+          <DialogTitle>
+            {category ? 'Edit Category' : parentCategory ? `Add Subcategory to ${parentCategory.name}` : 'Add Category'}
+          </DialogTitle>
         </DialogHeader>
 
         <DialogBody>
@@ -187,6 +221,34 @@ export default function CategoryFormModal({
                 placeholder="Optional description..."
                 rows={3}
               />
+            </div>
+
+            <div>
+              <Label htmlFor="parent">Parent Category (Optional)</Label>
+              <Select
+                value={formData.parent}
+                onValueChange={(value) => setFormData({ ...formData, parent: value })}
+                disabled={!!parentCategory}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="None (Main Category)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None (Main Category)</SelectItem>
+                  {categories
+                    .filter((cat) => !cat.parent) // Only show main categories as parent options
+                    .map((cat) => (
+                      <SelectItem key={cat._id} value={cat._id}>
+                        {cat.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {parentCategory && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  This will be a subcategory of {parentCategory.name}
+                </p>
+              )}
             </div>
 
             <div>
