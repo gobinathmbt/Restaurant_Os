@@ -10,11 +10,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
+import { Check, ChevronsUpDown, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { supplierServices } from '@/api/services';
+import { supplierServices, branchServices } from '@/api/services';
 import { Star } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+
+interface Branch {
+  _id: string;
+  name: string;
+  code: string;
+}
 
 interface SupplierFormModalProps {
   open: boolean;
@@ -23,15 +47,19 @@ interface SupplierFormModalProps {
   onSuccess: () => void;
 }
 
-export default function SupplierFormModal({ 
-  open, 
-  onClose, 
-  supplier, 
-  onSuccess 
+export default function SupplierFormModal({
+  open,
+  onClose,
+  supplier,
+  onSuccess
 }: SupplierFormModalProps) {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchSelectorOpen, setBranchSelectorOpen] = useState(false);
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     // Basic Info
     name: '',
@@ -60,6 +88,41 @@ export default function SupplierFormModal({
     ifscCode: '',
     bankBranch: ''
   });
+
+  // Determine user's branch access
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
+
+  // Fetch branches on mount
+  useEffect(() => {
+    if (open) {
+      fetchBranches();
+    }
+  }, [open]);
+
+  const fetchBranches = async () => {
+    try {
+      const response = await branchServices.getBranches({ limit: 100, isActive: true });
+      const allBranches = response.data.data.branches || [];
+
+      // Filter branches based on user role
+      let availableBranches = allBranches;
+      if (isMultiBranchAdmin || isSingleBranchAdmin) {
+        availableBranches = allBranches.filter((branch: Branch) =>
+          user?.branchIds?.includes(branch._id)
+        );
+      }
+
+      setBranches(availableBranches);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch branches",
+        variant: "destructive",
+      });
+    }
+  };
 
   useEffect(() => {
     if (supplier && open) {
@@ -91,6 +154,14 @@ export default function SupplierFormModal({
         ifscCode: supplier.bankDetails?.ifscCode || '',
         bankBranch: supplier.bankDetails?.branch || ''
       });
+
+      // Set selected branches
+      if (supplier.branchIds) {
+        const branchIdStrings = supplier.branchIds.map((b: any) =>
+          typeof b === 'string' ? b : b._id
+        );
+        setSelectedBranches(branchIdStrings);
+      }
     } else if (!supplier && open) {
       resetForm();
     }
@@ -121,8 +192,35 @@ export default function SupplierFormModal({
       ifscCode: '',
       bankBranch: ''
     });
+    setSelectedBranches([]);
     setActiveTab('basic');
   };
+
+  const handleBranchToggle = (branchId: string) => {
+    setSelectedBranches(prev => {
+      if (prev.includes(branchId)) {
+        return prev.filter(id => id !== branchId);
+      } else {
+        return [...prev, branchId];
+      }
+    });
+  };
+
+  const handleSelectAllBranches = () => {
+    if (selectedBranches.length === branches.length) {
+      setSelectedBranches([]);
+    } else {
+      setSelectedBranches(branches.map(b => b._id));
+    }
+  };
+
+  const getSelectedBranches = () =>
+    branches.filter(b => selectedBranches.includes(b._id));
+
+  const handleRemoveBranch = (branchId: string) => {
+    setSelectedBranches(prev => prev.filter(id => id !== branchId));
+  };
+
 
   const validateForm = () => {
     if (!formData.name.trim()) {
@@ -139,6 +237,16 @@ export default function SupplierFormModal({
       toast({
         title: "Validation Error",
         description: "Phone number is required",
+        variant: "destructive",
+      });
+      setActiveTab('basic');
+      return false;
+    }
+
+    if (selectedBranches.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one branch must be selected",
         variant: "destructive",
       });
       setActiveTab('basic');
@@ -180,16 +288,17 @@ export default function SupplierFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
 
     try {
       setLoading(true);
-      
+
       const submitData: any = {
         name: formData.name.trim(),
+        branchIds: selectedBranches,
         contactPerson: formData.contactPerson.trim() || undefined,
         phone: formData.phone.trim(),
         email: formData.email.trim() || undefined,
@@ -208,7 +317,7 @@ export default function SupplierFormModal({
         gstNumber: formData.gstNumber.trim() || undefined,
         panNumber: formData.panNumber.trim() || undefined,
         paymentTerms: formData.paymentTerms,
-        customPaymentTerms: formData.paymentTerms === 'custom' 
+        customPaymentTerms: formData.paymentTerms === 'custom'
           ? formData.customPaymentTerms.trim() || undefined
           : undefined,
         creditLimit: formData.creditLimit || 0,
@@ -236,7 +345,7 @@ export default function SupplierFormModal({
           variant: "success",
         });
       }
-      
+
       onSuccess();
     } catch (error: any) {
       toast({
@@ -260,11 +369,10 @@ export default function SupplierFormModal({
             className="focus:outline-none"
           >
             <Star
-              className={`h-5 w-5 ${
-                star <= formData.rating
-                  ? 'fill-yellow-400 text-yellow-400'
-                  : 'text-gray-300'
-              }`}
+              className={`h-5 w-5 ${star <= formData.rating
+                ? 'fill-yellow-400 text-yellow-400'
+                : 'text-gray-300'
+                }`}
             />
           </button>
         ))}
@@ -285,12 +393,13 @@ export default function SupplierFormModal({
         <DialogBody>
           <form id="supplier-form" onSubmit={handleSubmit}>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className={`grid w-full ${supplier ? 'grid-cols-6' : 'grid-cols-5'}`}>
                 <TabsTrigger value="basic">Basic Info</TabsTrigger>
+                <TabsTrigger value="branches">Branches</TabsTrigger>
                 <TabsTrigger value="address">Address</TabsTrigger>
                 <TabsTrigger value="legal">Legal</TabsTrigger>
                 <TabsTrigger value="bank">Bank Details</TabsTrigger>
-                <TabsTrigger value="performance">Performance</TabsTrigger>
+                {supplier && <TabsTrigger value="performance">Performance</TabsTrigger>}
               </TabsList>
 
               {/* Basic Info Tab */}
@@ -360,6 +469,87 @@ export default function SupplierFormModal({
                   />
                 </div>
               </TabsContent>
+
+              {/* Branches Tab */}
+              <TabsContent value="branches" className="space-y-4 mt-4">
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Assign Branches *</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Select which branches this supplier can serve
+                  </p>
+
+                  {branches.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No branches available</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <Popover open={branchSelectorOpen} onOpenChange={setBranchSelectorOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={branchSelectorOpen}
+                            className="w-full justify-between"
+                          >
+                            {selectedBranches.length > 0
+                              ? `${selectedBranches.length} branch${selectedBranches.length > 1 ? "es" : ""} selected`
+                              : "Select branches..."}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+
+                        <PopoverContent className="w-full p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search branches..." />
+                            <CommandEmpty>No branches found.</CommandEmpty>
+                            <CommandList>
+                              <CommandGroup>
+                                {branches.map((branch) => (
+                                  <CommandItem
+                                    key={branch._id}
+                                    value={`${branch.name} ${branch.code}`}
+                                    onSelect={() => handleBranchToggle(branch._id)}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedBranches.includes(branch._id)
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    <div className="flex flex-col">
+                                      <span className="font-medium">{branch.name}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {branch.code}
+                                      </span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Selected Branch Chips */}
+                      {selectedBranches.length > 0 && (
+                        <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
+                          {getSelectedBranches().map((branch) => (
+                            <Badge key={branch._id} variant="secondary" className="gap-1">
+                              {branch.name} ({branch.code})
+                              <X
+                                className="h-3 w-3 cursor-pointer hover:text-destructive"
+                                onClick={() => handleRemoveBranch(branch._id)}
+                              />
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
 
               {/* Address Tab */}
               <TabsContent value="address" className="space-y-4 mt-4">
@@ -529,9 +719,9 @@ export default function SupplierFormModal({
                 </div>
               </TabsContent>
 
-              {/* Performance Tab */}
-              <TabsContent value="performance" className="space-y-4 mt-4">
-                {supplier ? (
+              {/* Performance Tab - Only for existing suppliers */}
+              {supplier && (
+                <TabsContent value="performance" className="space-y-4 mt-4">
                   <div className="space-y-4">
                     <div className="p-4 bg-muted/30 rounded-lg">
                       <h4 className="font-semibold mb-3">Performance Metrics</h4>
@@ -591,14 +781,8 @@ export default function SupplierFormModal({
                       Performance metrics are automatically updated based on GRN records and cannot be edited manually.
                     </p>
                   </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <p className="text-muted-foreground">
-                      Performance metrics will be available after the supplier is created and has transaction history.
-                    </p>
-                  </div>
-                )}
-              </TabsContent>
+                </TabsContent>
+              )}
             </Tabs>
           </form>
         </DialogBody>

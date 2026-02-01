@@ -11,16 +11,24 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { supplierServices } from '@/api/services';
+import { supplierServices, branchServices } from '@/api/services';
 import SupplierFormModal from '@/components/inventory/SupplierFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
+import { useAuth } from '@/contexts/AuthContext';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import { Star } from 'lucide-react';
+
+interface Branch {
+  _id: string;
+  name: string;
+  code: string;
+}
 
 interface Supplier {
   _id: string;
   name: string;
+  branchIds: Branch[];
   contactPerson?: string;
   phone: string;
   email?: string;
@@ -39,6 +47,7 @@ interface Supplier {
 }
 
 export default function Suppliers() {
+  const { user } = useAuth();
   const { setLoading, setLoadingMessage } = useLoading();
   const { toast } = useToast();
 
@@ -47,6 +56,8 @@ export default function Suppliers() {
   const [suppliersLoading, setSuppliersLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [branchFilter, setBranchFilter] = useState('');
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -59,10 +70,43 @@ export default function Suppliers() {
     supplier: null
   });
 
+  // Determine user's branch access
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
+
+  // Fetch branches on mount
+  useEffect(() => {
+    fetchBranches();
+  }, []);
+
+  const fetchBranches = async () => {
+    try {
+      const response = await branchServices.getBranches({ limit: 100, isActive: true });
+      const allBranches = response.data.data.branches || [];
+      
+      // Filter branches based on user role
+      let availableBranches = allBranches;
+      if (isMultiBranchAdmin || isSingleBranchAdmin) {
+        availableBranches = allBranches.filter((branch: Branch) => 
+          user?.branchIds?.includes(branch._id)
+        );
+      }
+      
+      setBranches(availableBranches);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch branches",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Fetch suppliers on mount and when filters change
   useEffect(() => {
     fetchSuppliers();
-  }, [page, rowsPerPage, search, categoryFilter]);
+  }, [page, rowsPerPage, search, categoryFilter, branchFilter]);
 
   const fetchSuppliers = async () => {
     try {
@@ -72,6 +116,7 @@ export default function Suppliers() {
         limit: rowsPerPage,
         search: search || undefined,
         category: categoryFilter || undefined,
+        branchId: branchFilter || undefined,
         isActive: true
       });
 
@@ -214,6 +259,21 @@ export default function Suppliers() {
         filterConfig={{
           component: (
             <div className="flex items-center gap-2">
+              {(isSuperAdmin || isMultiBranchAdmin) && branches.length > 0 && (
+                <Select value={branchFilter} onValueChange={setBranchFilter}>
+                  <SelectTrigger className="w-48 h-9">
+                    <SelectValue placeholder="All branches" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All branches</SelectItem>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch._id} value={branch._id}>
+                        {branch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-48 h-9">
                   <SelectValue placeholder="All categories" />
@@ -234,6 +294,7 @@ export default function Suppliers() {
           <>
             <TableHead className="w-16">S.No</TableHead>
             <TableHead>Name</TableHead>
+            <TableHead>Branches</TableHead>
             <TableHead>Contact Person</TableHead>
             <TableHead>Phone</TableHead>
             <TableHead>Email</TableHead>
@@ -254,6 +315,24 @@ export default function Suppliers() {
                 </TableCell>
                 <TableCell>
                   <p className="font-medium">{supplier.name}</p>
+                </TableCell>
+                <TableCell>
+                  {supplier.branchIds && supplier.branchIds.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {supplier.branchIds.slice(0, 2).map((branch, idx) => (
+                        <Badge key={idx} variant="outline" className="text-xs">
+                          {branch.name}
+                        </Badge>
+                      ))}
+                      {supplier.branchIds.length > 2 && (
+                        <Badge variant="secondary" className="text-xs">
+                          +{supplier.branchIds.length - 2}
+                        </Badge>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {supplier.contactPerson || <span className="text-muted-foreground">-</span>}
@@ -332,10 +411,10 @@ export default function Suppliers() {
             ? {
                 icon: <Package className="h-12 w-12" />,
                 title: 'No suppliers found',
-                description: search || categoryFilter
+                description: search || categoryFilter || branchFilter
                   ? 'Try adjusting your filters'
                   : 'Get started by adding your first supplier',
-                action: !search && !categoryFilter ? (
+                action: !search && !categoryFilter && !branchFilter ? (
                   <Button onClick={handleCreate}>
                     <Plus className="h-4 w-4 mr-2" />
                     Add Supplier

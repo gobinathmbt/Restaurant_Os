@@ -12,11 +12,16 @@ import { logger } from '../utils/logger.js';
  */
 export const createSupplier = async (req, res, next) => {
   try {
-    const { companyId, userId } = req.user;
+    const { companyId, userId, role, branchIds } = req.user;
     const supplierData = req.body;
 
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
     // Create supplier
-    const supplier = await supplierService.createSupplier(supplierData, companyId);
+    const supplier = await supplierService.createSupplier(supplierData, companyId, userBranchIds);
 
     logger.info('Supplier created via API', { 
       supplierId: supplier._id, 
@@ -33,7 +38,9 @@ export const createSupplier = async (req, res, next) => {
     logger.error('Create supplier error', error);
     
     // Handle specific validation errors
-    if (error.message.includes('Missing required fields')) {
+    if (error.message.includes('Missing required fields') ||
+        error.message.includes('At least one branch') ||
+        error.message.includes('only assign suppliers to branches')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -50,11 +57,16 @@ export const createSupplier = async (req, res, next) => {
  */
 export const getSuppliers = async (req, res, next) => {
   try {
-    const { companyId } = req.user;
+    const { companyId, role, branchIds } = req.user;
     const filters = req.query;
 
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
     // Get suppliers
-    const result = await supplierService.getSuppliers(companyId, filters);
+    const result = await supplierService.getSuppliers(companyId, filters, userBranchIds);
 
     res.json({
       success: true,
@@ -72,11 +84,16 @@ export const getSuppliers = async (req, res, next) => {
  */
 export const getSupplierById = async (req, res, next) => {
   try {
-    const { companyId } = req.user;
+    const { companyId, role, branchIds } = req.user;
     const { id } = req.params;
 
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
     // Get supplier
-    const supplier = await supplierService.getSupplierById(id, companyId);
+    const supplier = await supplierService.getSupplierById(id, companyId, userBranchIds);
 
     res.json({
       success: true,
@@ -85,7 +102,7 @@ export const getSupplierById = async (req, res, next) => {
   } catch (error) {
     logger.error('Get supplier by ID error', error);
     
-    if (error.message === 'Supplier not found') {
+    if (error.message === 'Supplier not found' || error.message === 'You do not have access to this supplier') {
       return res.status(404).json({
         success: false,
         message: error.message
@@ -102,12 +119,17 @@ export const getSupplierById = async (req, res, next) => {
  */
 export const updateSupplier = async (req, res, next) => {
   try {
-    const { companyId, userId } = req.user;
+    const { companyId, userId, role, branchIds } = req.user;
     const { id } = req.params;
     const updateData = req.body;
 
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
     // Update supplier
-    const supplier = await supplierService.updateSupplier(id, updateData, companyId);
+    const supplier = await supplierService.updateSupplier(id, updateData, companyId, userBranchIds);
 
     logger.info('Supplier updated via API', { 
       supplierId: id, 
@@ -123,7 +145,7 @@ export const updateSupplier = async (req, res, next) => {
   } catch (error) {
     logger.error('Update supplier error', error);
     
-    if (error.message === 'Supplier not found') {
+    if (error.message === 'Supplier not found' || error.message === 'You do not have access to this supplier') {
       return res.status(404).json({
         success: false,
         message: error.message
@@ -131,7 +153,9 @@ export const updateSupplier = async (req, res, next) => {
     }
 
     if (error.message.includes('cannot be negative') ||
-        error.message.includes('Rating must be between')) {
+        error.message.includes('Rating must be between') ||
+        error.message.includes('At least one branch') ||
+        error.message.includes('only assign suppliers to branches')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -184,17 +208,23 @@ export const deleteSupplier = async (req, res, next) => {
  */
 export const toggleSupplierStatus = async (req, res, next) => {
   try {
-    const { companyId, userId } = req.user;
+    const { companyId, userId, role, branchIds } = req.user;
     const { id } = req.params;
 
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
     // Get current supplier
-    const currentSupplier = await supplierService.getSupplierById(id, companyId);
+    const currentSupplier = await supplierService.getSupplierById(id, companyId, userBranchIds);
 
     // Toggle isActive status
     const supplier = await supplierService.updateSupplier(
       id, 
       { isActive: !currentSupplier.isActive }, 
-      companyId
+      companyId,
+      userBranchIds
     );
 
     logger.info('Supplier status toggled via API', { 
@@ -212,7 +242,7 @@ export const toggleSupplierStatus = async (req, res, next) => {
   } catch (error) {
     logger.error('Toggle supplier status error', error);
     
-    if (error.message === 'Supplier not found') {
+    if (error.message === 'Supplier not found' || error.message === 'You do not have access to this supplier') {
       return res.status(404).json({
         success: false,
         message: error.message

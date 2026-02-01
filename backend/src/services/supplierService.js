@@ -11,19 +11,36 @@ import { logger } from '../utils/logger.js';
  * Create a new supplier
  * @param {Object} supplierData - Supplier data
  * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
  * @returns {Promise<Object>} Created supplier
  */
-export const createSupplier = async (supplierData, companyId) => {
+export const createSupplier = async (supplierData, companyId, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
 
     // Validate required fields
-    const requiredFields = ['name', 'phone'];
+    const requiredFields = ['name', 'phone', 'branchIds'];
     const missingFields = requiredFields.filter(field => !supplierData[field]);
     
     if (missingFields.length > 0) {
       throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    // Validate branchIds is an array and not empty
+    if (!Array.isArray(supplierData.branchIds) || supplierData.branchIds.length === 0) {
+      throw new Error('At least one branch must be assigned to the supplier');
+    }
+
+    // If user is company_admin, validate they can only assign branches they have access to
+    if (userBranchIds && userBranchIds.length > 0) {
+      const invalidBranches = supplierData.branchIds.filter(
+        branchId => !userBranchIds.includes(branchId.toString())
+      );
+      
+      if (invalidBranches.length > 0) {
+        throw new Error('You can only assign suppliers to branches you have access to');
+      }
     }
 
     // Initialize performance metrics to zero
@@ -57,9 +74,10 @@ export const createSupplier = async (supplierData, companyId) => {
  * Get suppliers with filtering and pagination
  * @param {string} companyId - Company ID
  * @param {Object} filters - Filter options
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
  * @returns {Promise<Object>} Paginated suppliers
  */
-export const getSuppliers = async (companyId, filters = {}) => {
+export const getSuppliers = async (companyId, filters = {}, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
@@ -69,13 +87,23 @@ export const getSuppliers = async (companyId, filters = {}) => {
       limit = 10,
       search = '',
       category = '',
-      isActive = true
+      isActive = true,
+      branchId = ''
     } = filters;
 
     // Build query - return only active suppliers by default
     const query = {
       isActive: isActive === 'false' ? false : true
     };
+
+    // Branch filtering
+    if (branchId) {
+      // Filter by specific branch
+      query.branchIds = branchId;
+    } else if (userBranchIds && userBranchIds.length > 0) {
+      // For company_admin, only show suppliers assigned to their branches
+      query.branchIds = { $in: userBranchIds };
+    }
 
     // Search filter
     if (search) {
@@ -98,6 +126,7 @@ export const getSuppliers = async (companyId, filters = {}) => {
     // Execute query
     const [suppliers, total] = await Promise.all([
       Supplier.find(query)
+        .populate('branchIds', 'name code')
         .sort({ name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -137,17 +166,31 @@ export const getSuppliers = async (companyId, filters = {}) => {
  * Get supplier by ID
  * @param {string} supplierId - Supplier ID
  * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
  * @returns {Promise<Object>} Supplier with calculated virtual fields
  */
-export const getSupplierById = async (supplierId, companyId) => {
+export const getSupplierById = async (supplierId, companyId, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
 
-    const supplier = await Supplier.findById(supplierId).lean();
+    const supplier = await Supplier.findById(supplierId)
+      .populate('branchIds', 'name code')
+      .lean();
 
     if (!supplier) {
       throw new Error('Supplier not found');
+    }
+
+    // If user is company_admin, verify they have access to at least one of the supplier's branches
+    if (userBranchIds && userBranchIds.length > 0) {
+      const hasAccess = supplier.branchIds.some(
+        branch => userBranchIds.includes(branch._id.toString())
+      );
+      
+      if (!hasAccess) {
+        throw new Error('You do not have access to this supplier');
+      }
     }
 
     // Calculate virtuals
@@ -171,9 +214,10 @@ export const getSupplierById = async (supplierId, companyId) => {
  * @param {string} supplierId - Supplier ID
  * @param {Object} updateData - Update data
  * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
  * @returns {Promise<Object>} Updated supplier
  */
-export const updateSupplier = async (supplierId, updateData, companyId) => {
+export const updateSupplier = async (supplierId, updateData, companyId, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
@@ -182,6 +226,32 @@ export const updateSupplier = async (supplierId, updateData, companyId) => {
     const existingSupplier = await Supplier.findById(supplierId);
     if (!existingSupplier) {
       throw new Error('Supplier not found');
+    }
+
+    // If user is company_admin, verify they have access to the supplier
+    if (userBranchIds && userBranchIds.length > 0) {
+      const hasAccess = existingSupplier.branchIds.some(
+        branchId => userBranchIds.includes(branchId.toString())
+      );
+      
+      if (!hasAccess) {
+        throw new Error('You do not have access to this supplier');
+      }
+
+      // If updating branchIds, validate they can only assign branches they have access to
+      if (updateData.branchIds) {
+        if (!Array.isArray(updateData.branchIds) || updateData.branchIds.length === 0) {
+          throw new Error('At least one branch must be assigned to the supplier');
+        }
+
+        const invalidBranches = updateData.branchIds.filter(
+          branchId => !userBranchIds.includes(branchId.toString())
+        );
+        
+        if (invalidBranches.length > 0) {
+          throw new Error('You can only assign suppliers to branches you have access to');
+        }
+      }
     }
 
     // Validate data

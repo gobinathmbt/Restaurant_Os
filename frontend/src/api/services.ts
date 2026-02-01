@@ -186,7 +186,7 @@ export const recipeServices = {
 // Supplier Services
 export const supplierServices = {
   // Get all suppliers
-  getSuppliers: (params?: { page?: number; limit?: number; search?: string; category?: string; isActive?: boolean }) =>
+  getSuppliers: (params?: { page?: number; limit?: number; search?: string; category?: string; isActive?: boolean; branchId?: string }) =>
     apiClient.get("/api/suppliers", { params }),
 
   // Get single supplier
