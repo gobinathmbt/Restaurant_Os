@@ -168,10 +168,17 @@ export default function SupplierFormModal({
   };
 
   const handleBranchesChange = (branchIds: string[]) => {
+    const previousBranches = selectedBranches;
     setSelectedBranches(branchIds);
-    // Only reset categories and subcategories if branches are cleared completely
-    // This preserves selections when switching tabs
+    
+    // Reset categories and subcategories when branches change
+    // This ensures categories are refetched based on new branch selection
     if (branchIds.length === 0) {
+      // All branches cleared - clear everything
+      setSelectedCategories([]);
+      setSelectedSubcategories([]);
+    } else if (JSON.stringify(previousBranches.sort()) !== JSON.stringify(branchIds.sort())) {
+      // Branches changed (not just reordered) - clear categories to force refetch
       setSelectedCategories([]);
       setSelectedSubcategories([]);
     }
@@ -234,6 +241,42 @@ export default function SupplierFormModal({
       return false;
     }
 
+    // Validate that all IDs are valid MongoDB ObjectIds (24 hex characters)
+    const isValidObjectId = (id: string) => /^[0-9a-fA-F]{24}$/.test(id);
+    
+    const invalidBranches = selectedBranches.filter(id => !isValidObjectId(id));
+    if (invalidBranches.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid branch IDs detected. Please reselect branches.",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
+      return false;
+    }
+
+    const invalidCategories = selectedCategories.filter(id => !isValidObjectId(id));
+    if (invalidCategories.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid category IDs detected. Please reselect categories.",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
+      return false;
+    }
+
+    const invalidSubcategories = selectedSubcategories.filter(id => !isValidObjectId(id));
+    if (invalidSubcategories.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid subcategory IDs detected. Please reselect subcategories.",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
+      return false;
+    }
+
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       toast({
         title: "Validation Error",
@@ -277,38 +320,64 @@ export default function SupplierFormModal({
     try {
       setLoading(true);
 
+      // Build address object only if at least one field has a value
+      const address: any = {};
+      if (formData.street.trim()) address.street = formData.street.trim();
+      if (formData.city.trim()) address.city = formData.city.trim();
+      if (formData.state.trim()) address.state = formData.state.trim();
+      if (formData.zipCode.trim()) address.zipCode = formData.zipCode.trim();
+      if (formData.country.trim()) address.country = formData.country.trim();
+
+      // Build bank details object only if at least one field has a value
+      const bankDetails: any = {};
+      if (formData.accountName.trim()) bankDetails.accountName = formData.accountName.trim();
+      if (formData.accountNumber.trim()) bankDetails.accountNumber = formData.accountNumber.trim();
+      if (formData.bankName.trim()) bankDetails.bankName = formData.bankName.trim();
+      if (formData.ifscCode.trim()) bankDetails.ifscCode = formData.ifscCode.trim();
+      if (formData.bankBranch.trim()) bankDetails.branch = formData.bankBranch.trim();
+
       const submitData: any = {
         name: formData.name.trim(),
         branchIds: selectedBranches,
         categoryIds: selectedCategories,
         subcategoryIds: selectedSubcategories,
-        contactPerson: formData.contactPerson.trim() || undefined,
         phone: formData.phone.trim(),
-        email: formData.email.trim() || undefined,
-        rating: formData.rating || undefined,
-        notes: formData.notes.trim() || undefined,
-        address: {
-          street: formData.street.trim() || undefined,
-          city: formData.city.trim() || undefined,
-          state: formData.state.trim() || undefined,
-          zipCode: formData.zipCode.trim() || undefined,
-          country: formData.country.trim() || undefined
-        },
-        gstNumber: formData.gstNumber.trim() || undefined,
-        panNumber: formData.panNumber.trim() || undefined,
         paymentTerms: formData.paymentTerms,
-        customPaymentTerms: formData.paymentTerms === 'custom'
-          ? formData.customPaymentTerms.trim() || undefined
-          : undefined,
         creditLimit: formData.creditLimit || 0,
-        bankDetails: {
-          accountName: formData.accountName.trim() || undefined,
-          accountNumber: formData.accountNumber.trim() || undefined,
-          bankName: formData.bankName.trim() || undefined,
-          ifscCode: formData.ifscCode.trim() || undefined,
-          branch: formData.bankBranch.trim() || undefined
-        }
       };
+
+      // Add optional fields only if they have values
+      if (formData.contactPerson.trim()) {
+        submitData.contactPerson = formData.contactPerson.trim();
+      }
+      if (formData.email.trim()) {
+        submitData.email = formData.email.trim();
+      }
+      if (formData.rating > 0) {
+        submitData.rating = formData.rating;
+      }
+      if (formData.notes.trim()) {
+        submitData.notes = formData.notes.trim();
+      }
+      if (formData.gstNumber.trim()) {
+        submitData.gstNumber = formData.gstNumber.trim();
+      }
+      if (formData.panNumber.trim()) {
+        submitData.panNumber = formData.panNumber.trim();
+      }
+      if (formData.paymentTerms === 'custom' && formData.customPaymentTerms.trim()) {
+        submitData.customPaymentTerms = formData.customPaymentTerms.trim();
+      }
+
+      // Add address and bankDetails only if they have at least one field
+      if (Object.keys(address).length > 0) {
+        submitData.address = address;
+      }
+      if (Object.keys(bankDetails).length > 0) {
+        submitData.bankDetails = bankDetails;
+      }
+
+      console.log('Submitting supplier data:', JSON.stringify(submitData, null, 2));
 
       if (supplier) {
         await supplierServices.updateSupplier(supplier._id, submitData);

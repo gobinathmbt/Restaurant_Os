@@ -69,6 +69,16 @@ export default function CategorySubcategorySearch({
   const displayMainCategories = mainCategoriesSearch ? searchMainCategories : initialMainCategories;
   const displaySubcategories = subcategoriesSearch ? searchSubcategories : initialSubcategories;
 
+  // Reset categories when branches change
+  useEffect(() => {
+    setInitialMainCategories([]);
+    setSearchMainCategories([]);
+    setInitialSubcategories([]);
+    setSearchSubcategories([]);
+    setMainCategoriesSearch('');
+    setSubcategoriesSearch('');
+  }, [branchIds.join(',')]);
+
   // Load initial categories when branches are available
   useEffect(() => {
     if (branchIds.length > 0 && initialMainCategories.length === 0) {

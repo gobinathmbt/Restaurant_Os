@@ -79,28 +79,32 @@ const supplierSchema = new mongoose.Schema({
     min: 1,
     max: 5
   },
-  categoryIds: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category',
+  categoryIds: {
+    type: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category'
+    }],
     required: true,
     validate: {
       validator: function(value) {
-        return value && value.length > 0;
+        return Array.isArray(value) && value.length > 0;
       },
       message: 'At least one category must be assigned'
     }
-  }],
-  subcategoryIds: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category',
+  },
+  subcategoryIds: {
+    type: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Category'
+    }],
     required: true,
     validate: {
       validator: function(value) {
-        return value && value.length > 0;
+        return Array.isArray(value) && value.length > 0;
       },
       message: 'At least one subcategory must be assigned'
     }
-  }],
+  },
   bankDetails: {
     accountName: {
       type: String,
