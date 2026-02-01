@@ -1,10 +1,11 @@
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
+  TableCell,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
@@ -37,36 +38,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-
-// Cookie utilities
-const setCookie = (name: string, value: string, days: number = 30) => {
-  try {
-    const expires = new Date();
-    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
-    document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
-  } catch (error) {
-    console.error('Error setting cookie:', error);
-  }
-};
-
-const getCookie = (name: string): string | null => {
-  try {
-    if (typeof document === 'undefined') return null;
-    const nameEQ = name + '=';
-    const ca = document.cookie.split(';');
-    for (let i = 0; i < ca.length; i++) {
-      let c = ca[i];
-      while (c.charAt(0) === ' ') c = c.substring(1, c.length);
-      if (c.indexOf(nameEQ) === 0) {
-        return c.substring(nameEQ.length, c.length);
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('Error getting cookie:', error);
-    return null;
-  }
-};
+import { getStorage, setStorage } from '@/utils/storage';
 
 interface StatChip {
   label: string;
@@ -125,8 +97,14 @@ interface DataTableLayoutProps {
   // Refresh
   onRefresh?: () => void;
 
-  // Cookie settings
-  cookiePrefix?: string;
+  // Storage settings
+  storagePrefix?: string;
+
+  // Infinite scroll
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onPaginationChange?: (enabled: boolean) => void;
 }
 
 export default function DataTableLayout({
@@ -149,32 +127,70 @@ export default function DataTableLayout({
   onPageChange,
   onRowsPerPageChange,
   onRefresh,
-  cookiePrefix = 'datatable',
+  storagePrefix = 'datatable',
+  onLoadMore,
+  hasMore = false,
+  isLoadingMore = false,
+  onPaginationChange,
 }: DataTableLayoutProps) {
   const [paginationEnabled, setPaginationEnabled] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const cookieName = `${cookiePrefix}_pagination_enabled`;
+  const storageName = `${storagePrefix}_pagination_enabled`;
 
-  // Load pagination setting from cookie
+  // Load pagination setting from sessionStorage
   useEffect(() => {
     if (typeof window !== 'undefined' && !isInitialized) {
-      const savedPaginationState = getCookie(cookieName);
+      const savedPaginationState = getStorage<boolean>(storageName);
       if (savedPaginationState !== null) {
-        const shouldEnablePagination = savedPaginationState === 'true';
-        setPaginationEnabled(shouldEnablePagination);
+        setPaginationEnabled(savedPaginationState);
       }
       setIsInitialized(true);
     }
-  }, [cookieName, isInitialized]);
+  }, [storageName, isInitialized]);
 
   const handlePaginationToggle = (checked: boolean) => {
     setPaginationEnabled(checked);
-    setCookie(cookieName, checked.toString(), 30);
+    setStorage(storageName, checked);
     if (checked) {
       onPageChange(1);
     }
+    if (onPaginationChange) {
+      onPaginationChange(checked);
+    }
   };
+
+  // Infinite scroll implementation
+  const handleIntersection = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      const [entry] = entries;
+      if (entry.isIntersecting && !isLoadingMore && hasMore && onLoadMore) {
+        onLoadMore();
+      }
+    },
+    [isLoadingMore, hasMore, onLoadMore]
+  );
+
+  useEffect(() => {
+    if (!paginationEnabled && sentinelRef.current && onLoadMore) {
+      observerRef.current = new IntersectionObserver(handleIntersection, {
+        root: scrollContainerRef.current,
+        rootMargin: '100px',
+        threshold: 0.1,
+      });
+
+      observerRef.current.observe(sentinelRef.current);
+
+      return () => {
+        if (observerRef.current) {
+          observerRef.current.disconnect();
+        }
+      };
+    }
+  }, [paginationEnabled, handleIntersection, onLoadMore]);
 
   const getPaginationItems = () => {
     if (totalPages <= 1) return null;
@@ -371,10 +387,13 @@ export default function DataTableLayout({
         </div>
       </div>
 
-      {/* Content Area - No Scroll */}
-      <div className="flex-1 min-h-0">
-        <div className="h-full flex flex-col">
-          {isLoading ? (
+      {/* Content Area - Scrollable for infinite scroll, fixed for pagination */}
+      <div 
+        ref={scrollContainerRef}
+        className={`flex-1 min-h-0 ${!paginationEnabled ? 'overflow-y-auto' : ''}`}
+      >
+        <div className={`${paginationEnabled ? 'h-full' : ''} flex flex-col`}>
+          {isLoading && paginationEnabled ? (
             <div className="flex justify-center items-center h-full">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
@@ -392,12 +411,43 @@ export default function DataTableLayout({
               {emptyState.action}
             </div>
           ) : (
-            <Table>
-              <TableHeader className="sticky top-0 bg-background z-10 border-b">
-                <TableRow>{tableHeaders}</TableRow>
-              </TableHeader>
-              <TableBody>{tableBody}</TableBody>
-            </Table>
+            <>
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10 border-b">
+                  <TableRow>{tableHeaders}</TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading && !paginationEnabled ? (
+                    <TableRow>
+                      <TableCell colSpan={100} className="h-24 text-center">
+                        <div className="flex justify-center items-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    tableBody
+                  )}
+                </TableBody>
+              </Table>
+              
+              {/* Infinite scroll sentinel and loading indicator */}
+              {!paginationEnabled && (
+                <div ref={sentinelRef} className="py-4">
+                  {isLoadingMore && (
+                    <div className="flex justify-center items-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                      <span className="ml-2 text-sm text-muted-foreground">Loading more...</span>
+                    </div>
+                  )}
+                  {!hasMore && !isLoadingMore && totalCount > 0 && (
+                    <div className="text-center text-sm text-muted-foreground">
+                      All {totalCount} items loaded
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

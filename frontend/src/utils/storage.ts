@@ -145,6 +145,7 @@ export const STORAGE_KEYS = {
   CATEGORIES_STATUS_FILTER: 'categories_status_filter',
   CATEGORIES_ROWS_PER_PAGE: 'categories_rows_per_page',
   CATEGORIES_PAGE: 'categories_page',
+  CATEGORIES_PAGINATION_ENABLED: 'categories_pagination_enabled',
   
   // GRN Tab
   GRN_SEARCH: 'grn_search',

@@ -85,14 +85,28 @@ export default function CategoriesTab({
     category: null
   });
 
+  // Infinite scroll state
+  const [infiniteScrollPage, setInfiniteScrollPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [paginationEnabled, setPaginationEnabled] = useState(true);
+
   useEffect(() => {
     if (selectedBranch) {
-      fetchCategoryList();
+      if (paginationEnabled) {
+        fetchCategoryList();
+      } else {
+        // Reset for infinite scroll
+        setCategoryList([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchCategoryListInfinite(1, true);
+      }
     }
-  }, [selectedBranch, categoriesPage, categoriesRowsPerPage, categoriesSearch, categoriesTypeFilter, categoriesStatusFilter]);
+  }, [selectedBranch, categoriesPage, categoriesRowsPerPage, categoriesSearch, categoriesTypeFilter, categoriesStatusFilter, paginationEnabled]);
 
   const fetchCategoryList = async () => {
-    if (!selectedBranch) return;
+    if (!selectedBranch || !paginationEnabled) return;
     
     try {
       setCategoriesLoading(true);
@@ -123,6 +137,63 @@ export default function CategoriesTab({
       });
     } finally {
       setCategoriesLoading(false);
+    }
+  };
+
+  const fetchCategoryListInfinite = async (page: number, reset: boolean = false) => {
+    if (!selectedBranch) return;
+    
+    try {
+      if (reset) {
+        setCategoriesLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      const params: any = {
+        page: page,
+        limit: 20, // Fixed batch size for infinite scroll
+        search: categoriesSearch || undefined,
+        type: categoriesTypeFilter || undefined,
+        isActive: categoriesStatusFilter || undefined,
+        parentId: 'null' // Only fetch main categories
+      };
+
+      // Only add branchId filter if not "all" (for super admins)
+      if (selectedBranch !== 'all') {
+        params.branchId = selectedBranch;
+      }
+
+      const response = await categoryServices.getCategories(params);
+      const newCategories = response.data.data.categories || [];
+      const pagination = response.data.data.pagination;
+
+      if (reset) {
+        setCategoryList(newCategories);
+      } else {
+        setCategoryList(prev => [...prev, ...newCategories]);
+      }
+
+      setCategoriesTotalCount(pagination.total);
+      setCategoriesTotalPages(pagination.pages);
+      setHasMore(page < pagination.pages);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch categories',
+        variant: "destructive",
+      });
+    } finally {
+      setCategoriesLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore && !paginationEnabled) {
+      const nextPage = infiniteScrollPage + 1;
+      setInfiniteScrollPage(nextPage);
+      fetchCategoryListInfinite(nextPage, false);
     }
   };
 
@@ -157,7 +228,14 @@ export default function CategoriesTab({
         description: "Category permanently deleted successfully",
         variant: "success",
       });
-      fetchCategoryList();
+      if (paginationEnabled) {
+        fetchCategoryList();
+      } else {
+        setCategoryList([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchCategoryListInfinite(1, true);
+      }
       setCategoryDeleteDialog({ open: false, category: null });
     } catch (error: any) {
       toast({
@@ -180,7 +258,14 @@ export default function CategoriesTab({
         description: `Category ${category.isActive ? 'deactivated' : 'activated'} successfully`,
         variant: "success",
       });
-      fetchCategoryList();
+      if (paginationEnabled) {
+        fetchCategoryList();
+      } else {
+        setCategoryList([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchCategoryListInfinite(1, true);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -195,7 +280,14 @@ export default function CategoriesTab({
   const handleCategoryFormSuccess = () => {
     setIsCategoryFormOpen(false);
     setSelectedCategory(null);
-    fetchCategoryList();
+    if (paginationEnabled) {
+      fetchCategoryList();
+    } else {
+      setCategoryList([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchCategoryListInfinite(1, true);
+    }
   };
 
   const handleSubcategoryManagementClose = () => {
@@ -284,10 +376,16 @@ export default function CategoriesTab({
           }
           tableBody={
             <>
-              {categoryList.map((category, index) => (
+              {categoryList.map((category, index) => {
+                // Calculate serial number based on pagination mode
+                const serialNumber = paginationEnabled 
+                  ? (categoriesPage - 1) * categoriesRowsPerPage + index + 1
+                  : index + 1;
+                
+                return (
                 <TableRow key={category._id}>
                   <TableCell className="font-medium text-muted-foreground">
-                    {(categoriesPage - 1) * categoriesRowsPerPage + index + 1}
+                    {serialNumber}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -379,7 +477,8 @@ export default function CategoriesTab({
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+              );
+              })}
             </>
           }
           isLoading={categoriesLoading}
@@ -411,8 +510,21 @@ export default function CategoriesTab({
             setCategoriesRowsPerPage(rows);
             setCategoriesPage(1);
           }}
-          onRefresh={fetchCategoryList}
-          cookiePrefix="categories"
+          onRefresh={() => {
+            if (paginationEnabled) {
+              fetchCategoryList();
+            } else {
+              setCategoryList([]);
+              setInfiniteScrollPage(1);
+              setHasMore(true);
+              fetchCategoryListInfinite(1, true);
+            }
+          }}
+          storagePrefix="categories"
+          onLoadMore={handleLoadMore}
+          hasMore={hasMore}
+          isLoadingMore={isLoadingMore}
+          onPaginationChange={(enabled) => setPaginationEnabled(enabled)}
         />
       </div>
 
