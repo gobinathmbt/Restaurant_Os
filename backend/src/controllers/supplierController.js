@@ -40,6 +40,7 @@ export const createSupplier = async (req, res, next) => {
     // Handle specific validation errors
     if (error.message.includes('Missing required fields') ||
         error.message.includes('At least one branch') ||
+        error.message.includes('At least one category') ||
         error.message.includes('only assign suppliers to branches')) {
       return res.status(400).json({
         success: false,
@@ -155,6 +156,7 @@ export const updateSupplier = async (req, res, next) => {
     if (error.message.includes('cannot be negative') ||
         error.message.includes('Rating must be between') ||
         error.message.includes('At least one branch') ||
+        error.message.includes('At least one category') ||
         error.message.includes('only assign suppliers to branches')) {
       return res.status(400).json({
         success: false,

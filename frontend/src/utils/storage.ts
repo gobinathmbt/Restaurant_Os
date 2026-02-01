@@ -169,6 +169,14 @@ export const STORAGE_KEYS = {
   TRANSFERS_ROWS_PER_PAGE: 'transfers_rows_per_page',
   TRANSFERS_PAGE: 'transfers_page',
   
+  // Suppliers Tab
+  SUPPLIERS_SEARCH: 'suppliers_search',
+  SUPPLIERS_CATEGORY_FILTER: 'suppliers_category_filter',
+  SUPPLIERS_BRANCH_FILTER: 'suppliers_branch_filter',
+  SUPPLIERS_ROWS_PER_PAGE: 'suppliers_rows_per_page',
+  SUPPLIERS_PAGE: 'suppliers_page',
+  SUPPLIERS_PAGINATION_ENABLED: 'suppliers_pagination_enabled',
+  
   // User Preferences (Use localStorage for these - shared across tabs)
   THEME: 'pref_theme',
   LANGUAGE: 'pref_language',

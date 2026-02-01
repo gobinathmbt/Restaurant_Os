@@ -79,9 +79,10 @@ const supplierSchema = new mongoose.Schema({
     min: 1,
     max: 5
   },
-  categories: [{
-    type: String,
-    trim: true
+  categoryIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    required: true
   }],
   bankDetails: {
     accountName: {
@@ -170,7 +171,7 @@ supplierSchema.index({ name: 1 });
 supplierSchema.index({ phone: 1 });
 supplierSchema.index({ email: 1 });
 supplierSchema.index({ isActive: 1 });
-supplierSchema.index({ categories: 1 });
+supplierSchema.index({ categoryIds: 1 });
 supplierSchema.index({ branchIds: 1 });
 supplierSchema.index({ name: 'text', contactPerson: 'text' });
 

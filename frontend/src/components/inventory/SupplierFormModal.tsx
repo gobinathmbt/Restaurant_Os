@@ -17,6 +17,7 @@ import { supplierServices } from '@/api/services';
 import { Star } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import BranchSearch from '@/components/common/BranchSearch';
+import CategorySearch from '@/components/common/CategorySearch';
 
 interface Branch {
   _id: string;
@@ -42,6 +43,7 @@ export default function SupplierFormModal({
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     // Basic Info
     name: '',
@@ -49,7 +51,6 @@ export default function SupplierFormModal({
     phone: '',
     email: '',
     rating: 0,
-    categories: '',
     notes: '',
     // Address
     street: '',
@@ -85,7 +86,6 @@ export default function SupplierFormModal({
         phone: supplier.phone || '',
         email: supplier.email || '',
         rating: supplier.rating || 0,
-        categories: supplier.categories?.join(', ') || '',
         notes: supplier.notes || '',
         // Address
         street: supplier.address?.street || '',
@@ -114,6 +114,14 @@ export default function SupplierFormModal({
         );
         setSelectedBranches(branchIdStrings);
       }
+
+      // Set selected categories
+      if (supplier.categoryIds) {
+        const categoryIdStrings = supplier.categoryIds.map((c: any) =>
+          typeof c === 'string' ? c : c._id
+        );
+        setSelectedCategories(categoryIdStrings);
+      }
     } else if (!supplier && open) {
       resetForm();
     }
@@ -126,7 +134,6 @@ export default function SupplierFormModal({
       phone: '',
       email: '',
       rating: 0,
-      categories: '',
       notes: '',
       street: '',
       city: '',
@@ -145,11 +152,20 @@ export default function SupplierFormModal({
       bankBranch: ''
     });
     setSelectedBranches([]);
+    setSelectedCategories([]);
     setActiveTab('basic');
   };
 
   const handleBranchesChange = (branchIds: string[]) => {
     setSelectedBranches(branchIds);
+    // Reset categories when branches change since categories are branch-specific
+    if (branchIds.length === 0) {
+      setSelectedCategories([]);
+    }
+  };
+
+  const handleCategoriesChange = (categoryIds: string[]) => {
+    setSelectedCategories(categoryIds);
   };
 
 
@@ -180,7 +196,17 @@ export default function SupplierFormModal({
         description: "At least one branch must be selected",
         variant: "destructive",
       });
-      setActiveTab('basic');
+      setActiveTab('branches');
+      return false;
+    }
+
+    if (selectedCategories.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one category must be selected",
+        variant: "destructive",
+      });
+      setActiveTab('categories');
       return false;
     }
 
@@ -230,13 +256,11 @@ export default function SupplierFormModal({
       const submitData: any = {
         name: formData.name.trim(),
         branchIds: selectedBranches,
+        categoryIds: selectedCategories,
         contactPerson: formData.contactPerson.trim() || undefined,
         phone: formData.phone.trim(),
         email: formData.email.trim() || undefined,
         rating: formData.rating || undefined,
-        categories: formData.categories
-          ? formData.categories.split(',').map(c => c.trim()).filter(c => c)
-          : [],
         notes: formData.notes.trim() || undefined,
         address: {
           street: formData.street.trim() || undefined,
@@ -327,9 +351,9 @@ export default function SupplierFormModal({
               <TabsList className={`grid w-full ${supplier ? 'grid-cols-6' : 'grid-cols-5'}`}>
                 <TabsTrigger value="basic">Basic Info</TabsTrigger>
                 <TabsTrigger value="branches">Branches</TabsTrigger>
+                <TabsTrigger value="categories">Categories</TabsTrigger>
                 <TabsTrigger value="address">Address</TabsTrigger>
                 <TabsTrigger value="legal">Legal</TabsTrigger>
-                <TabsTrigger value="bank">Bank Details</TabsTrigger>
                 {supplier && <TabsTrigger value="performance">Performance</TabsTrigger>}
               </TabsList>
 
@@ -379,15 +403,6 @@ export default function SupplierFormModal({
                     <Label>Rating</Label>
                     {renderStarRating()}
                   </div>
-                  <div>
-                    <Label htmlFor="categories">Categories</Label>
-                    <Input
-                      id="categories"
-                      value={formData.categories}
-                      onChange={(e) => setFormData({ ...formData, categories: e.target.value })}
-                      placeholder="e.g., Vegetables, Dairy, Meat (comma-separated)"
-                    />
-                  </div>
                 </div>
                 <div>
                   <Label htmlFor="notes">Notes</Label>
@@ -414,6 +429,25 @@ export default function SupplierFormModal({
                     onBranchesChange={handleBranchesChange}
                     placeholder="Select branches..."
                     showSelectAll={false}
+                  />
+                </div>
+              </TabsContent>
+
+              {/* Categories Tab */}
+              <TabsContent value="categories" className="space-y-4 mt-4">
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Assign Categories *</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Select which categories this supplier provides. Categories are filtered based on selected branches.
+                  </p>
+
+                  <CategorySearch
+                    selectedCategoryIds={selectedCategories}
+                    onCategoriesChange={handleCategoriesChange}
+                    branchIds={selectedBranches}
+                    placeholder="Select categories..."
+                    showSelectAll={false}
+                    required={true}
                   />
                 </div>
               </TabsContent>
@@ -536,7 +570,7 @@ export default function SupplierFormModal({
                 </div>
               </TabsContent>
 
-              {/* Bank Details Tab */}
+              {/* Bank Details Tab - Removed from tabs list but keeping content */}
               <TabsContent value="bank" className="space-y-4 mt-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>

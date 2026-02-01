@@ -33,7 +33,12 @@ interface Supplier {
   phone: string;
   email?: string;
   rating?: number;
-  categories: string[];
+  categoryIds: Array<{
+    _id: string;
+    name: string;
+    color: string;
+    type: string;
+  }>;
   isActive: boolean;
   performanceMetrics?: {
     totalOrders: number;
@@ -141,10 +146,14 @@ export default function Suppliers() {
       setTotalCount(response.data.data.pagination.total);
       setTotalPages(response.data.data.pagination.totalPages);
 
-      // Extract unique categories
+      // Extract unique categories from categoryIds
       const allCategories = new Set<string>();
       fetchedSuppliers.forEach((supplier: Supplier) => {
-        supplier.categories?.forEach((cat: string) => allCategories.add(cat));
+        supplier.categoryIds?.forEach((cat: any) => {
+          const categoryId = typeof cat === 'string' ? cat : cat._id;
+          const categoryName = typeof cat === 'string' ? cat : cat.name;
+          allCategories.add(categoryId);
+        });
       });
       setCategories(Array.from(allCategories).sort());
     } catch (error: any) {
@@ -180,10 +189,13 @@ export default function Suppliers() {
 
       if (reset) {
         setSuppliers(fetchedSuppliers);
-        // Extract unique categories
+        // Extract unique categories from categoryIds
         const allCategories = new Set<string>();
         fetchedSuppliers.forEach((supplier: Supplier) => {
-          supplier.categories?.forEach((cat: string) => allCategories.add(cat));
+          supplier.categoryIds?.forEach((cat: any) => {
+            const categoryId = typeof cat === 'string' ? cat : cat._id;
+            allCategories.add(categoryId);
+          });
         });
         setCategories(Array.from(allCategories).sort());
       } else {
@@ -442,16 +454,20 @@ export default function Suppliers() {
                   {renderStarRating(supplier.rating)}
                 </TableCell>
                 <TableCell>
-                  {supplier.categories && supplier.categories.length > 0 ? (
+                  {supplier.categoryIds && supplier.categoryIds.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
-                      {supplier.categories.slice(0, 2).map((category, idx) => (
-                        <Badge key={idx} variant="outline" className="text-xs">
-                          {category}
+                      {supplier.categoryIds.slice(0, 2).map((category, idx) => (
+                        <Badge key={idx} variant="outline" className="text-xs gap-1">
+                          <div
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          {category.name}
                         </Badge>
                       ))}
-                      {supplier.categories.length > 2 && (
+                      {supplier.categoryIds.length > 2 && (
                         <Badge variant="secondary" className="text-xs">
-                          +{supplier.categories.length - 2}
+                          +{supplier.categoryIds.length - 2}
                         </Badge>
                       )}
                     </div>

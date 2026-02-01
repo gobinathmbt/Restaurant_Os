@@ -5,6 +5,7 @@
 
 import { getCompanyDB } from '../config/database.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
+import { getCategoryModel } from '../models/company/Category.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -18,9 +19,10 @@ export const createSupplier = async (supplierData, companyId, userBranchIds = nu
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
+    const Category = getCategoryModel(companyDB);
 
     // Validate required fields
-    const requiredFields = ['name', 'phone', 'branchIds'];
+    const requiredFields = ['name', 'phone', 'branchIds', 'categoryIds'];
     const missingFields = requiredFields.filter(field => !supplierData[field]);
     
     if (missingFields.length > 0) {
@@ -31,6 +33,12 @@ export const createSupplier = async (supplierData, companyId, userBranchIds = nu
     if (!Array.isArray(supplierData.branchIds) || supplierData.branchIds.length === 0) {
       throw new Error('At least one branch must be assigned to the supplier');
     }
+
+    // Validate categoryIds is an array and not empty
+    if (!Array.isArray(supplierData.categoryIds) || supplierData.categoryIds.length === 0) {
+      throw new Error('At least one category must be assigned to the supplier');
+    }
+
 
     // If user is company_admin, validate they can only assign branches they have access to
     if (userBranchIds && userBranchIds.length > 0) {
@@ -117,7 +125,7 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
 
     // Category filter
     if (category) {
-      query.categories = category;
+      query.categoryIds = category;
     }
 
     // Calculate pagination
@@ -127,6 +135,7 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
     const [suppliers, total] = await Promise.all([
       Supplier.find(query)
         .populate('branchIds', 'name code')
+        .populate('categoryIds', 'name color type')
         .sort({ name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -176,6 +185,7 @@ export const getSupplierById = async (supplierId, companyId, userBranchIds = nul
 
     const supplier = await Supplier.findById(supplierId)
       .populate('branchIds', 'name code')
+      .populate('categoryIds', 'name color type')
       .lean();
 
     if (!supplier) {
@@ -221,6 +231,7 @@ export const updateSupplier = async (supplierId, updateData, companyId, userBran
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
+    const Category = getCategoryModel(companyDB);
 
     // Get existing supplier
     const existingSupplier = await Supplier.findById(supplierId);
@@ -251,6 +262,13 @@ export const updateSupplier = async (supplierId, updateData, companyId, userBran
         if (invalidBranches.length > 0) {
           throw new Error('You can only assign suppliers to branches you have access to');
         }
+      }
+    }
+
+    // Validate categoryIds if provided
+    if (updateData.categoryIds) {
+      if (!Array.isArray(updateData.categoryIds) || updateData.categoryIds.length === 0) {
+        throw new Error('At least one category must be assigned to the supplier');
       }
     }
 
