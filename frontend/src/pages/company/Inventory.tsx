@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package, FolderPlus, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -193,7 +193,6 @@ export default function Inventory() {
   const [categoriesTotalPages, setCategoriesTotalPages] = useState(0);
   const [isCategoryFormOpen, setIsCategoryFormOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [parentCategoryForNew, setParentCategoryForNew] = useState<Category | null>(null);
   const [isManageSubcategoriesOpen, setIsManageSubcategoriesOpen] = useState(false);
   const [categoryForSubcategoryManagement, setCategoryForSubcategoryManagement] = useState<Category | null>(null);
   const [categoryDeleteDialog, setCategoryDeleteDialog] = useState<{ open: boolean; category: Category | null }>({
@@ -528,13 +527,6 @@ export default function Inventory() {
   // Category handlers
   const handleCreateCategory = () => {
     setSelectedCategory(null);
-    setParentCategoryForNew(null);
-    setIsCategoryFormOpen(true);
-  };
-
-  const handleCreateSubcategory = (parentCategory: Category) => {
-    setSelectedCategory(null);
-    setParentCategoryForNew(parentCategory);
     setIsCategoryFormOpen(true);
   };
 
@@ -545,7 +537,6 @@ export default function Inventory() {
 
   const handleEditCategory = (category: Category) => {
     setSelectedCategory(category);
-    setParentCategoryForNew(null);
     setIsCategoryFormOpen(true);
   };
 
@@ -581,14 +572,12 @@ export default function Inventory() {
   const handleCategoryFormSuccess = () => {
     setIsCategoryFormOpen(false);
     setSelectedCategory(null);
-    setParentCategoryForNew(null);
     fetchCategoryList();
   };
 
   const handleSubcategoryManagementClose = () => {
     setIsManageSubcategoriesOpen(false);
     setCategoryForSubcategoryManagement(null);
-    fetchCategoryList();
   };
 
   // Filter handlers
@@ -987,14 +976,6 @@ export default function Inventory() {
                             title="Manage subcategories"
                           >
                             <Settings className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleCreateSubcategory(category)}
-                            title="Add subcategory"
-                          >
-                            <FolderPlus className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -1454,32 +1435,18 @@ export default function Inventory() {
         onClose={() => {
           setIsCategoryFormOpen(false);
           setSelectedCategory(null);
-          setParentCategoryForNew(null);
         }}
         category={selectedCategory}
         branchId={selectedBranch}
         onSuccess={handleCategoryFormSuccess}
-        parentCategory={parentCategoryForNew}
+        parentCategory={null}
       />
 
       <ManageSubcategoriesModal
         open={isManageSubcategoriesOpen}
         onClose={handleSubcategoryManagementClose}
         parentCategory={categoryForSubcategoryManagement}
-        onAddSubcategory={() => {
-          if (categoryForSubcategoryManagement) {
-            handleCreateSubcategory(categoryForSubcategoryManagement);
-          }
-        }}
-        onEditSubcategory={(subcategory) => {
-          setIsManageSubcategoriesOpen(false);
-          handleEditCategory(subcategory as any);
-        }}
-        onDeleteSubcategory={(subcategory) => {
-          setIsManageSubcategoriesOpen(false);
-          handleDeleteCategory(subcategory as any);
-        }}
-        onRefresh={fetchCategoryList}
+        branchId={selectedBranch}
       />
 
       <DeleteConfirmDialog

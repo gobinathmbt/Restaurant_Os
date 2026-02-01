@@ -240,6 +240,10 @@ export const categoryServices = {
   getCategoryTree: (branchId: string) =>
     apiClient.get(`/api/categories/tree/${branchId}`),
 
+  // Get subcategories of a parent category
+  getSubcategories: (parentId: string) =>
+    apiClient.get(`/api/categories`, { params: { parentId, limit: 1000 } }),
+
   // Reorder categories
   reorderCategories: (updates: Array<{ categoryId: string; displayOrder: number }>) =>
     apiClient.patch("/api/categories/reorder", { updates }),
