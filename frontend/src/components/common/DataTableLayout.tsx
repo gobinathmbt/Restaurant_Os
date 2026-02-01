@@ -272,7 +272,7 @@ export default function DataTableLayout({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] bg-background">
+    <div className="flex flex-col h-full bg-background">
       {/* Fixed Header */}
       <div className="bg-background border-b flex-shrink-0">
         {/* Single Row: Stats, Search, Filters, and Actions */}
