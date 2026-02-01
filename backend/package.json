@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "seed:config": "node scripts/seed-platform-config.js"
+    "seed:categories": "node scripts/seedCategories.js"
   },
   "keywords": [
     "restaurant",
