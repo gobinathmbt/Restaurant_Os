@@ -82,6 +82,7 @@ export default function CategoryFormModal({
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -100,6 +101,17 @@ export default function CategoryFormModal({
     }
   }, [open]);
 
+  // Debounced branch search
+  useEffect(() => {
+    if (!open) return;
+    
+    const timer = setTimeout(() => {
+      fetchBranches(branchSearch);
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timer);
+  }, [branchSearch, open]);
+
   useEffect(() => {
     if (category && open) {
       // For editing, use editableBranches if available (filtered by user permissions)
@@ -117,10 +129,14 @@ export default function CategoryFormModal({
     }
   }, [category, open, parentCategory, branches]);
 
-  const fetchBranches = async () => {
+  const fetchBranches = async (searchQuery = '') => {
     try {
       setLoadingBranches(true);
-      const response = await branchServices.getBranches({ limit: 1000, isActive: true });
+      const response = await branchServices.getBranches({ 
+        limit: 1000, 
+        isActive: true,
+        search: searchQuery || undefined
+      });
       setBranches(response.data.data.branches || []);
     } catch (error: any) {
       toast({
@@ -141,6 +157,7 @@ export default function CategoryFormModal({
       color: '#6366f1',
       selectedBranches: branchId ? [branchId] : [],
     });
+    setBranchSearch(''); // Clear branch search
   };
 
   const handleBranchToggle = (branchIdToToggle: string) => {
@@ -387,8 +404,14 @@ export default function CategoryFormModal({
 
                     <PopoverContent className="w-full p-0" align="start">
                       <Command>
-                        <CommandInput placeholder="Search branches..." />
-                        <CommandEmpty>No branches found.</CommandEmpty>
+                        <CommandInput 
+                          placeholder="Search branches..." 
+                          value={branchSearch}
+                          onValueChange={setBranchSearch}
+                        />
+                        <CommandEmpty>
+                          {loadingBranches ? 'Searching...' : 'No branches found.'}
+                        </CommandEmpty>
                         <CommandList>
                           <CommandGroup>
                             {branches.map((branch) => (
