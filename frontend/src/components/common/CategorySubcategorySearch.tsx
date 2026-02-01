@@ -69,10 +69,10 @@ export default function CategorySubcategorySearch({
   const displayMainCategories = mainCategoriesSearch ? searchMainCategories : initialMainCategories;
   const displaySubcategories = subcategoriesSearch ? searchSubcategories : initialSubcategories;
 
-  // When branches change, filter out categories that don't belong to the new branch selection
+  // When branches change, filter out categories that don't belong to ANY of the remaining branches
   useEffect(() => {
-    if (branchIds.length > 0) {
-      // Filter selected main categories - remove those not belonging to current branches
+    if (branchIds.length > 0 && selectedCategoryIds.length > 0 && (initialMainCategories.length > 0 || searchMainCategories.length > 0)) {
+      // Filter selected main categories - KEEP those belonging to at least one remaining branch
       const validMainCategories = selectedCategoryIds.filter(catId => {
         const category = [...initialMainCategories, ...searchMainCategories].find(c => c._id === catId);
         if (!category) return true; // Keep if we don't have the data yet (will be validated on submit)
@@ -81,10 +81,13 @@ export default function CategorySubcategorySearch({
           typeof b === 'string' ? b : b._id
         ) || [];
         
-        return branchIds.some(branchId => categoryBranchIds.includes(branchId));
+        // KEEP if category belongs to at least ONE of the remaining branches
+        const belongsToRemainingBranch = branchIds.some(branchId => categoryBranchIds.includes(branchId));
+
+        return belongsToRemainingBranch;
       });
 
-      // Filter selected subcategories - remove those not belonging to current branches
+      // Filter selected subcategories - KEEP those belonging to at least one remaining branch
       const validSubcategories = selectedSubcategoryIds.filter(subcatId => {
         const subcategory = [...initialSubcategories, ...searchSubcategories].find(c => c._id === subcatId);
         if (!subcategory) return true; // Keep if we don't have the data yet
@@ -93,7 +96,10 @@ export default function CategorySubcategorySearch({
           typeof b === 'string' ? b : b._id
         ) || [];
         
-        return branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
+        // KEEP if subcategory belongs to at least ONE of the remaining branches
+        const belongsToRemainingBranch = branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
+
+        return belongsToRemainingBranch;
       });
 
       // Update selections if any were filtered out
@@ -102,19 +108,45 @@ export default function CategorySubcategorySearch({
         
         const removedCategories = selectedCategoryIds.length - validMainCategories.length;
         const removedSubcategories = selectedSubcategoryIds.length - validSubcategories.length;
-        
+
         if (removedCategories > 0 || removedSubcategories > 0) {
           toast({
-            title: 'Categories Updated',
-            description: `Removed ${removedCategories} categor${removedCategories !== 1 ? 'ies' : 'y'} and ${removedSubcategories} subcategor${removedSubcategories !== 1 ? 'ies' : 'y'} that don't belong to selected branches`,
+            title: 'Categories Filtered',
+            description: `Removed ${removedCategories} categor${removedCategories !== 1 ? 'ies' : 'y'} and ${removedSubcategories} subcategor${removedSubcategories !== 1 ? 'ies' : 'y'} that don't belong to any remaining branch`,
             variant: 'default',
           });
         }
         
+        // Update the parent with filtered selections
         onCategoriesChange(validMainCategories, validSubcategories);
+        
+        // Keep the category data in cache so we can display the remaining selections
+        // Filter the cached data to only keep categories that belong to remaining branches
+        const filteredMainCategories = [...initialMainCategories, ...searchMainCategories].filter(cat => {
+          const catBranchIds = cat.branchIds?.map((b: any) => typeof b === 'string' ? b : b._id) || [];
+          return branchIds.some(branchId => catBranchIds.includes(branchId));
+        });
+        
+        const filteredSubcategories = [...initialSubcategories, ...searchSubcategories].filter(cat => {
+          const catBranchIds = cat.branchIds?.map((b: any) => typeof b === 'string' ? b : b._id) || [];
+          return branchIds.some(branchId => catBranchIds.includes(branchId));
+        });
+        
+        // Update cache with filtered data
+        setInitialMainCategories(filteredMainCategories);
+        setSearchMainCategories([]);
+        setInitialSubcategories(filteredSubcategories);
+        setSearchSubcategories([]);
       }
+    }
+  }, [branchIds.join(','), initialMainCategories.length, searchMainCategories.length]);
 
-      // Reset cached data to refetch for new branches
+  // Load initial categories when branches are available
+  useEffect(() => {
+    if (branchIds.length > 0 && initialMainCategories.length === 0) {
+      fetchInitialMainCategories();
+    } else if (branchIds.length === 0) {
+      // Clear cache when all branches are removed
       setInitialMainCategories([]);
       setSearchMainCategories([]);
       setInitialSubcategories([]);
@@ -122,34 +154,29 @@ export default function CategorySubcategorySearch({
       setMainCategoriesSearch('');
       setSubcategoriesSearch('');
     }
-  }, [branchIds.join(',')]);
-
-  // Load initial categories when branches are available
-  useEffect(() => {
-    if (branchIds.length > 0 && initialMainCategories.length === 0) {
-      fetchInitialMainCategories();
-    }
-  }, [branchIds]);
+  }, [branchIds.length]);
 
   // Load initial subcategories when selected main categories exist
   useEffect(() => {
     if (branchIds.length > 0 && selectedCategoryIds.length > 0 && initialSubcategories.length === 0) {
       fetchInitialSubcategories();
     }
-  }, [branchIds, selectedCategoryIds]);
+  }, [branchIds.length, selectedCategoryIds.length]);
 
-  // Also fetch when popover opens (for lazy loading)
+  // Also fetch when popover opens (for lazy loading and refresh)
   useEffect(() => {
-    if (mainCategoriesOpen && initialMainCategories.length === 0 && branchIds.length > 0) {
+    if (mainCategoriesOpen && branchIds.length > 0) {
+      // Always refresh when opening to get latest data for current branches
       fetchInitialMainCategories();
     }
-  }, [mainCategoriesOpen, branchIds]);
+  }, [mainCategoriesOpen]);
 
   useEffect(() => {
-    if (subcategoriesOpen && initialSubcategories.length === 0 && branchIds.length > 0 && selectedCategoryIds.length > 0) {
+    if (subcategoriesOpen && branchIds.length > 0 && selectedCategoryIds.length > 0) {
+      // Always refresh when opening to get latest data
       fetchInitialSubcategories();
     }
-  }, [subcategoriesOpen, branchIds, selectedCategoryIds]);
+  }, [subcategoriesOpen]);
 
   useEffect(() => {
     if (mainCategoriesSearch && branchIds.length > 0) {
