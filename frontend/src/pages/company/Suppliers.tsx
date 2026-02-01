@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, Package, Power } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -70,6 +70,12 @@ export default function Suppliers() {
     supplier: null
   });
 
+  // Infinite scroll state
+  const [infiniteScrollPage, setInfiniteScrollPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [paginationEnabled, setPaginationEnabled] = useState(true);
+
   // Determine user's branch access
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
   const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
@@ -105,10 +111,20 @@ export default function Suppliers() {
 
   // Fetch suppliers on mount and when filters change
   useEffect(() => {
-    fetchSuppliers();
-  }, [page, rowsPerPage, search, categoryFilter, branchFilter]);
+    if (paginationEnabled) {
+      fetchSuppliers();
+    } else {
+      // Reset for infinite scroll
+      setSuppliers([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchSuppliersInfinite(1, true);
+    }
+  }, [page, rowsPerPage, search, categoryFilter, branchFilter, paginationEnabled]);
 
   const fetchSuppliers = async () => {
+    if (!paginationEnabled) return;
+
     try {
       setSuppliersLoading(true);
       const response = await supplierServices.getSuppliers({
@@ -142,6 +158,61 @@ export default function Suppliers() {
     }
   };
 
+  const fetchSuppliersInfinite = async (page: number, reset: boolean = false) => {
+    try {
+      if (reset) {
+        setSuppliersLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      const response = await supplierServices.getSuppliers({
+        page: page,
+        limit: 20, // Fixed batch size for infinite scroll
+        search: search || undefined,
+        category: categoryFilter || undefined,
+        branchId: branchFilter || undefined,
+        isActive: true
+      });
+
+      const fetchedSuppliers = response.data.data.suppliers || [];
+      const pagination = response.data.data.pagination;
+
+      if (reset) {
+        setSuppliers(fetchedSuppliers);
+        // Extract unique categories
+        const allCategories = new Set<string>();
+        fetchedSuppliers.forEach((supplier: Supplier) => {
+          supplier.categories?.forEach((cat: string) => allCategories.add(cat));
+        });
+        setCategories(Array.from(allCategories).sort());
+      } else {
+        setSuppliers(prev => [...prev, ...fetchedSuppliers]);
+      }
+
+      setTotalCount(pagination.total);
+      setTotalPages(pagination.totalPages);
+      setHasMore(page < pagination.totalPages);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch suppliers',
+        variant: "destructive",
+      });
+    } finally {
+      setSuppliersLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore && !paginationEnabled) {
+      const nextPage = infiniteScrollPage + 1;
+      setInfiniteScrollPage(nextPage);
+      fetchSuppliersInfinite(nextPage, false);
+    }
+  };
+
   const handleCreate = () => {
     setSelectedSupplier(null);
     setIsFormOpen(true);
@@ -168,7 +239,14 @@ export default function Suppliers() {
         description: "Supplier deleted successfully",
         variant: "success",
       });
-      fetchSuppliers();
+      if (paginationEnabled) {
+        fetchSuppliers();
+      } else {
+        setSuppliers([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchSuppliersInfinite(1, true);
+      }
       setDeleteDialog({ open: false, supplier: null });
     } catch (error: any) {
       toast({
@@ -191,7 +269,14 @@ export default function Suppliers() {
         description: `Supplier ${supplier.isActive ? 'deactivated' : 'activated'} successfully`,
         variant: "success",
       });
-      fetchSuppliers();
+      if (paginationEnabled) {
+        fetchSuppliers();
+      } else {
+        setSuppliers([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchSuppliersInfinite(1, true);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -206,7 +291,14 @@ export default function Suppliers() {
   const handleFormSuccess = () => {
     setIsFormOpen(false);
     setSelectedSupplier(null);
-    fetchSuppliers();
+    if (paginationEnabled) {
+      fetchSuppliers();
+    } else {
+      setSuppliers([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchSuppliersInfinite(1, true);
+    }
   };
 
   const formatCurrency = (amount?: number) => {
@@ -242,7 +334,7 @@ export default function Suppliers() {
     <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <DataTableLayout
         statChips={[
-          { label: 'Total Suppliers', value: totalCount, variant: 'default' },
+          { label: 'Total Suppliers', value: totalCount,  variant: 'default' },
         ]}
         actionButtons={[
           {
@@ -307,10 +399,16 @@ export default function Suppliers() {
         }
         tableBody={
           <>
-            {suppliers.map((supplier, index) => (
+            {suppliers.map((supplier, index) => {
+              // Calculate serial number based on pagination mode
+              const serialNumber = paginationEnabled 
+                ? (page - 1) * rowsPerPage + index + 1
+                : index + 1;
+              
+              return (
               <TableRow key={supplier._id}>
                 <TableCell className="font-medium text-muted-foreground">
-                  {(page - 1) * rowsPerPage + index + 1}
+                  {serialNumber}
                 </TableCell>
                 <TableCell>
                   <p className="font-medium">{supplier.name}</p>
@@ -401,7 +499,8 @@ export default function Suppliers() {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+            );
+            })}
           </>
         }
         isLoading={suppliersLoading}
@@ -427,9 +526,25 @@ export default function Suppliers() {
         totalCount={totalCount}
         rowsPerPage={rowsPerPage}
         onPageChange={setPage}
-        onRowsPerPageChange={setRowsPerPage}
-        onRefresh={fetchSuppliers}
-        cookiePrefix="suppliers"
+        onRowsPerPageChange={(rows) => {
+          setRowsPerPage(rows);
+          setPage(1);
+        }}
+        onRefresh={() => {
+          if (paginationEnabled) {
+            fetchSuppliers();
+          } else {
+            setSuppliers([]);
+            setInfiniteScrollPage(1);
+            setHasMore(true);
+            fetchSuppliersInfinite(1, true);
+          }
+        }}
+        storagePrefix="suppliers"
+        onLoadMore={handleLoadMore}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onPaginationChange={(enabled) => setPaginationEnabled(enabled)}
       />
 
       {/* Supplier Form Modal */}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, Package } from 'lucide-react';
+import { Plus, Edit, Trash2, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -70,10 +70,24 @@ export default function Recipes() {
     recipe: null
   });
 
+  // Infinite scroll state
+  const [infiniteScrollPage, setInfiniteScrollPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [paginationEnabled, setPaginationEnabled] = useState(true);
+
   // Fetch recipes on mount and when filters change
   useEffect(() => {
-    fetchRecipes();
-  }, [page, rowsPerPage, search, finishedGoodFilter]);
+    if (paginationEnabled) {
+      fetchRecipes();
+    } else {
+      // Reset for infinite scroll
+      setRecipes([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchRecipesInfinite(1, true);
+    }
+  }, [page, rowsPerPage, search, finishedGoodFilter, paginationEnabled]);
 
   // Fetch finished goods for filter
   useEffect(() => {
@@ -81,6 +95,8 @@ export default function Recipes() {
   }, []);
 
   const fetchRecipes = async () => {
+    if (!paginationEnabled) return;
+
     try {
       setRecipesLoading(true);
       const response = await recipeServices.getRecipes({
@@ -101,6 +117,53 @@ export default function Recipes() {
       });
     } finally {
       setRecipesLoading(false);
+    }
+  };
+
+  const fetchRecipesInfinite = async (page: number, reset: boolean = false) => {
+    try {
+      if (reset) {
+        setRecipesLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      const response = await recipeServices.getRecipes({
+        page: page,
+        limit: 20, // Fixed batch size for infinite scroll
+        search: search || undefined,
+        finishedGood: finishedGoodFilter || undefined
+      });
+
+      const newRecipes = response.data.data.recipes || [];
+      const pagination = response.data.data.pagination;
+
+      if (reset) {
+        setRecipes(newRecipes);
+      } else {
+        setRecipes(prev => [...prev, ...newRecipes]);
+      }
+
+      setTotalCount(pagination.total);
+      setTotalPages(pagination.totalPages);
+      setHasMore(page < pagination.totalPages);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch recipes',
+        variant: "destructive",
+      });
+    } finally {
+      setRecipesLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore && !paginationEnabled) {
+      const nextPage = infiniteScrollPage + 1;
+      setInfiniteScrollPage(nextPage);
+      fetchRecipesInfinite(nextPage, false);
     }
   };
 
@@ -147,7 +210,14 @@ export default function Recipes() {
         description: "Recipe deleted successfully",
         variant: "success",
       });
-      fetchRecipes();
+      if (paginationEnabled) {
+        fetchRecipes();
+      } else {
+        setRecipes([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchRecipesInfinite(1, true);
+      }
       setDeleteDialog({ open: false, recipe: null });
     } catch (error: any) {
       toast({
@@ -163,7 +233,14 @@ export default function Recipes() {
   const handleFormSuccess = () => {
     setIsFormOpen(false);
     setSelectedRecipe(null);
-    fetchRecipes();
+    if (paginationEnabled) {
+      fetchRecipes();
+    } else {
+      setRecipes([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchRecipesInfinite(1, true);
+    }
   };
 
   const formatTime = (minutes?: number) => {
@@ -230,10 +307,16 @@ export default function Recipes() {
         }
         tableBody={
           <>
-            {recipes.map((recipe, index) => (
+            {recipes.map((recipe, index) => {
+              // Calculate serial number based on pagination mode
+              const serialNumber = paginationEnabled 
+                ? (page - 1) * rowsPerPage + index + 1
+                : index + 1;
+              
+              return (
               <TableRow key={recipe._id}>
                 <TableCell className="font-medium text-muted-foreground">
-                  {(page - 1) * rowsPerPage + index + 1}
+                  {serialNumber}
                 </TableCell>
                 <TableCell>
                   <p className="font-medium">{recipe.name}</p>
@@ -286,7 +369,8 @@ export default function Recipes() {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+            );
+            })}
           </>
         }
         isLoading={recipesLoading}
@@ -312,9 +396,25 @@ export default function Recipes() {
         totalCount={totalCount}
         rowsPerPage={rowsPerPage}
         onPageChange={setPage}
-        onRowsPerPageChange={setRowsPerPage}
-        onRefresh={fetchRecipes}
-        cookiePrefix="recipes"
+        onRowsPerPageChange={(rows) => {
+          setRowsPerPage(rows);
+          setPage(1);
+        }}
+        onRefresh={() => {
+          if (paginationEnabled) {
+            fetchRecipes();
+          } else {
+            setRecipes([]);
+            setInfiniteScrollPage(1);
+            setHasMore(true);
+            fetchRecipesInfinite(1, true);
+          }
+        }}
+        storagePrefix="recipes"
+        onLoadMore={handleLoadMore}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onPaginationChange={(enabled) => setPaginationEnabled(enabled)}
       />
 
       {/* Recipe Form Modal */}

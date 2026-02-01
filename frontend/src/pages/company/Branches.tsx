@@ -70,6 +70,12 @@ export default function Branches() {
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Infinite scroll state
+  const [infiniteScrollPage, setInfiniteScrollPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [paginationEnabled, setPaginationEnabled] = useState(true);
+
   const canManageBranches = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
 
   // Helper function to get today's operating hours
@@ -83,10 +89,20 @@ export default function Branches() {
   };
 
   useEffect(() => {
-    fetchBranches();
-  }, [currentPage, rowsPerPage, searchTerm]);
+    if (paginationEnabled) {
+      fetchBranches();
+    } else {
+      // Reset for infinite scroll
+      setBranches([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchBranchesInfinite(1, true);
+    }
+  }, [currentPage, rowsPerPage, searchTerm, paginationEnabled]);
 
   const fetchBranches = async () => {
+    if (!paginationEnabled) return;
+
     try {
       setLocalLoading(true);
       const response = await branchServices.getBranches({
@@ -106,6 +122,52 @@ export default function Branches() {
       });
     } finally {
       setLocalLoading(false);
+    }
+  };
+
+  const fetchBranchesInfinite = async (page: number, reset: boolean = false) => {
+    try {
+      if (reset) {
+        setLocalLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      const response = await branchServices.getBranches({
+        page: page,
+        limit: 20, // Fixed batch size for infinite scroll
+        search: searchTerm || undefined
+      });
+
+      const newBranches = response.data.data.branches || [];
+      const pagination = response.data.data.pagination;
+
+      if (reset) {
+        setBranches(newBranches);
+      } else {
+        setBranches(prev => [...prev, ...newBranches]);
+      }
+
+      setTotalCount(pagination.total);
+      setTotalPages(pagination.totalPages);
+      setHasMore(page < pagination.totalPages);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch branches',
+        variant: "destructive",
+      });
+    } finally {
+      setLocalLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore && !paginationEnabled) {
+      const nextPage = infiniteScrollPage + 1;
+      setInfiniteScrollPage(nextPage);
+      fetchBranchesInfinite(nextPage, false);
     }
   };
 
@@ -135,7 +197,14 @@ export default function Branches() {
         description: "Branch deleted successfully",
         variant: "success",
       });
-      fetchBranches();
+      if (paginationEnabled) {
+        fetchBranches();
+      } else {
+        setBranches([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchBranchesInfinite(1, true);
+      }
       setDeleteDialog({ open: false, branch: null });
     } catch (error: any) {
       toast({
@@ -158,7 +227,14 @@ export default function Branches() {
         description: `Branch ${branch.isActive ? 'deactivated' : 'activated'} successfully`,
         variant: "success",
       });
-      fetchBranches();
+      if (paginationEnabled) {
+        fetchBranches();
+      } else {
+        setBranches([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchBranchesInfinite(1, true);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -173,7 +249,14 @@ export default function Branches() {
   const handleFormSuccess = () => {
     setIsFormOpen(false);
     setSelectedBranch(null);
-    fetchBranches();
+    if (paginationEnabled) {
+      fetchBranches();
+    } else {
+      setBranches([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchBranchesInfinite(1, true);
+    }
   };
 
   const activeBranches = branches.filter((b) => b.isActive).length;
@@ -184,8 +267,8 @@ export default function Branches() {
       <DataTableLayout
         statChips={[
           { label: 'Total', value: totalCount, variant: 'default' },
-          { label: 'Active', value: activeBranches, variant: 'default', bgColor: 'bg-green-100 text-green-800' },
-          { label: 'Inactive', value: inactiveBranches, variant: 'secondary' },
+          { label: 'Active', value: activeBranches,  variant: 'default' },
+          { label: 'Inactive', value: inactiveBranches,  variant: 'default' },
         ]}
         actionButtons={
           canManageBranches
@@ -217,10 +300,16 @@ export default function Branches() {
         }
         tableBody={
           <>
-            {branches.map((branch, index) => (
+            {branches.map((branch, index) => {
+              // Calculate serial number based on pagination mode
+              const serialNumber = paginationEnabled 
+                ? (currentPage - 1) * rowsPerPage + index + 1
+                : index + 1;
+              
+              return (
               <TableRow key={branch._id}>
                 <TableCell className="font-medium text-muted-foreground">
-                  {(currentPage - 1) * rowsPerPage + index + 1}
+                  {serialNumber}
                 </TableCell>
                 <TableCell>
                   <div>
@@ -351,7 +440,8 @@ export default function Branches() {
                   </TableCell>
                 )}
               </TableRow>
-            ))}
+            );
+            })}
           </>
         }
         isLoading={loading}
@@ -378,9 +468,25 @@ export default function Branches() {
         totalCount={totalCount}
         rowsPerPage={rowsPerPage}
         onPageChange={setCurrentPage}
-        onRowsPerPageChange={setRowsPerPage}
-        onRefresh={fetchBranches}
-        cookiePrefix="branches"
+        onRowsPerPageChange={(rows) => {
+          setRowsPerPage(rows);
+          setCurrentPage(1);
+        }}
+        onRefresh={() => {
+          if (paginationEnabled) {
+            fetchBranches();
+          } else {
+            setBranches([]);
+            setInfiniteScrollPage(1);
+            setHasMore(true);
+            fetchBranchesInfinite(1, true);
+          }
+        }}
+        storagePrefix="branches"
+        onLoadMore={handleLoadMore}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onPaginationChange={(enabled) => setPaginationEnabled(enabled)}
       />
 
       {/* Modals */}

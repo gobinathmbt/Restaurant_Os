@@ -64,13 +64,29 @@ export default function Staff() {
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // Infinite scroll state
+  const [infiniteScrollPage, setInfiniteScrollPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [paginationEnabled, setPaginationEnabled] = useState(true);
+
   const canManageUsers = ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'].includes(currentUser?.role || '');
 
   useEffect(() => {
-    fetchUsers();
-  }, [currentPage, rowsPerPage, searchTerm, roleFilter]);
+    if (paginationEnabled) {
+      fetchUsers();
+    } else {
+      // Reset for infinite scroll
+      setUsers([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchUsersInfinite(1, true);
+    }
+  }, [currentPage, rowsPerPage, searchTerm, roleFilter, paginationEnabled]);
 
   const fetchUsers = async () => {
+    if (!paginationEnabled) return;
+
     try {
       setLocalLoading(true);
       const response = await userServices.getUsers({
@@ -91,6 +107,53 @@ export default function Staff() {
       });
     } finally {
       setLocalLoading(false);
+    }
+  };
+
+  const fetchUsersInfinite = async (page: number, reset: boolean = false) => {
+    try {
+      if (reset) {
+        setLocalLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      const response = await userServices.getUsers({
+        page: page,
+        limit: 20, // Fixed batch size for infinite scroll
+        search: searchTerm || undefined,
+        role: roleFilter !== 'all' ? roleFilter : undefined
+      });
+
+      const newUsers = response.data.data.users || [];
+      const pagination = response.data.data.pagination;
+
+      if (reset) {
+        setUsers(newUsers);
+      } else {
+        setUsers(prev => [...prev, ...newUsers]);
+      }
+
+      setTotalCount(pagination.total);
+      setTotalPages(pagination.totalPages);
+      setHasMore(page < pagination.totalPages);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to fetch users',
+        variant: "destructive",
+      });
+    } finally {
+      setLocalLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore && !paginationEnabled) {
+      const nextPage = infiniteScrollPage + 1;
+      setInfiniteScrollPage(nextPage);
+      fetchUsersInfinite(nextPage, false);
     }
   };
 
@@ -120,7 +183,14 @@ export default function Staff() {
         description: "User deleted successfully",
         variant: "success",
       });
-      fetchUsers();
+      if (paginationEnabled) {
+        fetchUsers();
+      } else {
+        setUsers([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchUsersInfinite(1, true);
+      }
       setDeleteDialog({ open: false, user: null });
     } catch (error: any) {
       toast({
@@ -143,7 +213,14 @@ export default function Staff() {
         description: `User ${user.isActive ? 'deactivated' : 'activated'} successfully`,
         variant: "success",
       });
-      fetchUsers();
+      if (paginationEnabled) {
+        fetchUsers();
+      } else {
+        setUsers([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchUsersInfinite(1, true);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -158,7 +235,14 @@ export default function Staff() {
   const handleFormSuccess = () => {
     setIsFormOpen(false);
     setSelectedUser(null);
-    fetchUsers();
+    if (paginationEnabled) {
+      fetchUsers();
+    } else {
+      setUsers([]);
+      setInfiniteScrollPage(1);
+      setHasMore(true);
+      fetchUsersInfinite(1, true);
+    }
   };
 
   const activeUsers = users.filter((u) => u.isActive).length;
@@ -169,8 +253,8 @@ export default function Staff() {
       <DataTableLayout
         statChips={[
           { label: 'Total', value: totalCount, variant: 'default' },
-          { label: 'Active', value: activeUsers, variant: 'default', bgColor: 'bg-green-100 text-green-800' },
-          { label: 'Inactive', value: inactiveUsers, variant: 'secondary' },
+          { label: 'Active', value: activeUsers, variant: 'default' },
+          { label: 'Inactive', value: inactiveUsers,  variant: 'default' },
         ]}
         actionButtons={
           canManageUsers
@@ -214,10 +298,16 @@ export default function Staff() {
         }
         tableBody={
           <>
-            {users.map((user, index) => (
+            {users.map((user, index) => {
+              // Calculate serial number based on pagination mode
+              const serialNumber = paginationEnabled 
+                ? (currentPage - 1) * rowsPerPage + index + 1
+                : index + 1;
+              
+              return (
               <TableRow key={user._id}>
                 <TableCell className="font-medium text-muted-foreground">
-                  {(currentPage - 1) * rowsPerPage + index + 1}
+                  {serialNumber}
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -283,7 +373,8 @@ export default function Staff() {
                   </TableCell>
                 )}
               </TableRow>
-            ))}
+            );
+            })}
           </>
         }
         isLoading={loading}
@@ -311,9 +402,25 @@ export default function Staff() {
         totalCount={totalCount}
         rowsPerPage={rowsPerPage}
         onPageChange={setCurrentPage}
-        onRowsPerPageChange={setRowsPerPage}
-        onRefresh={fetchUsers}
-        cookiePrefix="staff"
+        onRowsPerPageChange={(rows) => {
+          setRowsPerPage(rows);
+          setCurrentPage(1);
+        }}
+        onRefresh={() => {
+          if (paginationEnabled) {
+            fetchUsers();
+          } else {
+            setUsers([]);
+            setInfiniteScrollPage(1);
+            setHasMore(true);
+            fetchUsersInfinite(1, true);
+          }
+        }}
+        storagePrefix="staff"
+        onLoadMore={handleLoadMore}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onPaginationChange={(enabled) => setPaginationEnabled(enabled)}
       />
 
       {/* Modals */}
