@@ -107,7 +107,7 @@ export default function Inventory() {
   return (
     <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-        <TabsList className="mx-6 mt-6 mb-0 grid w-full max-w-3xl grid-cols-5 flex-shrink-0">
+        <TabsList className="mx-6 mt-6 mb-0 grid w-full grid-cols-5 lg:w-auto flex-shrink-0">
           <TabsTrigger value="items">Items</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>
           <TabsTrigger value="grn">GRN</TabsTrigger>

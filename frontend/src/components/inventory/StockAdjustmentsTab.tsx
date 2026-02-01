@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Eye, Package } from 'lucide-react';
+import { Plus, Eye, Package, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TableCell, TableHead, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableHeader, TableCell, TableHead, TableRow } from '@/components/ui/table';
 import {
   Select,
   SelectContent,
@@ -13,7 +15,6 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import StockAdjustmentFormModal from '@/components/inventory/StockAdjustmentFormModal';
-import DataTableLayout from '@/components/common/DataTableLayout';
 
 interface Branch {
   _id: string;
@@ -130,115 +131,205 @@ export default function StockAdjustmentsTab({
 
   return (
     <>
-      <DataTableLayout
-        statChips={[
-          { label: 'Total Adjustments', value: adjustmentsTotalCount, variant: 'default' },
-        ]}
-        actionButtons={[
-          {
-            icon: <Plus className="h-4 w-4" />,
-            tooltip: 'Create adjustment',
-            onClick: handleCreateAdjustment,
-            variant: 'default',
-          },
-        ]}
-        searchValue={adjustmentsSearch}
-        searchPlaceholder="Search adjustments..."
-        onSearchChange={setAdjustmentsSearch}
-        filterConfig={{
-          component: (
-            <div className="flex items-center gap-2">
+      <div className="h-full flex flex-col bg-background">
+        {/* Fixed Header */}
+        <div className="bg-background border-b flex-shrink-0">
+          <div className="px-6 py-3">
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Stats Chips */}
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="px-3 py-1 text-sm">
+                  Total Adjustments: {adjustmentsTotalCount}
+                </Badge>
+              </div>
+
+              {/* Search */}
+              <div className="flex-1 max-w-xs">
+                <Input
+                  placeholder="Search adjustments..."
+                  value={adjustmentsSearch}
+                  onChange={(e) => setAdjustmentsSearch(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+
+              {/* Filters */}
               {(isSuperAdmin || isMultiBranchAdmin) && (
-                <Select value={selectedBranch} onValueChange={onBranchChange}>
-                  <SelectTrigger className="w-48 h-9">
-                    <SelectValue placeholder="Select branch" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map((branch) => (
-                      <SelectItem key={branch._id} value={branch._id}>
-                        {branch.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select value={selectedBranch} onValueChange={onBranchChange}>
+                    <SelectTrigger className="w-48 h-9">
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((branch) => (
+                        <SelectItem key={branch._id} value={branch._id}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Spacer */}
+              <div className="flex-1" />
+
+              {/* Refresh Button */}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={fetchAdjustments}
+                disabled={adjustmentsLoading}
+                className="h-9 w-9"
+              >
+                <RefreshCw className={`h-4 w-4 ${adjustmentsLoading ? 'animate-spin' : ''}`} />
+              </Button>
+
+              {/* Add Button */}
+              <Button
+                variant="default"
+                size="icon"
+                onClick={handleCreateAdjustment}
+                className="h-9 w-9"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Table Content */}
+        <div className="flex-1 min-h-0 overflow-auto">
+          {adjustmentsLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : adjustments.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full p-8">
+              <Package className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No adjustments found</h3>
+              <p className="text-muted-foreground text-center mb-4">
+                {adjustmentsSearch
+                  ? 'Try adjusting your search'
+                  : 'Get started by creating your first stock adjustment'}
+              </p>
+              {!adjustmentsSearch && (
+                <Button onClick={handleCreateAdjustment}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Adjustment
+                </Button>
               )}
             </div>
-          )
-        }}
-        tableHeaders={
-          <>
-            <TableHead className="w-16">S.No</TableHead>
-            <TableHead>Adjustment Number</TableHead>
-            <TableHead>Item</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead className="text-right">Quantity</TableHead>
-            <TableHead>Reason</TableHead>
-            <TableHead>Adjusted By</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </>
-        }
-        tableBody={
-          <>
-            {adjustments.map((adjustment, index) => (
-              <TableRow key={adjustment._id}>
-                <TableCell className="font-medium text-muted-foreground">
-                  {(adjustmentsPage - 1) * adjustmentsRowsPerPage + index + 1}
-                </TableCell>
-                <TableCell>
-                  <p className="font-medium">{adjustment.adjustmentNumber}</p>
-                </TableCell>
-                <TableCell>{adjustment.inventoryItem?.name || '-'}</TableCell>
-                <TableCell>{getAdjustmentTypeBadge(adjustment.adjustmentType)}</TableCell>
-                <TableCell className="text-right font-medium">
-                  {adjustment.quantity}
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {adjustment.reason.replace('_', ' ')}
-                  </Badge>
-                </TableCell>
-                <TableCell>{adjustment.adjustedBy?.name || '-'}</TableCell>
-                <TableCell>{formatDate(adjustment.adjustmentDate)}</TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </>
-        }
-        isLoading={adjustmentsLoading}
-        emptyState={
-          adjustments.length === 0
-            ? {
-                icon: <Package className="h-12 w-12" />,
-                title: 'No adjustments found',
-                description: adjustmentsSearch
-                  ? 'Try adjusting your search'
-                  : 'Get started by creating your first stock adjustment',
-                action: !adjustmentsSearch ? (
-                  <Button onClick={handleCreateAdjustment}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Adjustment
-                  </Button>
-                ) : undefined,
-              }
-            : undefined
-        }
-        currentPage={adjustmentsPage}
-        totalPages={adjustmentsTotalPages}
-        totalCount={adjustmentsTotalCount}
-        rowsPerPage={adjustmentsRowsPerPage}
-        onPageChange={setAdjustmentsPage}
-        onRowsPerPageChange={setAdjustmentsRowsPerPage}
-        onRefresh={fetchAdjustments}
-        cookiePrefix="inventory-adjustments"
-      />
+          ) : (
+            <Table>
+              <TableHeader className="sticky top-0 bg-background z-10 border-b">
+                <TableRow>
+                  <TableHead className="w-16">S.No</TableHead>
+                  <TableHead>Adjustment Number</TableHead>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Adjusted By</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {adjustments.map((adjustment, index) => (
+                  <TableRow key={adjustment._id}>
+                    <TableCell className="font-medium text-muted-foreground">
+                      {(adjustmentsPage - 1) * adjustmentsRowsPerPage + index + 1}
+                    </TableCell>
+                    <TableCell>
+                      <p className="font-medium">{adjustment.adjustmentNumber}</p>
+                    </TableCell>
+                    <TableCell>{adjustment.inventoryItem?.name || '-'}</TableCell>
+                    <TableCell>{getAdjustmentTypeBadge(adjustment.adjustmentType)}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {adjustment.quantity}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {adjustment.reason.replace('_', ' ')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{adjustment.adjustedBy?.name || '-'}</TableCell>
+                    <TableCell>{formatDate(adjustment.adjustmentDate)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        {/* Fixed Footer with Pagination */}
+        <div className="bg-background border-t py-3 px-6 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            {/* Left: Rows per page */}
+            <div className="flex items-center gap-2">
+              <Label className="text-sm text-muted-foreground">Rows:</Label>
+              <Select
+                value={adjustmentsRowsPerPage.toString()}
+                onValueChange={(value) => {
+                  setAdjustmentsRowsPerPage(parseInt(value));
+                  setAdjustmentsPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-20 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Center: Pagination */}
+            {adjustmentsTotalPages > 0 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => adjustmentsPage > 1 && setAdjustmentsPage(adjustmentsPage - 1)}
+                  disabled={adjustmentsPage <= 1}
+                  className="h-8 px-3"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground px-3">
+                  Page {adjustmentsPage} of {adjustmentsTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => adjustmentsPage < adjustmentsTotalPages && setAdjustmentsPage(adjustmentsPage + 1)}
+                  disabled={adjustmentsPage >= adjustmentsTotalPages}
+                  className="h-8 px-3"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            {/* Right: Total count */}
+            <div className="text-sm text-muted-foreground">
+              Total: {adjustmentsTotalCount}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <StockAdjustmentFormModal
         open={isAdjustmentFormOpen}

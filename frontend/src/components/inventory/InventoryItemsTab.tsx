@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Package } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TableCell, TableHead, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableHeader, TableCell, TableHead, TableRow } from '@/components/ui/table';
 import {
   Select,
   SelectContent,
@@ -15,7 +17,6 @@ import { inventoryServices } from '@/api/services';
 import InventoryItemFormModal from '@/components/inventory/InventoryItemFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
-import DataTableLayout from '@/components/common/DataTableLayout';
 
 interface Branch {
   _id: string;
@@ -218,190 +219,280 @@ export default function InventoryItemsTab({
 
   return (
     <>
-      <DataTableLayout
-        statChips={[
-          { label: 'Total Items', value: itemsTotalCount, variant: 'default' },
-          { 
-            label: 'Low Stock', 
-            value: lowStockCount, 
-            variant: 'destructive',
-            bgColor: 'bg-red-100 text-red-800',
-            onClick: handleLowStockClick
-          },
-          { 
-            label: 'Expiring Soon', 
-            value: expiringCount, 
-            variant: 'default',
-            bgColor: 'bg-orange-100 text-orange-800',
-            onClick: handleExpiringClick
-          },
-        ]}
-        actionButtons={[
-          {
-            icon: <Plus className="h-4 w-4" />,
-            tooltip: 'Add inventory item',
-            onClick: handleCreateItem,
-            variant: 'default',
-          },
-        ]}
-        searchValue={itemsSearch}
-        searchPlaceholder="Search items..."
-        onSearchChange={setItemsSearch}
-        filterConfig={{
-          component: (
-            <div className="flex items-center gap-2">
-              {(isSuperAdmin || isMultiBranchAdmin) && (
-                <Select value={selectedBranch} onValueChange={onBranchChange}>
-                  <SelectTrigger className="w-48 h-9">
-                    <SelectValue placeholder="Select branch" />
+      <div className="h-full flex flex-col bg-background">
+        {/* Fixed Header */}
+        <div className="bg-background border-b flex-shrink-0">
+          <div className="px-6 py-3">
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Stats Chips */}
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="px-3 py-1 text-sm">
+                  Total Items: {itemsTotalCount}
+                </Badge>
+                <Badge 
+                  variant="destructive" 
+                  className="px-3 py-1 text-sm bg-red-100 text-red-800 cursor-pointer hover:opacity-80"
+                  onClick={handleLowStockClick}
+                >
+                  Low Stock: {lowStockCount}
+                </Badge>
+                <Badge 
+                  variant="default" 
+                  className="px-3 py-1 text-sm bg-orange-100 text-orange-800 cursor-pointer hover:opacity-80"
+                  onClick={handleExpiringClick}
+                >
+                  Expiring Soon: {expiringCount}
+                </Badge>
+              </div>
+
+              {/* Search */}
+              <div className="flex-1 max-w-xs">
+                <Input
+                  placeholder="Search items..."
+                  value={itemsSearch}
+                  onChange={(e) => setItemsSearch(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+
+              {/* Filters */}
+              <div className="flex items-center gap-2">
+                {(isSuperAdmin || isMultiBranchAdmin) && (
+                  <Select value={selectedBranch} onValueChange={onBranchChange}>
+                    <SelectTrigger className="w-48 h-9">
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((branch) => (
+                        <SelectItem key={branch._id} value={branch._id}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Select value={itemsTypeFilter || "all"} onValueChange={(value) => setItemsTypeFilter(value === "all" ? "" : value)}>
+                  <SelectTrigger className="w-40 h-9">
+                    <SelectValue placeholder="All types" />
                   </SelectTrigger>
                   <SelectContent>
-                    {branches.map((branch) => (
-                      <SelectItem key={branch._id} value={branch._id}>
-                        {branch.name}
+                    <SelectItem value="all">All types</SelectItem>
+                    <SelectItem value="raw_material">Raw Material</SelectItem>
+                    <SelectItem value="finished_good">Finished Good</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={itemsCategoryFilter || "all"} onValueChange={(value) => setItemsCategoryFilter(value === "all" ? "" : value)}>
+                  <SelectTrigger className="w-40 h-9">
+                    <SelectValue placeholder="All categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All categories</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Spacer */}
+              <div className="flex-1" />
+
+              {/* Refresh Button */}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={fetchItems}
+                disabled={itemsLoading}
+                className="h-9 w-9"
+              >
+                <RefreshCw className={`h-4 w-4 ${itemsLoading ? 'animate-spin' : ''}`} />
+              </Button>
+
+              {/* Add Button */}
+              <Button
+                variant="default"
+                size="icon"
+                onClick={handleCreateItem}
+                className="h-9 w-9"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Table Content */}
+        <div className="flex-1 min-h-0 overflow-auto">
+          {itemsLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full p-8">
+              <Package className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No inventory items found</h3>
+              <p className="text-muted-foreground text-center mb-4">
+                {itemsSearch || itemsTypeFilter || itemsCategoryFilter
+                  ? 'Try adjusting your filters'
+                  : 'Get started by adding your first inventory item'}
+              </p>
+              {!itemsSearch && !itemsTypeFilter && !itemsCategoryFilter && (
+                <Button onClick={handleCreateItem}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Item
+                </Button>
               )}
-              <Select value={itemsTypeFilter || "all"} onValueChange={(value) => setItemsTypeFilter(value === "all" ? "" : value)}>
-                <SelectTrigger className="w-40 h-9">
-                  <SelectValue placeholder="All types" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="sticky top-0 bg-background z-10 border-b">
+                <TableRow>
+                  <TableHead className="w-16">S.No</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Current Stock</TableHead>
+                  <TableHead className="text-right">Min Stock</TableHead>
+                  <TableHead>Unit</TableHead>
+                  <TableHead className="text-right">Cost Price</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Expiry Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item, index) => (
+                  <TableRow key={item._id}>
+                    <TableCell className="font-medium text-muted-foreground">
+                      {(itemsPage - 1) * itemsRowsPerPage + index + 1}
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <p className="font-medium">{item.name}</p>
+                        {(item.isLowStock || item.isExpiringSoon) && (
+                          <div className="flex gap-1 mt-1">
+                            {item.isLowStock && (
+                              <Badge variant="destructive" className="text-xs">Low Stock</Badge>
+                            )}
+                            {item.isExpiringSoon && (
+                              <Badge className="text-xs bg-orange-100 text-orange-800">Expiring Soon</Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {item.type === 'raw_material' ? 'Raw Material' : 'Finished Good'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{item.category || '-'}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {item.currentStock}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {item.minimumStock}
+                    </TableCell>
+                    <TableCell>{item.unit}</TableCell>
+                    <TableCell className="text-right">
+                      {item.costPrice ? formatCurrency(item.costPrice) : '-'}
+                    </TableCell>
+                    <TableCell>{item.supplier?.name || '-'}</TableCell>
+                    <TableCell>
+                      {item.expiryDate ? formatDate(item.expiryDate) : '-'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.isActive ? 'default' : 'secondary'}>
+                        {item.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditItem(item)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteItem(item)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        {/* Fixed Footer with Pagination */}
+        <div className="bg-background border-t py-3 px-6 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            {/* Left: Rows per page */}
+            <div className="flex items-center gap-2">
+              <Label className="text-sm text-muted-foreground">Rows:</Label>
+              <Select
+                value={itemsRowsPerPage.toString()}
+                onValueChange={(value) => {
+                  setItemsRowsPerPage(parseInt(value));
+                  setItemsPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-20 text-xs">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All types</SelectItem>
-                  <SelectItem value="raw_material">Raw Material</SelectItem>
-                  <SelectItem value="finished_good">Finished Good</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={itemsCategoryFilter || "all"} onValueChange={(value) => setItemsCategoryFilter(value === "all" ? "" : value)}>
-                <SelectTrigger className="w-40 h-9">
-                  <SelectValue placeholder="All categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All categories</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-          )
-        }}
-        tableHeaders={
-          <>
-            <TableHead className="w-16">S.No</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead className="text-right">Current Stock</TableHead>
-            <TableHead className="text-right">Min Stock</TableHead>
-            <TableHead>Unit</TableHead>
-            <TableHead className="text-right">Cost Price</TableHead>
-            <TableHead>Supplier</TableHead>
-            <TableHead>Expiry Date</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </>
-        }
-        tableBody={
-          <>
-            {items.map((item, index) => (
-              <TableRow key={item._id}>
-                <TableCell className="font-medium text-muted-foreground">
-                  {(itemsPage - 1) * itemsRowsPerPage + index + 1}
-                </TableCell>
-                <TableCell>
-                  <div>
-                    <p className="font-medium">{item.name}</p>
-                    {(item.isLowStock || item.isExpiringSoon) && (
-                      <div className="flex gap-1 mt-1">
-                        {item.isLowStock && (
-                          <Badge variant="destructive" className="text-xs">Low Stock</Badge>
-                        )}
-                        {item.isExpiringSoon && (
-                          <Badge className="text-xs bg-orange-100 text-orange-800">Expiring Soon</Badge>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {item.type === 'raw_material' ? 'Raw Material' : 'Finished Good'}
-                  </Badge>
-                </TableCell>
-                <TableCell>{item.category || '-'}</TableCell>
-                <TableCell className="text-right font-medium">
-                  {item.currentStock}
-                </TableCell>
-                <TableCell className="text-right text-muted-foreground">
-                  {item.minimumStock}
-                </TableCell>
-                <TableCell>{item.unit}</TableCell>
-                <TableCell className="text-right">
-                  {item.costPrice ? formatCurrency(item.costPrice) : '-'}
-                </TableCell>
-                <TableCell>{item.supplier?.name || '-'}</TableCell>
-                <TableCell>
-                  {item.expiryDate ? formatDate(item.expiryDate) : '-'}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={item.isActive ? 'default' : 'secondary'}>
-                    {item.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditItem(item)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteItem(item)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </>
-        }
-        isLoading={itemsLoading}
-        emptyState={
-          items.length === 0
-            ? {
-                icon: <Package className="h-12 w-12" />,
-                title: 'No inventory items found',
-                description: itemsSearch || itemsTypeFilter || itemsCategoryFilter
-                  ? 'Try adjusting your filters'
-                  : 'Get started by adding your first inventory item',
-                action: !itemsSearch && !itemsTypeFilter && !itemsCategoryFilter ? (
-                  <Button onClick={handleCreateItem}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Item
-                  </Button>
-                ) : undefined,
-              }
-            : undefined
-        }
-        currentPage={itemsPage}
-        totalPages={itemsTotalPages}
-        totalCount={itemsTotalCount}
-        rowsPerPage={itemsRowsPerPage}
-        onPageChange={setItemsPage}
-        onRowsPerPageChange={setItemsRowsPerPage}
-        onRefresh={fetchItems}
-        cookiePrefix="inventory-items"
-      />
+
+            {/* Center: Pagination */}
+            {itemsTotalPages > 0 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => itemsPage > 1 && setItemsPage(itemsPage - 1)}
+                  disabled={itemsPage <= 1}
+                  className="h-8 px-3"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground px-3">
+                  Page {itemsPage} of {itemsTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => itemsPage < itemsTotalPages && setItemsPage(itemsPage + 1)}
+                  disabled={itemsPage >= itemsTotalPages}
+                  className="h-8 px-3"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            {/* Right: Total count */}
+            <div className="text-sm text-muted-foreground">
+              Total: {itemsTotalCount}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <InventoryItemFormModal
         open={isItemFormOpen}
