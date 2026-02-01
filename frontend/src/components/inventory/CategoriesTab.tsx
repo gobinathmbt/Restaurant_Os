@@ -114,7 +114,7 @@ export default function CategoriesTab({
 
       setCategoryList(response.data.data.categories || []);
       setCategoriesTotalCount(response.data.data.pagination.total);
-      setCategoriesTotalPages(response.data.data.pagination.totalPages);
+      setCategoriesTotalPages(response.data.data.pagination.pages);
     } catch (error: any) {
       toast({
         title: "Error",
