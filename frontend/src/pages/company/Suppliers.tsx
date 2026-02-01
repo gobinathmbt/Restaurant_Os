@@ -154,7 +154,7 @@ export default function Suppliers() {
       const fetchedSuppliers = response.data.data.suppliers || [];
       setSuppliers(fetchedSuppliers);
       setTotalCount(response.data.data.pagination.total);
-      setTotalPages(response.data.data.pagination.totalPages);
+      setTotalPages(response.data.data.pagination.pages);
 
       // Extract unique categories from categoryIds
       const allCategories = new Set<string>();
@@ -213,8 +213,8 @@ export default function Suppliers() {
       }
 
       setTotalCount(pagination.total);
-      setTotalPages(pagination.totalPages);
-      setHasMore(page < pagination.totalPages);
+      setTotalPages(pagination.pages);
+      setHasMore(page < pagination.pages);
     } catch (error: any) {
       toast({
         title: "Error",
