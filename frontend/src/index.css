@@ -119,7 +119,7 @@
   /* Responsive font sizing */
   @media (max-width: 640px) {
     html {
-      font-size: 18px; /* Even smaller on mobile */
+      font-size: 12px; /* Even smaller on mobile */
     }
   }
 
