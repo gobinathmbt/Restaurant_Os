@@ -164,6 +164,9 @@ export default function GRNTab({
                       <SelectValue placeholder="Select branch" />
                     </SelectTrigger>
                     <SelectContent>
+                      {isSuperAdmin && (
+                        <SelectItem value="all">All Branches</SelectItem>
+                      )}
                       {branches.map((branch) => (
                         <SelectItem key={branch._id} value={branch._id}>
                           {branch.name}

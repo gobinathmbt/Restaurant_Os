@@ -107,13 +107,24 @@ export const getInventoryItems = async (req, res, next) => {
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Verify branch access (skip verification for "all" if user is super admin)
+    if (branchId !== 'all') {
+      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
+    } else {
+      // Only super admins can use "all"
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only super admins can view all branches'
+        });
+      }
     }
 
     // Get inventory items
@@ -292,13 +303,24 @@ export const getLowStockItems = async (req, res, next) => {
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Verify branch access (skip verification for "all" if user is super admin)
+    if (branchId !== 'all') {
+      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
+    } else {
+      // Only super admins can use "all"
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only super admins can view all branches'
+        });
+      }
     }
 
     // Get low stock items
@@ -331,13 +353,24 @@ export const getExpiringItems = async (req, res, next) => {
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Verify branch access (skip verification for "all" if user is super admin)
+    if (branchId !== 'all') {
+      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
+    } else {
+      // Only super admins can use "all"
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only super admins can view all branches'
+        });
+      }
     }
 
     // Get expiring items
@@ -374,13 +407,24 @@ export const getInventoryCategories = async (req, res, next) => {
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Verify branch access (skip verification for "all" if user is super admin)
+    if (branchId !== 'all') {
+      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
+    } else {
+      // Only super admins can use "all"
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only super admins can view all branches'
+        });
+      }
     }
 
     // Get categories

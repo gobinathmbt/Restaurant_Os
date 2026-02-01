@@ -47,8 +47,11 @@ export default function Inventory() {
       setSelectedBranch(user.branchIds[0]);
     } else if (isMultiBranchAdmin && user?.branchIds && user.branchIds.length > 1 && !selectedBranch) {
       setSelectedBranch(user.branchIds[0]);
+    } else if (isSuperAdmin && !selectedBranch && branches.length > 0) {
+      // For super admins, default to "all" branches
+      setSelectedBranch('all');
     }
-  }, [isSingleBranchAdmin, isMultiBranchAdmin, user?.branchIds, selectedBranch]);
+  }, [isSingleBranchAdmin, isMultiBranchAdmin, isSuperAdmin, user?.branchIds, selectedBranch, branches]);
 
   const fetchBranches = async () => {
     try {
@@ -65,9 +68,9 @@ export default function Inventory() {
       
       setBranches(availableBranches);
       
-      // Auto-select first branch for super admins if none selected
+      // Auto-select for super admins if none selected
       if (isSuperAdmin && !selectedBranch && availableBranches.length > 0) {
-        setSelectedBranch(availableBranches[0]._id);
+        setSelectedBranch('all');
       }
     } catch (error: any) {
       toast({
@@ -92,6 +95,9 @@ export default function Inventory() {
               <SelectValue placeholder="Select branch" />
             </SelectTrigger>
             <SelectContent>
+              {isSuperAdmin && (
+                <SelectItem value="all">All Branches</SelectItem>
+              )}
               {branches.map((branch) => (
                 <SelectItem key={branch._id} value={branch._id}>
                   {branch.name} ({branch.code})

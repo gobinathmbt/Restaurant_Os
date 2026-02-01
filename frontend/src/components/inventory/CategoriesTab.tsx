@@ -97,15 +97,21 @@ export default function CategoriesTab({
     
     try {
       setCategoriesLoading(true);
-      const response = await categoryServices.getCategories({
+      const params: any = {
         page: categoriesPage,
         limit: categoriesRowsPerPage,
         search: categoriesSearch || undefined,
-        branchId: selectedBranch,
         type: categoriesTypeFilter || undefined,
         isActive: categoriesStatusFilter || undefined,
         parentId: 'null' // Only fetch main categories
-      });
+      };
+
+      // Only add branchId filter if not "all" (for super admins)
+      if (selectedBranch !== 'all') {
+        params.branchId = selectedBranch;
+      }
+
+      const response = await categoryServices.getCategories(params);
 
       setCategoryList(response.data.data.categories || []);
       setCategoriesTotalCount(response.data.data.pagination.total);
@@ -230,6 +236,9 @@ export default function CategoriesTab({
                       <SelectValue placeholder="Select branch" />
                     </SelectTrigger>
                     <SelectContent>
+                      {isSuperAdmin && (
+                        <SelectItem value="all">All Branches</SelectItem>
+                      )}
                       {branches.map((branch) => (
                         <SelectItem key={branch._id} value={branch._id}>
                           {branch.name}

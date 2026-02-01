@@ -105,7 +105,7 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
     // If isActive is empty string or not provided, show all
 
     // Branch filtering
-    if (branchId) {
+    if (branchId && branchId !== 'all') {
       query.branchIds = branchId;
     } else if (userBranchIds && userBranchIds.length > 0) {
       // For company_admin, only show categories that have at least one of their branches

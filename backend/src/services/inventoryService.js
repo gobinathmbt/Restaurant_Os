@@ -107,9 +107,13 @@ export const getInventoryItems = async (companyId, branchId, filters = {}) => {
 
     // Build query
     const query = {
-      branch: branchId,
       isActive: true
     };
+
+    // Branch filter - only add if not "all"
+    if (branchId && branchId !== 'all') {
+      query.branch = branchId;
+    }
 
     // Search filter
     if (search) {
@@ -312,11 +316,17 @@ export const checkLowStock = async (companyId, branchId) => {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
 
-    const items = await InventoryItem.find({
-      branch: branchId,
+    const query = {
       isActive: true,
       $expr: { $lte: ['$currentStock', '$minimumStock'] }
-    })
+    };
+
+    // Branch filter - only add if not "all"
+    if (branchId && branchId !== 'all') {
+      query.branch = branchId;
+    }
+
+    const items = await InventoryItem.find(query)
       .populate('supplier', 'name contactPerson phone email')
       .sort({ currentStock: 1 })
       .lean();
@@ -353,14 +363,20 @@ export const checkExpiringItems = async (companyId, branchId, daysAhead = 7) => 
     const futureDate = new Date(today);
     futureDate.setDate(futureDate.getDate() + daysAhead);
 
-    const items = await InventoryItem.find({
-      branch: branchId,
+    const query = {
       isActive: true,
       expiryDate: {
         $gte: today,
         $lte: futureDate
       }
-    })
+    };
+
+    // Branch filter - only add if not "all"
+    if (branchId && branchId !== 'all') {
+      query.branch = branchId;
+    }
+
+    const items = await InventoryItem.find(query)
       .populate('supplier', 'name contactPerson phone email')
       .sort({ expiryDate: 1 })
       .lean();
@@ -390,10 +406,16 @@ export const getInventoryCategories = async (companyId, branchId) => {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
 
-    const categories = await InventoryItem.distinct('category', {
-      branch: branchId,
+    const query = {
       isActive: true
-    });
+    };
+
+    // Branch filter - only add if not "all"
+    if (branchId && branchId !== 'all') {
+      query.branch = branchId;
+    }
+
+    const categories = await InventoryItem.distinct('category', query);
 
     return categories.sort();
   } catch (error) {

@@ -102,7 +102,7 @@ export default function CategoryFormModal({
       description: '',
       type: 'both',
       color: '#6366f1',
-      selectedBranches: branchId ? [branchId] : [],
+      selectedBranches: branchId && branchId !== 'all' ? [branchId] : [],
     });
   };
 
