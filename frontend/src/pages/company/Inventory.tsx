@@ -172,12 +172,14 @@ export default function Inventory() {
     fetchBranches();
   }, []);
 
-  // Auto-select branch for single-branch admins
+  // Auto-select branch for single-branch admins and multi-branch admins
   useEffect(() => {
     if (isSingleBranchAdmin && user?.branchIds && user.branchIds.length === 1) {
       setSelectedBranch(user.branchIds[0]);
+    } else if (isMultiBranchAdmin && user?.branchIds && user.branchIds.length > 1 && !selectedBranch) {
+      setSelectedBranch(user.branchIds[0]);
     }
-  }, [isSingleBranchAdmin, user?.branchIds]);
+  }, [isSingleBranchAdmin, isMultiBranchAdmin, user?.branchIds, selectedBranch]);
 
   // Fetch data when branch or tab changes
   useEffect(() => {

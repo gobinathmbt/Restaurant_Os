@@ -195,8 +195,7 @@ export default function Staff() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="company_super_admin_primary">Super Admin (Primary)</SelectItem>
-                <SelectItem value="company_super_admin_secondary">Super Admin (Secondary)</SelectItem>
+                  <SelectItem value="company_super_admin_secondary">Super Admin (Secondary)</SelectItem>
                 <SelectItem value="company_admin">Admin</SelectItem>
                 <SelectItem value="employee">Employee</SelectItem>
               </SelectContent>
