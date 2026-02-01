@@ -40,8 +40,14 @@ export const createSupplier = async (req, res, next) => {
     // Handle specific validation errors
     if (error.message.includes('Missing required fields') ||
         error.message.includes('At least one branch') ||
-        error.message.includes('At least one category') ||
-        error.message.includes('only assign suppliers to branches')) {
+        error.message.includes('At least one main category') ||
+        error.message.includes('At least one subcategory') ||
+        error.message.includes('only assign suppliers to branches') ||
+        error.message.includes('main categories are invalid') ||
+        error.message.includes('subcategories are invalid') ||
+        error.message.includes('main categories must belong') ||
+        error.message.includes('subcategories must belong') ||
+        error.message.includes('All subcategories must belong')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -156,8 +162,14 @@ export const updateSupplier = async (req, res, next) => {
     if (error.message.includes('cannot be negative') ||
         error.message.includes('Rating must be between') ||
         error.message.includes('At least one branch') ||
-        error.message.includes('At least one category') ||
-        error.message.includes('only assign suppliers to branches')) {
+        error.message.includes('At least one main category') ||
+        error.message.includes('At least one subcategory') ||
+        error.message.includes('only assign suppliers to branches') ||
+        error.message.includes('main categories are invalid') ||
+        error.message.includes('subcategories are invalid') ||
+        error.message.includes('main categories must belong') ||
+        error.message.includes('subcategories must belong') ||
+        error.message.includes('All subcategories must belong')) {
       return res.status(400).json({
         success: false,
         message: error.message

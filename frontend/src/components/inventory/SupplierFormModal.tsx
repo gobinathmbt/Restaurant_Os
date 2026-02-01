@@ -17,7 +17,8 @@ import { supplierServices } from '@/api/services';
 import { Star } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import BranchSearch from '@/components/common/BranchSearch';
-import CategorySearch from '@/components/common/CategorySearch';
+import CategorySubcategorySearch from '@/components/common/CategorySubcategorySearch';
+import { cn } from '@/lib/utils';
 
 interface Branch {
   _id: string;
@@ -44,6 +45,7 @@ export default function SupplierFormModal({
   const [activeTab, setActiveTab] = useState('basic');
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     // Basic Info
     name: '',
@@ -122,6 +124,14 @@ export default function SupplierFormModal({
         );
         setSelectedCategories(categoryIdStrings);
       }
+
+      // Set selected subcategories
+      if (supplier.subcategoryIds) {
+        const subcategoryIdStrings = supplier.subcategoryIds.map((c: any) =>
+          typeof c === 'string' ? c : c._id
+        );
+        setSelectedSubcategories(subcategoryIdStrings);
+      }
     } else if (!supplier && open) {
       resetForm();
     }
@@ -153,19 +163,23 @@ export default function SupplierFormModal({
     });
     setSelectedBranches([]);
     setSelectedCategories([]);
+    setSelectedSubcategories([]);
     setActiveTab('basic');
   };
 
   const handleBranchesChange = (branchIds: string[]) => {
     setSelectedBranches(branchIds);
-    // Reset categories when branches change since categories are branch-specific
+    // Only reset categories and subcategories if branches are cleared completely
+    // This preserves selections when switching tabs
     if (branchIds.length === 0) {
       setSelectedCategories([]);
+      setSelectedSubcategories([]);
     }
   };
 
-  const handleCategoriesChange = (categoryIds: string[]) => {
+  const handleCategoriesChange = (categoryIds: string[], subcategoryIds: string[]) => {
     setSelectedCategories(categoryIds);
+    setSelectedSubcategories(subcategoryIds);
   };
 
 
@@ -196,17 +210,27 @@ export default function SupplierFormModal({
         description: "At least one branch must be selected",
         variant: "destructive",
       });
-      setActiveTab('branches');
+      setActiveTab('assignment');
       return false;
     }
 
     if (selectedCategories.length === 0) {
       toast({
         title: "Validation Error",
-        description: "At least one category must be selected",
+        description: "At least one main category must be selected",
         variant: "destructive",
       });
-      setActiveTab('categories');
+      setActiveTab('assignment');
+      return false;
+    }
+
+    if (selectedSubcategories.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one subcategory must be selected",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
       return false;
     }
 
@@ -257,6 +281,7 @@ export default function SupplierFormModal({
         name: formData.name.trim(),
         branchIds: selectedBranches,
         categoryIds: selectedCategories,
+        subcategoryIds: selectedSubcategories,
         contactPerson: formData.contactPerson.trim() || undefined,
         phone: formData.phone.trim(),
         email: formData.email.trim() || undefined,
@@ -348,10 +373,9 @@ export default function SupplierFormModal({
         <DialogBody>
           <form id="supplier-form" onSubmit={handleSubmit}>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className={`grid w-full ${supplier ? 'grid-cols-6' : 'grid-cols-5'}`}>
+              <TabsList className={`grid w-full ${supplier ? 'grid-cols-5' : 'grid-cols-4'}`}>
                 <TabsTrigger value="basic">Basic Info</TabsTrigger>
-                <TabsTrigger value="branches">Branches</TabsTrigger>
-                <TabsTrigger value="categories">Categories</TabsTrigger>
+                <TabsTrigger value="assignment">Branch & Categories</TabsTrigger>
                 <TabsTrigger value="address">Address</TabsTrigger>
                 <TabsTrigger value="legal">Legal</TabsTrigger>
                 {supplier && <TabsTrigger value="performance">Performance</TabsTrigger>}
@@ -416,13 +440,15 @@ export default function SupplierFormModal({
                 </div>
               </TabsContent>
 
-              {/* Branches Tab */}
-              <TabsContent value="branches" className="space-y-4 mt-4">
-                <div className="space-y-4">
-                  <h3 className="font-semibold">Assign Branches *</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Select which branches this supplier can serve
-                  </p>
+              {/* Branch & Categories Tab - Combined */}
+              <TabsContent value="assignment" className="space-y-6 mt-4" forceMount={true}>
+                <div className={cn("space-y-4", activeTab !== 'assignment' && "hidden")}>
+                  <div>
+                    <h3 className="font-semibold">Assign Branches *</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Select which branches this supplier can serve
+                    </p>
+                  </div>
 
                   <BranchSearch
                     selectedBranchIds={selectedBranches}
@@ -431,22 +457,20 @@ export default function SupplierFormModal({
                     showSelectAll={false}
                   />
                 </div>
-              </TabsContent>
 
-              {/* Categories Tab */}
-              <TabsContent value="categories" className="space-y-4 mt-4">
-                <div className="space-y-4">
-                  <h3 className="font-semibold">Assign Categories *</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Select which categories this supplier provides. Categories are filtered based on selected branches.
-                  </p>
+                <div className={cn("border-t pt-6 space-y-4", activeTab !== 'assignment' && "hidden")}>
+                  <div>
+                    <h3 className="font-semibold">Assign Categories & Subcategories *</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Select which categories and subcategories this supplier provides. Categories are filtered based on selected branches.
+                    </p>
+                  </div>
 
-                  <CategorySearch
+                  <CategorySubcategorySearch
                     selectedCategoryIds={selectedCategories}
+                    selectedSubcategoryIds={selectedSubcategories}
                     onCategoriesChange={handleCategoriesChange}
                     branchIds={selectedBranches}
-                    placeholder="Select categories..."
-                    showSelectAll={false}
                     required={true}
                   />
                 </div>

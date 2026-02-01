@@ -22,7 +22,7 @@ export const createSupplier = async (supplierData, companyId, userBranchIds = nu
     const Category = getCategoryModel(companyDB);
 
     // Validate required fields
-    const requiredFields = ['name', 'phone', 'branchIds', 'categoryIds'];
+    const requiredFields = ['name', 'phone', 'branchIds', 'categoryIds', 'subcategoryIds'];
     const missingFields = requiredFields.filter(field => !supplierData[field]);
     
     if (missingFields.length > 0) {
@@ -36,7 +36,68 @@ export const createSupplier = async (supplierData, companyId, userBranchIds = nu
 
     // Validate categoryIds is an array and not empty
     if (!Array.isArray(supplierData.categoryIds) || supplierData.categoryIds.length === 0) {
-      throw new Error('At least one category must be assigned to the supplier');
+      throw new Error('At least one main category must be assigned to the supplier');
+    }
+
+    // Validate subcategoryIds is an array and not empty
+    if (!Array.isArray(supplierData.subcategoryIds) || supplierData.subcategoryIds.length === 0) {
+      throw new Error('At least one subcategory must be assigned to the supplier');
+    }
+
+    // Validate main categories exist, are active, and have no parent
+    const mainCategories = await Category.find({
+      _id: { $in: supplierData.categoryIds },
+      isActive: true,
+      parent: null
+    });
+
+    if (mainCategories.length !== supplierData.categoryIds.length) {
+      throw new Error('One or more selected main categories are invalid, inactive, or not main categories');
+    }
+
+    // Validate subcategories exist, are active, and have a parent
+    const subcategories = await Category.find({
+      _id: { $in: supplierData.subcategoryIds },
+      isActive: true,
+      parent: { $ne: null }
+    });
+
+    if (subcategories.length !== supplierData.subcategoryIds.length) {
+      throw new Error('One or more selected subcategories are invalid, inactive, or not subcategories');
+    }
+
+    // Validate subcategories belong to selected main categories
+    const invalidSubcategories = subcategories.filter(subcat => {
+      const parentId = subcat.parent.toString();
+      return !supplierData.categoryIds.some(catId => catId.toString() === parentId);
+    });
+
+    if (invalidSubcategories.length > 0) {
+      throw new Error('All subcategories must belong to the selected main categories');
+    }
+
+    // Validate main categories belong to the assigned branches
+    const invalidCategories = mainCategories.filter(category => {
+      const categoryBranchIds = category.branchIds.map(id => id.toString());
+      return !supplierData.branchIds.some(branchId => 
+        categoryBranchIds.includes(branchId.toString())
+      );
+    });
+
+    if (invalidCategories.length > 0) {
+      throw new Error('Selected main categories must belong to the assigned branches');
+    }
+
+    // Validate subcategories belong to the assigned branches
+    const invalidSubcats = subcategories.filter(subcat => {
+      const subcatBranchIds = subcat.branchIds.map(id => id.toString());
+      return !supplierData.branchIds.some(branchId => 
+        subcatBranchIds.includes(branchId.toString())
+      );
+    });
+
+    if (invalidSubcats.length > 0) {
+      throw new Error('Selected subcategories must belong to the assigned branches');
     }
 
 
@@ -136,6 +197,7 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
       Supplier.find(query)
         .populate('branchIds', 'name code')
         .populate('categoryIds', 'name color type')
+        .populate('subcategoryIds', 'name color type parent')
         .sort({ name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -186,6 +248,7 @@ export const getSupplierById = async (supplierId, companyId, userBranchIds = nul
     const supplier = await Supplier.findById(supplierId)
       .populate('branchIds', 'name code')
       .populate('categoryIds', 'name color type')
+      .populate('subcategoryIds', 'name color type parent')
       .lean();
 
     if (!supplier) {
@@ -268,7 +331,73 @@ export const updateSupplier = async (supplierId, updateData, companyId, userBran
     // Validate categoryIds if provided
     if (updateData.categoryIds) {
       if (!Array.isArray(updateData.categoryIds) || updateData.categoryIds.length === 0) {
-        throw new Error('At least one category must be assigned to the supplier');
+        throw new Error('At least one main category must be assigned to the supplier');
+      }
+
+      // Validate main categories exist, are active, and have no parent
+      const mainCategories = await Category.find({
+        _id: { $in: updateData.categoryIds },
+        isActive: true,
+        parent: null
+      });
+
+      if (mainCategories.length !== updateData.categoryIds.length) {
+        throw new Error('One or more selected main categories are invalid, inactive, or not main categories');
+      }
+
+      // Validate main categories belong to the assigned branches
+      const branchIdsToCheck = updateData.branchIds || existingSupplier.branchIds;
+      const invalidCategories = mainCategories.filter(category => {
+        const categoryBranchIds = category.branchIds.map(id => id.toString());
+        return !branchIdsToCheck.some(branchId => 
+          categoryBranchIds.includes(branchId.toString())
+        );
+      });
+
+      if (invalidCategories.length > 0) {
+        throw new Error('Selected main categories must belong to the assigned branches');
+      }
+    }
+
+    // Validate subcategoryIds if provided
+    if (updateData.subcategoryIds) {
+      if (!Array.isArray(updateData.subcategoryIds) || updateData.subcategoryIds.length === 0) {
+        throw new Error('At least one subcategory must be assigned to the supplier');
+      }
+
+      // Validate subcategories exist, are active, and have a parent
+      const subcategories = await Category.find({
+        _id: { $in: updateData.subcategoryIds },
+        isActive: true,
+        parent: { $ne: null }
+      });
+
+      if (subcategories.length !== updateData.subcategoryIds.length) {
+        throw new Error('One or more selected subcategories are invalid, inactive, or not subcategories');
+      }
+
+      // Validate subcategories belong to selected main categories
+      const categoryIdsToCheck = updateData.categoryIds || existingSupplier.categoryIds;
+      const invalidSubcategories = subcategories.filter(subcat => {
+        const parentId = subcat.parent.toString();
+        return !categoryIdsToCheck.some(catId => catId.toString() === parentId);
+      });
+
+      if (invalidSubcategories.length > 0) {
+        throw new Error('All subcategories must belong to the selected main categories');
+      }
+
+      // Validate subcategories belong to the assigned branches
+      const branchIdsToCheck = updateData.branchIds || existingSupplier.branchIds;
+      const invalidSubcats = subcategories.filter(subcat => {
+        const subcatBranchIds = subcat.branchIds.map(id => id.toString());
+        return !branchIdsToCheck.some(branchId => 
+          subcatBranchIds.includes(branchId.toString())
+        );
+      });
+
+      if (invalidSubcats.length > 0) {
+        throw new Error('Selected subcategories must belong to the assigned branches');
       }
     }
 

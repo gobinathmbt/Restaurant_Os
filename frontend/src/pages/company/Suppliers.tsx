@@ -39,6 +39,16 @@ interface Supplier {
     color: string;
     type: string;
   }>;
+  subcategoryIds: Array<{
+    _id: string;
+    name: string;
+    color: string;
+    type: string;
+    parent?: {
+      _id: string;
+      name: string;
+    };
+  }>;
   isActive: boolean;
   performanceMetrics?: {
     totalOrders: number;
@@ -454,26 +464,50 @@ export default function Suppliers() {
                   {renderStarRating(supplier.rating)}
                 </TableCell>
                 <TableCell>
-                  {supplier.categoryIds && supplier.categoryIds.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {supplier.categoryIds.slice(0, 2).map((category, idx) => (
-                        <Badge key={idx} variant="outline" className="text-xs gap-1">
-                          <div
-                            className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: category.color }}
-                          />
-                          {category.name}
-                        </Badge>
-                      ))}
-                      {supplier.categoryIds.length > 2 && (
-                        <Badge variant="secondary" className="text-xs">
-                          +{supplier.categoryIds.length - 2}
-                        </Badge>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
+                  <div className="space-y-1">
+                    {supplier.categoryIds && supplier.categoryIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        <span className="text-xs text-muted-foreground mr-1">Main:</span>
+                        {supplier.categoryIds.slice(0, 2).map((category, idx) => (
+                          <Badge key={idx} variant="outline" className="text-xs gap-1">
+                            <div
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            {category.name}
+                          </Badge>
+                        ))}
+                        {supplier.categoryIds.length > 2 && (
+                          <Badge variant="secondary" className="text-xs">
+                            +{supplier.categoryIds.length - 2}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    {supplier.subcategoryIds && supplier.subcategoryIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        <span className="text-xs text-muted-foreground mr-1">Sub:</span>
+                        {supplier.subcategoryIds.slice(0, 2).map((subcat, idx) => (
+                          <Badge key={idx} variant="secondary" className="text-xs gap-1">
+                            <div
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: subcat.color }}
+                            />
+                            {subcat.name}
+                          </Badge>
+                        ))}
+                        {supplier.subcategoryIds.length > 2 && (
+                          <Badge variant="secondary" className="text-xs">
+                            +{supplier.subcategoryIds.length - 2}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    {(!supplier.categoryIds || supplier.categoryIds.length === 0) && 
+                     (!supplier.subcategoryIds || supplier.subcategoryIds.length === 0) && (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="text-right">
                   {formatPercentage(supplier.onTimeDeliveryRate)}
