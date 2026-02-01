@@ -291,3 +291,44 @@ export const getCategoryTree = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Reorder categories
+ * PATCH /api/categories/reorder
+ */
+export const reorderCategories = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { updates } = req.body; // Array of { categoryId, displayOrder }
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null
+      : branchIds;
+
+    // Reorder categories
+    await categoryService.reorderCategories(updates, companyId, userBranchIds);
+
+    logger.info('Categories reordered via API', { 
+      count: updates.length,
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Categories reordered successfully'
+    });
+  } catch (error) {
+    logger.error('Reorder categories error', error);
+    
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};

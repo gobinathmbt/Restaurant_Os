@@ -315,3 +315,50 @@ export const getCategoryTree = async (branchId, companyId) => {
     throw error;
   }
 };
+
+/**
+ * Reorder categories
+ * @param {Array} updates - Array of { categoryId, displayOrder }
+ * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
+ * @returns {Promise<void>}
+ */
+export const reorderCategories = async (updates, companyId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
+
+    // Validate all categories exist and user has access
+    for (const update of updates) {
+      const category = await Category.findById(update.categoryId);
+      
+      if (!category) {
+        throw new Error(`Category ${update.categoryId} not found`);
+      }
+
+      // If user is company_admin, verify they have access
+      if (userBranchIds && userBranchIds.length > 0) {
+        if (!userBranchIds.includes(category.branchId.toString())) {
+          throw new Error('You do not have access to one or more categories');
+        }
+      }
+    }
+
+    // Update display orders
+    const bulkOps = updates.map(update => ({
+      updateOne: {
+        filter: { _id: update.categoryId },
+        update: { $set: { displayOrder: update.displayOrder } }
+      }
+    }));
+
+    await Category.bulkWrite(bulkOps);
+
+    logger.info(`Reordered ${updates.length} categories for company: ${companyId}`);
+  } catch (error) {
+    logger.error('Error reordering categories:', error);
+    throw error;
+  }
+};

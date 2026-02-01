@@ -239,7 +239,12 @@ export const categoryServices = {
   // Get category tree
   getCategoryTree: (branchId: string) =>
     apiClient.get(`/api/categories/tree/${branchId}`),
+
+  // Reorder categories
+  reorderCategories: (updates: Array<{ categoryId: string; displayOrder: number }>) =>
+    apiClient.patch("/api/categories/reorder", { updates }),
 };
+
 
 export default {
   auth: authServices,

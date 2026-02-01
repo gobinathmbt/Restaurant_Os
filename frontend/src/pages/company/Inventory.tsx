@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package, FolderPlus } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package, FolderPlus, List, Network } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -19,6 +19,7 @@ import StockAdjustmentFormModal from '@/components/inventory/StockAdjustmentForm
 import StockTransferFormModal from '@/components/inventory/StockTransferFormModal';
 import StockTransferApprovalModal from '@/components/inventory/StockTransferApprovalModal';
 import CategoryFormModal from '@/components/inventory/CategoryFormModal';
+import CategoryTreeView from '@/components/inventory/CategoryTreeView';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -183,6 +184,7 @@ export default function Inventory() {
 
   // Category tab state
   const [categoryList, setCategoryList] = useState<Category[]>([]);
+  const [categoryTree, setCategoryTree] = useState<Category[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoriesSearch, setCategoriesSearch] = useState('');
   const [categoriesTypeFilter, setCategoriesTypeFilter] = useState('');
@@ -190,6 +192,7 @@ export default function Inventory() {
   const [categoriesRowsPerPage, setCategoriesRowsPerPage] = useState(10);
   const [categoriesTotalCount, setCategoriesTotalCount] = useState(0);
   const [categoriesTotalPages, setCategoriesTotalPages] = useState(0);
+  const [categoryViewMode, setCategoryViewMode] = useState<'table' | 'tree'>('tree');
   const [isCategoryFormOpen, setIsCategoryFormOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [parentCategoryForNew, setParentCategoryForNew] = useState<Category | null>(null);
@@ -403,17 +406,26 @@ export default function Inventory() {
     
     try {
       setCategoriesLoading(true);
-      const response = await categoryServices.getCategories({
-        page: categoriesPage,
-        limit: categoriesRowsPerPage,
-        search: categoriesSearch || undefined,
-        branchId: selectedBranch,
-        type: categoriesTypeFilter || undefined
-      });
+      
+      if (categoryViewMode === 'tree') {
+        // Fetch tree view
+        const response = await categoryServices.getCategoryTree(selectedBranch);
+        setCategoryTree(response.data.data.tree || []);
+        setCategoriesTotalCount(response.data.data.tree?.length || 0);
+      } else {
+        // Fetch table view with pagination
+        const response = await categoryServices.getCategories({
+          page: categoriesPage,
+          limit: categoriesRowsPerPage,
+          search: categoriesSearch || undefined,
+          branchId: selectedBranch,
+          type: categoriesTypeFilter || undefined
+        });
 
-      setCategoryList(response.data.data.categories || []);
-      setCategoriesTotalCount(response.data.data.pagination.total);
-      setCategoriesTotalPages(response.data.data.pagination.totalPages);
+        setCategoryList(response.data.data.categories || []);
+        setCategoriesTotalCount(response.data.data.pagination.total);
+        setCategoriesTotalPages(response.data.data.pagination.totalPages);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -574,6 +586,28 @@ export default function Inventory() {
     setSelectedCategory(null);
     setParentCategoryForNew(null);
     fetchCategoryList();
+  };
+
+  const handleCategoryReorder = async (updates: Array<{ categoryId: string; displayOrder: number }>) => {
+    try {
+      setLoading(true);
+      setLoadingMessage('Reordering categories...');
+      await categoryServices.reorderCategories(updates);
+      toast({
+        title: "Success",
+        description: "Categories reordered successfully",
+        variant: "success",
+      });
+      fetchCategoryList();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to reorder categories',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Filter handlers
@@ -867,52 +901,120 @@ export default function Inventory() {
 
           {/* Categories Tab */}
           <TabsContent value="categories" className="flex-1 m-0">
-            <DataTableLayout
-              statChips={[
-                { label: 'Total Categories', value: categoriesTotalCount, variant: 'default' },
-              ]}
-              actionButtons={[
-                {
-                  icon: <Plus className="h-4 w-4" />,
-                  tooltip: 'Add category',
-                  onClick: handleCreateCategory,
-                  variant: 'default',
-                },
-              ]}
-              searchValue={categoriesSearch}
-              searchPlaceholder="Search categories..."
-              onSearchChange={setCategoriesSearch}
-              filterConfig={{
-                component: (
-                  <div className="flex items-center gap-2">
-                    {(isSuperAdmin || isMultiBranchAdmin) && (
-                      <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+            {categoryViewMode === 'tree' ? (
+              <div className="flex flex-col h-full">
+                {/* Header */}
+                <div className="bg-background border-b flex-shrink-0 px-6 py-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-4">
+                      <h2 className="text-lg font-semibold">Categories</h2>
+                      <Badge variant="default">{categoriesTotalCount} Total</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {(isSuperAdmin || isMultiBranchAdmin) && (
+                        <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                          <SelectTrigger className="w-48 h-9">
+                            <SelectValue placeholder="Select branch" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {branches.map((branch) => (
+                              <SelectItem key={branch._id} value={branch._id}>
+                                {branch.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCategoryViewMode('table')}
+                        title="Switch to table view"
+                      >
+                        <List className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleCreateCategory}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Category
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tree View */}
+                <div className="flex-1 overflow-auto p-6">
+                  {categoriesLoading ? (
+                    <div className="flex items-center justify-center h-64">
+                      <div className="text-muted-foreground">Loading categories...</div>
+                    </div>
+                  ) : (
+                    <CategoryTreeView
+                      categories={categoryTree}
+                      onEdit={handleEditCategory}
+                      onDelete={handleDeleteCategory}
+                      onAddSubcategory={handleCreateSubcategory}
+                      onReorder={handleCategoryReorder}
+                    />
+                  )}
+                </div>
+              </div>
+            ) : (
+              <DataTableLayout
+                statChips={[
+                  { label: 'Total Categories', value: categoriesTotalCount, variant: 'default' },
+                ]}
+                actionButtons={[
+                  {
+                    icon: <Network className="h-4 w-4" />,
+                    tooltip: 'Switch to tree view',
+                    onClick: () => setCategoryViewMode('tree'),
+                    variant: 'outline',
+                  },
+                  {
+                    icon: <Plus className="h-4 w-4" />,
+                    tooltip: 'Add category',
+                    onClick: handleCreateCategory,
+                    variant: 'default',
+                  },
+                ]}
+                searchValue={categoriesSearch}
+                searchPlaceholder="Search categories..."
+                onSearchChange={setCategoriesSearch}
+                filterConfig={{
+                  component: (
+                    <div className="flex items-center gap-2">
+                      {(isSuperAdmin || isMultiBranchAdmin) && (
+                        <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                          <SelectTrigger className="w-48 h-9">
+                            <SelectValue placeholder="Select branch" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {branches.map((branch) => (
+                              <SelectItem key={branch._id} value={branch._id}>
+                                {branch.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <Select value={categoriesTypeFilter || "all"} onValueChange={(value) => setCategoriesTypeFilter(value === "all" ? "" : value)}>
                         <SelectTrigger className="w-48 h-9">
-                          <SelectValue placeholder="Select branch" />
+                          <SelectValue placeholder="All types" />
                         </SelectTrigger>
                         <SelectContent>
-                          {branches.map((branch) => (
-                            <SelectItem key={branch._id} value={branch._id}>
-                              {branch.name}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="all">All types</SelectItem>
+                          <SelectItem value="both">Both</SelectItem>
+                          <SelectItem value="raw_material">Raw Material</SelectItem>
+                          <SelectItem value="finished_good">Finished Good</SelectItem>
                         </SelectContent>
                       </Select>
-                    )}
-                    <Select value={categoriesTypeFilter || "all"} onValueChange={(value) => setCategoriesTypeFilter(value === "all" ? "" : value)}>
-                      <SelectTrigger className="w-48 h-9">
-                        <SelectValue placeholder="All types" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All types</SelectItem>
-                        <SelectItem value="both">Both</SelectItem>
-                        <SelectItem value="raw_material">Raw Material</SelectItem>
-                        <SelectItem value="finished_good">Finished Good</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )
-              }}
+                    </div>
+                  )
+                }}
               tableHeaders={
                 <>
                   <TableHead className="w-16">S.No</TableHead>
@@ -1044,6 +1146,7 @@ export default function Inventory() {
               onRefresh={fetchCategoryList}
               cookiePrefix="inventory-categories"
             />
+            )}
           </TabsContent>
 
           {/* GRN Tab */}

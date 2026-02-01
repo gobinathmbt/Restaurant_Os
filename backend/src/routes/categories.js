@@ -6,7 +6,8 @@ import {
   updateCategory,
   deleteCategory,
   toggleCategoryStatus,
-  getCategoryTree
+  getCategoryTree,
+  reorderCategories
 } from '../controllers/categoryController.js';
 import { authenticate } from '../middlewares/auth.js';
 
@@ -18,6 +19,7 @@ router.use(authenticate);
 // Category routes
 router.get('/', getCategories);
 router.post('/', createCategory);
+router.patch('/reorder', reorderCategories);
 router.get('/tree/:branchId', getCategoryTree);
 router.get('/:id', getCategoryById);
 router.put('/:id', updateCategory);
