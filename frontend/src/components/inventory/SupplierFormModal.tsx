@@ -171,16 +171,15 @@ export default function SupplierFormModal({
     const previousBranches = selectedBranches;
     setSelectedBranches(branchIds);
     
-    // Reset categories and subcategories when branches change
-    // This ensures categories are refetched based on new branch selection
     if (branchIds.length === 0) {
       // All branches cleared - clear everything
       setSelectedCategories([]);
       setSelectedSubcategories([]);
-    } else if (JSON.stringify(previousBranches.sort()) !== JSON.stringify(branchIds.sort())) {
-      // Branches changed (not just reordered) - clear categories to force refetch
-      setSelectedCategories([]);
-      setSelectedSubcategories([]);
+    } else {
+      // Branches changed - filter out categories/subcategories that don't belong to remaining branches
+      // We'll validate this by checking if categories still belong to the selected branches
+      // The CategorySubcategorySearch component will handle the actual filtering
+      // For now, we keep the selections and let the component validate them
     }
   };
 
@@ -190,7 +189,7 @@ export default function SupplierFormModal({
   };
 
 
-  const validateForm = () => {
+  const validateForm = async () => {
     if (!formData.name.trim()) {
       toast({
         title: "Validation Error",
@@ -313,7 +312,8 @@ export default function SupplierFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm()) {
+    const isValid = await validateForm();
+    if (!isValid) {
       return;
     }
 

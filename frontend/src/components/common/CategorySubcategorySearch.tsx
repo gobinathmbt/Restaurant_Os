@@ -69,14 +69,59 @@ export default function CategorySubcategorySearch({
   const displayMainCategories = mainCategoriesSearch ? searchMainCategories : initialMainCategories;
   const displaySubcategories = subcategoriesSearch ? searchSubcategories : initialSubcategories;
 
-  // Reset categories when branches change
+  // When branches change, filter out categories that don't belong to the new branch selection
   useEffect(() => {
-    setInitialMainCategories([]);
-    setSearchMainCategories([]);
-    setInitialSubcategories([]);
-    setSearchSubcategories([]);
-    setMainCategoriesSearch('');
-    setSubcategoriesSearch('');
+    if (branchIds.length > 0) {
+      // Filter selected main categories - remove those not belonging to current branches
+      const validMainCategories = selectedCategoryIds.filter(catId => {
+        const category = [...initialMainCategories, ...searchMainCategories].find(c => c._id === catId);
+        if (!category) return true; // Keep if we don't have the data yet (will be validated on submit)
+        
+        const categoryBranchIds = category.branchIds?.map((b: any) => 
+          typeof b === 'string' ? b : b._id
+        ) || [];
+        
+        return branchIds.some(branchId => categoryBranchIds.includes(branchId));
+      });
+
+      // Filter selected subcategories - remove those not belonging to current branches
+      const validSubcategories = selectedSubcategoryIds.filter(subcatId => {
+        const subcategory = [...initialSubcategories, ...searchSubcategories].find(c => c._id === subcatId);
+        if (!subcategory) return true; // Keep if we don't have the data yet
+        
+        const subcategoryBranchIds = subcategory.branchIds?.map((b: any) => 
+          typeof b === 'string' ? b : b._id
+        ) || [];
+        
+        return branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
+      });
+
+      // Update selections if any were filtered out
+      if (validMainCategories.length !== selectedCategoryIds.length || 
+          validSubcategories.length !== selectedSubcategoryIds.length) {
+        
+        const removedCategories = selectedCategoryIds.length - validMainCategories.length;
+        const removedSubcategories = selectedSubcategoryIds.length - validSubcategories.length;
+        
+        if (removedCategories > 0 || removedSubcategories > 0) {
+          toast({
+            title: 'Categories Updated',
+            description: `Removed ${removedCategories} categor${removedCategories !== 1 ? 'ies' : 'y'} and ${removedSubcategories} subcategor${removedSubcategories !== 1 ? 'ies' : 'y'} that don't belong to selected branches`,
+            variant: 'default',
+          });
+        }
+        
+        onCategoriesChange(validMainCategories, validSubcategories);
+      }
+
+      // Reset cached data to refetch for new branches
+      setInitialMainCategories([]);
+      setSearchMainCategories([]);
+      setInitialSubcategories([]);
+      setSearchSubcategories([]);
+      setMainCategoriesSearch('');
+      setSubcategoriesSearch('');
+    }
   }, [branchIds.join(',')]);
 
   // Load initial categories when branches are available
@@ -277,11 +322,60 @@ export default function CategorySubcategorySearch({
 
   const handleCategoryToggle = (categoryId: string, isSubcategory: boolean) => {
     if (isSubcategory) {
+      const subcategory = [...initialSubcategories, ...searchSubcategories].find(c => c._id === categoryId);
+      
+      // Validate subcategory belongs to selected main categories
+      if (subcategory) {
+        const parentId = typeof subcategory.parent === 'string' ? subcategory.parent : subcategory.parent?._id;
+        if (parentId && !selectedCategoryIds.includes(parentId)) {
+          toast({
+            title: 'Invalid Selection',
+            description: `This subcategory belongs to a main category that is not selected. Please select the parent category first.`,
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // Validate subcategory belongs to selected branches
+        const subcategoryBranchIds = subcategory.branchIds?.map((b: any) => 
+          typeof b === 'string' ? b : b._id
+        ) || [];
+        
+        const belongsToBranches = branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
+        if (!belongsToBranches) {
+          toast({
+            title: 'Invalid Selection',
+            description: `This subcategory doesn't belong to any of the selected branches.`,
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
+
       const newSelection = selectedSubcategoryIds.includes(categoryId)
         ? selectedSubcategoryIds.filter((id) => id !== categoryId)
         : [...selectedSubcategoryIds, categoryId];
       onCategoriesChange(selectedCategoryIds, newSelection);
     } else {
+      const category = [...initialMainCategories, ...searchMainCategories].find(c => c._id === categoryId);
+      
+      // Validate category belongs to selected branches
+      if (category) {
+        const categoryBranchIds = category.branchIds?.map((b: any) => 
+          typeof b === 'string' ? b : b._id
+        ) || [];
+        
+        const belongsToBranches = branchIds.some(branchId => categoryBranchIds.includes(branchId));
+        if (!belongsToBranches) {
+          toast({
+            title: 'Invalid Selection',
+            description: `This category doesn't belong to any of the selected branches.`,
+            variant: 'destructive',
+          });
+          return;
+        }
+      }
+
       const isRemoving = selectedCategoryIds.includes(categoryId);
       const newSelection = isRemoving
         ? selectedCategoryIds.filter((id) => id !== categoryId)
@@ -299,6 +393,14 @@ export default function CategorySubcategorySearch({
           .map(subcat => subcat._id);
         
         newSubcategorySelection = selectedSubcategoryIds.filter(id => !subcatsToRemove.includes(id));
+        
+        if (subcatsToRemove.length > 0) {
+          toast({
+            title: 'Categories Updated',
+            description: `Removed ${subcatsToRemove.length} subcategor${subcatsToRemove.length !== 1 ? 'ies' : 'y'} belonging to this category`,
+            variant: 'default',
+          });
+        }
         
         // Reset subcategories cache if no main categories left
         if (newSelection.length === 0) {
@@ -348,6 +450,25 @@ export default function CategorySubcategorySearch({
     return allCategories.filter((category) => 
       selectedCategoryIds.includes(category._id) || selectedSubcategoryIds.includes(category._id)
     );
+  };
+
+  // Helper to check if a category belongs to selected branches
+  const isCategoryValidForBranches = (category: Category): boolean => {
+    if (!category.branchIds || branchIds.length === 0) return true;
+    
+    const categoryBranchIds = category.branchIds.map((b: any) => 
+      typeof b === 'string' ? b : b._id
+    );
+    
+    return branchIds.some(branchId => categoryBranchIds.includes(branchId));
+  };
+
+  // Helper to check if a subcategory belongs to selected main categories
+  const isSubcategoryValidForCategories = (subcategory: Category): boolean => {
+    if (!subcategory.parent || selectedCategoryIds.length === 0) return true;
+    
+    const parentId = typeof subcategory.parent === 'string' ? subcategory.parent : subcategory.parent._id;
+    return selectedCategoryIds.includes(parentId);
   };
 
   const selectedCategories = getSelectedCategories();
@@ -440,19 +561,28 @@ export default function CategorySubcategorySearch({
 
         {selectedMainCategories.length > 0 && (
           <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
-            {selectedMainCategories.map((category) => (
-              <Badge key={category._id} variant="secondary" className="gap-1">
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: category.color }}
-                />
-                {category.name}
-                <X
-                  className="h-3 w-3 cursor-pointer hover:text-destructive"
-                  onClick={() => !disabled && handleRemoveCategory(category._id, false)}
-                />
-              </Badge>
-            ))}
+            {selectedMainCategories.map((category) => {
+              const isValid = isCategoryValidForBranches(category);
+              return (
+                <Badge 
+                  key={category._id} 
+                  variant={isValid ? "secondary" : "destructive"} 
+                  className="gap-1"
+                  title={isValid ? '' : 'This category does not belong to selected branches'}
+                >
+                  <div
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: category.color }}
+                  />
+                  {category.name}
+                  {!isValid && <span className="text-xs ml-1">⚠️</span>}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:text-destructive"
+                    onClick={() => !disabled && handleRemoveCategory(category._id, false)}
+                  />
+                </Badge>
+              );
+            })}
           </div>
         )}
       </div>
@@ -530,22 +660,38 @@ export default function CategorySubcategorySearch({
 
         {selectedSubcategories.length > 0 && (
           <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
-            {selectedSubcategories.map((category) => (
-              <Badge key={category._id} variant="secondary" className="gap-1">
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: category.color }}
-                />
-                {category.name}
-                <span className="text-xs opacity-70">
-                  ({typeof category.parent === 'string' ? category.parent : category.parent?.name})
-                </span>
-                <X
-                  className="h-3 w-3 cursor-pointer hover:text-destructive"
-                  onClick={() => !disabled && handleRemoveCategory(category._id, true)}
-                />
-              </Badge>
-            ))}
+            {selectedSubcategories.map((category) => {
+              const isValidForBranches = isCategoryValidForBranches(category);
+              const isValidForCategories = isSubcategoryValidForCategories(category);
+              const isValid = isValidForBranches && isValidForCategories;
+              
+              let errorMessage = '';
+              if (!isValidForBranches) errorMessage = 'Does not belong to selected branches';
+              else if (!isValidForCategories) errorMessage = 'Parent category not selected';
+              
+              return (
+                <Badge 
+                  key={category._id} 
+                  variant={isValid ? "secondary" : "destructive"} 
+                  className="gap-1"
+                  title={errorMessage}
+                >
+                  <div
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: category.color }}
+                  />
+                  {category.name}
+                  <span className="text-xs opacity-70">
+                    ({typeof category.parent === 'string' ? category.parent : category.parent?.name})
+                  </span>
+                  {!isValid && <span className="text-xs ml-1">⚠️</span>}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:text-destructive"
+                    onClick={() => !disabled && handleRemoveCategory(category._id, true)}
+                  />
+                </Badge>
+              );
+            })}
           </div>
         )}
       </div>
