@@ -10,29 +10,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList
-} from "@/components/ui/command";
-import { Badge } from "@/components/ui/badge";
-import { Check, ChevronsUpDown, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { supplierServices, branchServices } from '@/api/services';
+import { supplierServices } from '@/api/services';
 import { Star } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import BranchSearch from '@/components/common/BranchSearch';
 
 interface Branch {
   _id: string;
@@ -57,10 +41,6 @@ export default function SupplierFormModal({
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [branchSearch, setBranchSearch] = useState('');
-  const [branchSelectorOpen, setBranchSelectorOpen] = useState(false);
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     // Basic Info
@@ -95,56 +75,6 @@ export default function SupplierFormModal({
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
   const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
   const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
-
-  // Fetch branches on mount and when search changes
-  useEffect(() => {
-    if (open) {
-      fetchBranches();
-    }
-  }, [open, branchSearch]);
-
-  const fetchBranches = async () => {
-    try {
-      setBranchesLoading(true);
-      const response = await branchServices.getBranches({ 
-        limit: 100, 
-        isActive: true,
-        search: branchSearch || undefined
-      });
-      const allBranches = response.data.data.branches || [];
-
-      // Filter branches based on user role
-      let availableBranches = allBranches;
-      if (isMultiBranchAdmin || isSingleBranchAdmin) {
-        availableBranches = allBranches.filter((branch: Branch) =>
-          user?.branchIds?.includes(branch._id)
-        );
-      }
-
-      setBranches(availableBranches);
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: "Failed to fetch branches",
-        variant: "destructive",
-      });
-    } finally {
-      setBranchesLoading(false);
-    }
-  };
-
-  // Debounce branch search
-  useEffect(() => {
-    if (!open) return;
-
-    const timeoutId = setTimeout(() => {
-      if (branchSearch !== '') {
-        fetchBranches();
-      }
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [branchSearch, open]);
 
   useEffect(() => {
     if (supplier && open) {
@@ -215,33 +145,11 @@ export default function SupplierFormModal({
       bankBranch: ''
     });
     setSelectedBranches([]);
-    setBranchSearch('');
     setActiveTab('basic');
   };
 
-  const handleBranchToggle = (branchId: string) => {
-    setSelectedBranches(prev => {
-      if (prev.includes(branchId)) {
-        return prev.filter(id => id !== branchId);
-      } else {
-        return [...prev, branchId];
-      }
-    });
-  };
-
-  const handleSelectAllBranches = () => {
-    if (selectedBranches.length === branches.length) {
-      setSelectedBranches([]);
-    } else {
-      setSelectedBranches(branches.map(b => b._id));
-    }
-  };
-
-  const getSelectedBranches = () =>
-    branches.filter(b => selectedBranches.includes(b._id));
-
-  const handleRemoveBranch = (branchId: string) => {
-    setSelectedBranches(prev => prev.filter(id => id !== branchId));
+  const handleBranchesChange = (branchIds: string[]) => {
+    setSelectedBranches(branchIds);
   };
 
 
@@ -501,99 +409,12 @@ export default function SupplierFormModal({
                     Select which branches this supplier can serve
                   </p>
 
-                  <div className="space-y-3">
-                    <Popover open={branchSelectorOpen} onOpenChange={setBranchSelectorOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={branchSelectorOpen}
-                          className="w-full justify-between"
-                        >
-                          {selectedBranches.length > 0
-                            ? `${selectedBranches.length} branch${selectedBranches.length > 1 ? "es" : ""} selected`
-                            : "Select branches..."}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-
-                      <PopoverContent className="w-full p-0" align="start">
-                        <Command shouldFilter={false}>
-                          <CommandInput 
-                            placeholder="Search branches..." 
-                            value={branchSearch}
-                            onValueChange={setBranchSearch}
-                          />
-                          <CommandEmpty>
-                            {branchesLoading 
-                              ? 'Loading branches...' 
-                              : branchSearch 
-                                ? `No branches found matching "${branchSearch}"`
-                                : 'No branches available'}
-                          </CommandEmpty>
-                          <CommandList>
-                            <CommandGroup>
-                              {branchesLoading ? (
-                                <div className="py-6 text-center text-sm text-muted-foreground">
-                                  Loading branches...
-                                </div>
-                              ) : (
-                                branches.map((branch) => (
-                                  <CommandItem
-                                    key={branch._id}
-                                    value={`${branch.name} ${branch.code}`}
-                                    onSelect={() => handleBranchToggle(branch._id)}
-                                  >
-                                    <Check
-                                      className={cn(
-                                        "mr-2 h-4 w-4",
-                                        selectedBranches.includes(branch._id)
-                                          ? "opacity-100"
-                                          : "opacity-0"
-                                      )}
-                                    />
-                                    <div className="flex flex-col">
-                                      <span className="font-medium">{branch.name}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        {branch.code}
-                                      </span>
-                                    </div>
-                                  </CommandItem>
-                                ))
-                              )}
-                            </CommandGroup>
-                            {branches.length >= 100 && !branchSearch && !branchesLoading && (
-                              <div className="px-2 py-1.5 text-xs text-amber-600 border-t">
-                                Showing first 100 branches. Use search to find more.
-                              </div>
-                            )}
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-
-                    {/* Selected Branch Chips */}
-                    {selectedBranches.length > 0 && (
-                      <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
-                        {getSelectedBranches().map((branch) => (
-                          <Badge key={branch._id} variant="secondary" className="gap-1">
-                            {branch.name} ({branch.code})
-                            <X
-                              className="h-3 w-3 cursor-pointer hover:text-destructive"
-                              onClick={() => handleRemoveBranch(branch._id)}
-                            />
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Info message */}
-                    <p className="text-sm text-muted-foreground">
-                      {selectedBranches.length > 0 
-                        ? `${selectedBranches.length} branch${selectedBranches.length !== 1 ? 'es' : ''} selected`
-                        : 'Please select at least one branch'}
-                    </p>
-                  </div>
+                  <BranchSearch
+                    selectedBranchIds={selectedBranches}
+                    onBranchesChange={handleBranchesChange}
+                    placeholder="Select branches..."
+                    showSelectAll={false}
+                  />
                 </div>
               </TabsContent>
 

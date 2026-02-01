@@ -17,23 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
-import { ChevronsUpDown, Check, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { categoryServices, branchServices } from '@/api/services';
+import { categoryServices } from '@/api/services';
 import { useAuth } from '@/contexts/AuthContext';
+import BranchSearch from '@/components/common/BranchSearch';
 
 interface Branch {
   _id: string;
@@ -79,10 +67,6 @@ export default function CategoryFormModal({
   const { toast } = useToast();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
-  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
-  const [branchSearch, setBranchSearch] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -94,23 +78,6 @@ export default function CategoryFormModal({
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(
     user?.role || ''
   );
-
-  useEffect(() => {
-    if (open) {
-      fetchBranches();
-    }
-  }, [open]);
-
-  // Debounced branch search
-  useEffect(() => {
-    if (!open) return;
-    
-    const timer = setTimeout(() => {
-      fetchBranches(branchSearch);
-    }, 300); // 300ms debounce
-
-    return () => clearTimeout(timer);
-  }, [branchSearch, open]);
 
   useEffect(() => {
     if (category && open) {
@@ -127,27 +94,7 @@ export default function CategoryFormModal({
     } else if (!category && open) {
       resetForm();
     }
-  }, [category, open, parentCategory, branches]);
-
-  const fetchBranches = async (searchQuery = '') => {
-    try {
-      setLoadingBranches(true);
-      const response = await branchServices.getBranches({ 
-        limit: 1000, 
-        isActive: true,
-        search: searchQuery || undefined
-      });
-      setBranches(response.data.data.branches || []);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.response?.data?.message || 'Failed to fetch branches',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingBranches(false);
-    }
-  };
+  }, [category, open, parentCategory]);
 
   const resetForm = () => {
     setFormData({
@@ -157,24 +104,13 @@ export default function CategoryFormModal({
       color: '#6366f1',
       selectedBranches: branchId ? [branchId] : [],
     });
-    setBranchSearch(''); // Clear branch search
   };
 
-  const handleBranchToggle = (branchIdToToggle: string) => {
+  const handleBranchesChange = (branchIds: string[]) => {
     setFormData((prev) => ({
       ...prev,
-      selectedBranches: prev.selectedBranches.includes(branchIdToToggle)
-        ? prev.selectedBranches.filter((id) => id !== branchIdToToggle)
-        : [...prev.selectedBranches, branchIdToToggle],
+      selectedBranches: branchIds,
     }));
-  };
-
-  const handleSelectAllBranches = () => {
-    if (formData.selectedBranches.length === branches.length) {
-      setFormData((prev) => ({ ...prev, selectedBranches: [] }));
-    } else {
-      setFormData((prev) => ({ ...prev, selectedBranches: branches.map((b) => b._id) }));
-    }
   };
 
   const validateForm = () => {
@@ -371,96 +307,14 @@ export default function CategoryFormModal({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Assign to Branches *</Label>
-                {isSuperAdmin && (
-                  <Button type="button" variant="ghost" size="sm" onClick={handleSelectAllBranches}>
-                    {formData.selectedBranches.length === branches.length
-                      ? 'Deselect All'
-                      : 'Select All'}
-                  </Button>
-                )}
               </div>
 
-              {loadingBranches ? (
-                <div className="text-sm text-muted-foreground">Loading branches...</div>
-              ) : (
-                <>
-                  {/* Dropdown */}
-                  <Popover open={branchDropdownOpen} onOpenChange={setBranchDropdownOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={branchDropdownOpen}
-                        className="w-full justify-between"
-                      >
-                        {formData.selectedBranches.length > 0
-                          ? `${formData.selectedBranches.length} branch${
-                              formData.selectedBranches.length > 1 ? 'es' : ''
-                            } selected`
-                          : 'Select branches...'}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-
-                    <PopoverContent className="w-full p-0" align="start">
-                      <Command>
-                        <CommandInput 
-                          placeholder="Search branches..." 
-                          value={branchSearch}
-                          onValueChange={setBranchSearch}
-                        />
-                        <CommandEmpty>
-                          {loadingBranches ? 'Searching...' : 'No branches found.'}
-                        </CommandEmpty>
-                        <CommandList>
-                          <CommandGroup>
-                            {branches.map((branch) => (
-                              <CommandItem
-                                key={branch._id}
-                                value={`${branch.name} ${branch.code}`}
-                                onSelect={() => handleBranchToggle(branch._id)}
-                              >
-                                <Check
-                                  className={cn(
-                                    'mr-2 h-4 w-4',
-                                    formData.selectedBranches.includes(branch._id)
-                                      ? 'opacity-100'
-                                      : 'opacity-0'
-                                  )}
-                                />
-                                <div className="flex flex-col">
-                                  <span className="font-medium">{branch.name}</span>
-                                  <span className="text-xs text-muted-foreground">
-                                    {branch.code}
-                                  </span>
-                                </div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-
-                  {/* Selected branches chips */}
-                  {formData.selectedBranches.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {formData.selectedBranches.map((branchId) => {
-                        const branch = branches.find((b) => b._id === branchId);
-                        return branch ? (
-                          <Badge key={branchId} variant="secondary" className="text-xs gap-1">
-                            {branch.name}
-                            <X
-                              className="h-3 w-3 cursor-pointer"
-                              onClick={() => handleBranchToggle(branchId)}
-                            />
-                          </Badge>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
+              <BranchSearch
+                selectedBranchIds={formData.selectedBranches}
+                onBranchesChange={handleBranchesChange}
+                placeholder="Select branches..."
+                showSelectAll={isSuperAdmin}
+              />
             </div>
           </form>
         </DialogBody>
