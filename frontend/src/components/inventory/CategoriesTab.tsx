@@ -327,7 +327,7 @@ export default function CategoriesTab({
                       <SelectValue placeholder="Select branch" />
                     </SelectTrigger>
                     <SelectContent>
-                      {isSuperAdmin && (
+                      {(isSuperAdmin || isMultiBranchAdmin) && (
                         <SelectItem value="all">All Branches</SelectItem>
                       )}
                       {branches.map((branch) => (

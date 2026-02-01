@@ -50,7 +50,8 @@ export default function Inventory() {
     if (isSingleBranchAdmin && user?.branchIds && user.branchIds.length === 1) {
       setSelectedBranch(user.branchIds[0]);
     } else if (isMultiBranchAdmin && user?.branchIds && user.branchIds.length > 1 && !selectedBranch) {
-      setSelectedBranch(user.branchIds[0]);
+      // For multi-branch company admins, default to "all" branches
+      setSelectedBranch('all');
     } else if (isSuperAdmin && !selectedBranch && branches.length > 0) {
       // For super admins, default to "all" branches
       setSelectedBranch('all');
