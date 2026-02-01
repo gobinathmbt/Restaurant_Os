@@ -724,7 +724,7 @@ export default function Inventory() {
                         </SelectContent>
                       </Select>
                     )}
-                    <Select value={itemsTypeFilter} onValueChange={setItemsTypeFilter}>
+                    <Select value={itemsTypeFilter || "all"} onValueChange={(value) => setItemsTypeFilter(value === "all" ? "" : value)}>
                       <SelectTrigger className="w-40 h-9">
                         <SelectValue placeholder="All types" />
                       </SelectTrigger>
@@ -734,7 +734,7 @@ export default function Inventory() {
                         <SelectItem value="finished_good">Finished Good</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={itemsCategoryFilter} onValueChange={setItemsCategoryFilter}>
+                    <Select value={itemsCategoryFilter || "all"} onValueChange={(value) => setItemsCategoryFilter(value === "all" ? "" : value)}>
                       <SelectTrigger className="w-40 h-9">
                         <SelectValue placeholder="All categories" />
                       </SelectTrigger>
@@ -885,7 +885,21 @@ export default function Inventory() {
               filterConfig={{
                 component: (
                   <div className="flex items-center gap-2">
-                    <Select value={categoriesTypeFilter} onValueChange={setCategoriesTypeFilter}>
+                    {(isSuperAdmin || isMultiBranchAdmin) && (
+                      <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                        <SelectTrigger className="w-48 h-9">
+                          <SelectValue placeholder="Select branch" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {branches.map((branch) => (
+                            <SelectItem key={branch._id} value={branch._id}>
+                              {branch.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Select value={categoriesTypeFilter || "all"} onValueChange={(value) => setCategoriesTypeFilter(value === "all" ? "" : value)}>
                       <SelectTrigger className="w-48 h-9">
                         <SelectValue placeholder="All types" />
                       </SelectTrigger>
@@ -1284,7 +1298,7 @@ export default function Inventory() {
                         </SelectContent>
                       </Select>
                     )}
-                    <Select value={transfersStatusFilter} onValueChange={setTransfersStatusFilter}>
+                    <Select value={transfersStatusFilter || "all"} onValueChange={(value) => setTransfersStatusFilter(value === "all" ? "" : value)}>
                       <SelectTrigger className="w-40 h-9">
                         <SelectValue placeholder="All statuses" />
                       </SelectTrigger>

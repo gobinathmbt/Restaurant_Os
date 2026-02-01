@@ -70,7 +70,7 @@ export default function CategoryFormModal({
         type: category.type || 'both',
         color: category.color || '#6366f1',
         displayOrder: category.displayOrder || 0,
-        parent: parentId
+        parent: parentId || ''
       });
     } else if (!category && open) {
       resetForm();
@@ -146,7 +146,7 @@ export default function CategoryFormModal({
         type: formData.type,
         color: formData.color,
         displayOrder: formData.displayOrder,
-        parent: formData.parent || null
+        parent: formData.parent && formData.parent !== '' ? formData.parent : null
       };
 
       if (category) {
@@ -226,15 +226,15 @@ export default function CategoryFormModal({
             <div>
               <Label htmlFor="parent">Parent Category (Optional)</Label>
               <Select
-                value={formData.parent}
-                onValueChange={(value) => setFormData({ ...formData, parent: value })}
+                value={formData.parent || "none"}
+                onValueChange={(value) => setFormData({ ...formData, parent: value === "none" ? "" : value })}
                 disabled={!!parentCategory}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="None (Main Category)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None (Main Category)</SelectItem>
+                  <SelectItem value="none">None (Main Category)</SelectItem>
                   {categories
                     .filter((cat) => !cat.parent) // Only show main categories as parent options
                     .map((cat) => (
