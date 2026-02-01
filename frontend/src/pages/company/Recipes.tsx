@@ -107,7 +107,7 @@ export default function Recipes() {
   const fetchFinishedGoods = async () => {
     try {
       // Fetch finished goods from inventory items
-      const response = await inventoryServices.getInventoryItems('', { 
+      const response = await inventoryServices.getInventoryItems('', {
         limit: 1000,
         type: 'finished_good'
       });
@@ -180,7 +180,7 @@ export default function Recipes() {
   };
 
   return (
-    <>
+    <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <DataTableLayout
         statChips={[
           { label: 'Total Recipes', value: totalCount, variant: 'default' },
@@ -293,18 +293,18 @@ export default function Recipes() {
         emptyState={
           recipes.length === 0
             ? {
-                icon: <Package className="h-12 w-12" />,
-                title: 'No recipes found',
-                description: search || finishedGoodFilter
-                  ? 'Try adjusting your filters'
-                  : 'Get started by adding your first recipe',
-                action: !search && !finishedGoodFilter ? (
-                  <Button onClick={handleCreate}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Recipe
-                  </Button>
-                ) : undefined,
-              }
+              icon: <Package className="h-12 w-12" />,
+              title: 'No recipes found',
+              description: search || finishedGoodFilter
+                ? 'Try adjusting your filters'
+                : 'Get started by adding your first recipe',
+              action: !search && !finishedGoodFilter ? (
+                <Button onClick={handleCreate}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Recipe
+                </Button>
+              ) : undefined,
+            }
             : undefined
         }
         currentPage={page}
@@ -336,6 +336,6 @@ export default function Recipes() {
         title="Delete Recipe"
         description={`Are you sure you want to delete the recipe "${deleteDialog.recipe?.name}"? This action cannot be undone.`}
       />
-    </>
+    </div>
   );
 }

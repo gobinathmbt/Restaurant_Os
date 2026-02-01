@@ -180,7 +180,7 @@ export default function Branches() {
   const inactiveBranches = branches.filter((b) => !b.isActive).length;
 
   return (
-    <>
+    <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <DataTableLayout
         statChips={[
           { label: 'Total', value: totalCount, variant: 'default' },
@@ -401,6 +401,6 @@ export default function Branches() {
         title="Delete Branch"
         description={`Are you sure you want to delete "${deleteDialog.branch?.name}"? This action cannot be undone.`}
       />
-    </>
+    </div>
   );
 }

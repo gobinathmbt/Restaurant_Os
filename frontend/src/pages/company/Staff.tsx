@@ -165,7 +165,7 @@ export default function Staff() {
   const inactiveUsers = users.filter((u) => !u.isActive).length;
 
   return (
-    <>
+    <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <DataTableLayout
         statChips={[
           { label: 'Total', value: totalCount, variant: 'default' },
@@ -334,6 +334,6 @@ export default function Staff() {
         title="Delete User"
         description={`Are you sure you want to delete "${deleteDialog.user?.name}"? This action cannot be undone.`}
       />
-    </>
+    </div>
   );
 }

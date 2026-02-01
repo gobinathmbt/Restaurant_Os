@@ -84,15 +84,15 @@ export default function Suppliers() {
     try {
       const response = await branchServices.getBranches({ limit: 100, isActive: true });
       const allBranches = response.data.data.branches || [];
-      
+
       // Filter branches based on user role
       let availableBranches = allBranches;
       if (isMultiBranchAdmin || isSingleBranchAdmin) {
-        availableBranches = allBranches.filter((branch: Branch) => 
+        availableBranches = allBranches.filter((branch: Branch) =>
           user?.branchIds?.includes(branch._id)
         );
       }
-      
+
       setBranches(availableBranches);
     } catch (error: any) {
       toast({
@@ -221,17 +221,16 @@ export default function Suppliers() {
 
   const renderStarRating = (rating?: number) => {
     if (!rating) return <span className="text-muted-foreground">-</span>;
-    
+
     return (
       <div className="flex items-center gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
           <Star
             key={star}
-            className={`h-3 w-3 ${
-              star <= rating
+            className={`h-3 w-3 ${star <= rating
                 ? 'fill-yellow-400 text-yellow-400'
                 : 'text-gray-300'
-            }`}
+              }`}
           />
         ))}
         <span className="ml-1 text-xs text-muted-foreground">{rating}/5</span>
@@ -240,7 +239,7 @@ export default function Suppliers() {
   };
 
   return (
-    <>
+    <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <DataTableLayout
         statChips={[
           { label: 'Total Suppliers', value: totalCount, variant: 'default' },
@@ -409,18 +408,18 @@ export default function Suppliers() {
         emptyState={
           suppliers.length === 0
             ? {
-                icon: <Package className="h-12 w-12" />,
-                title: 'No suppliers found',
-                description: search || categoryFilter || branchFilter
-                  ? 'Try adjusting your filters'
-                  : 'Get started by adding your first supplier',
-                action: !search && !categoryFilter && !branchFilter ? (
-                  <Button onClick={handleCreate}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Supplier
-                  </Button>
-                ) : undefined,
-              }
+              icon: <Package className="h-12 w-12" />,
+              title: 'No suppliers found',
+              description: search || categoryFilter || branchFilter
+                ? 'Try adjusting your filters'
+                : 'Get started by adding your first supplier',
+              action: !search && !categoryFilter && !branchFilter ? (
+                <Button onClick={handleCreate}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Supplier
+                </Button>
+              ) : undefined,
+            }
             : undefined
         }
         currentPage={page}
@@ -452,6 +451,6 @@ export default function Suppliers() {
         title="Delete Supplier"
         description={`Are you sure you want to delete the supplier "${deleteDialog.supplier?.name}"? This action cannot be undone.`}
       />
-    </>
+    </div>
   );
 }
