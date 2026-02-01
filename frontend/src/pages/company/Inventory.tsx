@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, CheckCircle, XCircle, Package, Settings, Power, Trash } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -187,6 +187,7 @@ export default function Inventory() {
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoriesSearch, setCategoriesSearch] = useState('');
   const [categoriesTypeFilter, setCategoriesTypeFilter] = useState('');
+  const [categoriesStatusFilter, setCategoriesStatusFilter] = useState('');
   const [categoriesPage, setCategoriesPage] = useState(1);
   const [categoriesRowsPerPage, setCategoriesRowsPerPage] = useState(10);
   const [categoriesTotalCount, setCategoriesTotalCount] = useState(0);
@@ -237,7 +238,7 @@ export default function Inventory() {
       }
     }
   }, [selectedBranch, activeTab, itemsPage, itemsRowsPerPage, itemsSearch, itemsTypeFilter, itemsCategoryFilter,
-      categoriesPage, categoriesRowsPerPage, categoriesSearch, categoriesTypeFilter,
+      categoriesPage, categoriesRowsPerPage, categoriesSearch, categoriesTypeFilter, categoriesStatusFilter,
       grnsPage, grnsRowsPerPage, grnsSearch,
       adjustmentsPage, adjustmentsRowsPerPage, adjustmentsSearch,
       transfersPage, transfersRowsPerPage, transfersSearch, transfersStatusFilter]);
@@ -411,6 +412,7 @@ export default function Inventory() {
         search: categoriesSearch || undefined,
         branchId: selectedBranch,
         type: categoriesTypeFilter || undefined,
+        isActive: categoriesStatusFilter || undefined,
         parentId: 'null' // Only fetch main categories
       });
 
@@ -550,10 +552,10 @@ export default function Inventory() {
     try {
       setLoading(true);
       setLoadingMessage('Deleting category...');
-      await categoryServices.deleteCategory(categoryDeleteDialog.category._id);
+      await categoryServices.permanentlyDeleteCategory(categoryDeleteDialog.category._id);
       toast({
         title: "Success",
-        description: "Category deleted successfully",
+        description: "Category permanently deleted successfully",
         variant: "success",
       });
       fetchCategoryList();
@@ -562,6 +564,28 @@ export default function Inventory() {
       toast({
         title: "Error",
         description: error.response?.data?.message || 'Failed to delete category',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleCategoryStatus = async (category: Category) => {
+    try {
+      setLoading(true);
+      setLoadingMessage(`${category.isActive ? 'Deactivating' : 'Activating'} category...`);
+      await categoryServices.toggleCategoryStatus(category._id);
+      toast({
+        title: "Success",
+        description: `Category ${category.isActive ? 'deactivated' : 'activated'} successfully`,
+        variant: "success",
+      });
+      fetchCategoryList();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to toggle category status',
         variant: "destructive",
       });
     } finally {
@@ -904,7 +928,7 @@ export default function Inventory() {
                       </Select>
                     )}
                     <Select value={categoriesTypeFilter || "all"} onValueChange={(value) => setCategoriesTypeFilter(value === "all" ? "" : value)}>
-                      <SelectTrigger className="w-48 h-9">
+                      <SelectTrigger className="w-40 h-9">
                         <SelectValue placeholder="All types" />
                       </SelectTrigger>
                       <SelectContent>
@@ -912,6 +936,16 @@ export default function Inventory() {
                         <SelectItem value="both">Both</SelectItem>
                         <SelectItem value="raw_material">Raw Material</SelectItem>
                         <SelectItem value="finished_good">Finished Good</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={categoriesStatusFilter || "all"} onValueChange={(value) => setCategoriesStatusFilter(value === "all" ? "" : value)}>
+                      <SelectTrigger className="w-40 h-9">
+                        <SelectValue placeholder="All status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All status</SelectItem>
+                        <SelectItem value="true">Active</SelectItem>
+                        <SelectItem value="false">Inactive</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -980,7 +1014,16 @@ export default function Inventory() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => handleToggleCategoryStatus(category)}
+                            title={category.isActive ? 'Deactivate' : 'Activate'}
+                          >
+                            <Power className={`h-4 w-4 ${category.isActive ? 'text-green-600' : 'text-gray-400'}`} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleEditCategory(category)}
+                            title="Edit"
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
@@ -988,8 +1031,9 @@ export default function Inventory() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDeleteCategory(category)}
+                            title="Permanently delete"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash className="h-4 w-4 text-red-600" />
                           </Button>
                         </div>
                       </TableCell>
@@ -1461,8 +1505,8 @@ export default function Inventory() {
         open={categoryDeleteDialog.open}
         onClose={() => setCategoryDeleteDialog({ open: false, category: null })}
         onConfirm={confirmDeleteCategory}
-        title="Delete Category"
-        description={`Are you sure you want to delete "${categoryDeleteDialog.category?.name}"? This action cannot be undone.`}
+        title="Permanently Delete Category"
+        description={`Are you sure you want to permanently delete "${categoryDeleteDialog.category?.name}"? This action cannot be undone and will remove the category from the database.`}
       />
     </>
   );

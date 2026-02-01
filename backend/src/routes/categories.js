@@ -5,6 +5,7 @@ import {
   getCategoryById,
   updateCategory,
   deleteCategory,
+  permanentlyDeleteCategory,
   toggleCategoryStatus,
   getCategoryTree,
   reorderCategories
@@ -24,6 +25,7 @@ router.get('/tree/:branchId', getCategoryTree);
 router.get('/:id', getCategoryById);
 router.put('/:id', updateCategory);
 router.delete('/:id', deleteCategory);
+router.delete('/:id/permanent', permanentlyDeleteCategory);
 router.patch('/:id/toggle-status', toggleCategoryStatus);
 
 export default router;

@@ -83,14 +83,20 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
       search = '',
       branchId = '',
       type = '',
-      isActive = true,
+      isActive = '',
       parentId = ''
     } = filters;
 
     // Build query
-    const query = {
-      isActive: isActive === 'false' ? false : true
-    };
+    const query = {};
+
+    // Active/Inactive filter
+    if (isActive === 'true') {
+      query.isActive = true;
+    } else if (isActive === 'false') {
+      query.isActive = false;
+    }
+    // If isActive is empty string or not provided, show all
 
     // Branch filtering
     if (branchId) {
@@ -290,6 +296,50 @@ export const deleteCategory = async (categoryId, companyId, userBranchIds = null
     return category;
   } catch (error) {
     logger.error('Error deleting category:', error);
+    throw error;
+  }
+};
+
+/**
+ * Permanently delete category (hard delete)
+ * @param {string} categoryId - Category ID
+ * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
+ * @returns {Promise<Object>} Deleted category
+ */
+export const permanentlyDeleteCategory = async (categoryId, companyId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
+
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      throw new Error('Category not found');
+    }
+
+    // If user is company_admin, verify they have access
+    if (userBranchIds && userBranchIds.length > 0) {
+      if (!userBranchIds.includes(category.branchId.toString())) {
+        throw new Error('You do not have access to this category');
+      }
+    }
+
+    // Check if category has subcategories
+    const subcategories = await Category.find({ parent: categoryId });
+    if (subcategories.length > 0) {
+      throw new Error('Cannot delete category with subcategories. Please delete subcategories first.');
+    }
+
+    // Hard delete
+    await Category.findByIdAndDelete(categoryId);
+
+    logger.info(`Category permanently deleted: ${categoryId} for company: ${companyId}`);
+
+    return category;
+  } catch (error) {
+    logger.error('Error permanently deleting category:', error);
     throw error;
   }
 };

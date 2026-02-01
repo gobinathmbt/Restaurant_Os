@@ -180,7 +180,7 @@ export const deleteCategory = async (req, res, next) => {
     // Delete category
     await categoryService.deleteCategory(id, companyId, userBranchIds);
 
-    logger.info('Category deleted via API', { 
+    logger.info('Category soft deleted via API', { 
       categoryId: id, 
       companyId, 
       userId 
@@ -188,10 +188,58 @@ export const deleteCategory = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Category deleted successfully'
+      message: 'Category deactivated successfully'
     });
   } catch (error) {
     logger.error('Delete category error', error);
+    
+    if (error.message === 'Category not found' || error.message === 'You do not have access to this category') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Cannot delete category')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Permanently delete category (hard delete)
+ * DELETE /api/categories/:id/permanent
+ */
+export const permanentlyDeleteCategory = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id } = req.params;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null
+      : branchIds;
+
+    // Permanently delete category
+    await categoryService.permanentlyDeleteCategory(id, companyId, userBranchIds);
+
+    logger.info('Category permanently deleted via API', { 
+      categoryId: id, 
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Category permanently deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Permanently delete category error', error);
     
     if (error.message === 'Category not found' || error.message === 'You do not have access to this category') {
       return res.status(404).json({

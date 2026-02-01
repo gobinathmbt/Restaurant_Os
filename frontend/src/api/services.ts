@@ -213,7 +213,7 @@ export const supplierServices = {
 // Category Services
 export const categoryServices = {
   // Get all categories
-  getCategories: (params?: { page?: number; limit?: number; search?: string; branchId?: string; type?: string; isActive?: boolean; parentId?: string }) =>
+  getCategories: (params?: { page?: number; limit?: number; search?: string; branchId?: string; type?: string; isActive?: string; parentId?: string }) =>
     apiClient.get("/api/categories", { params }),
 
   // Get single category
@@ -228,9 +228,13 @@ export const categoryServices = {
   updateCategory: (id: string, data: any) =>
     apiClient.put(`/api/categories/${id}`, data),
 
-  // Delete category
+  // Delete category (soft delete - deactivate)
   deleteCategory: (id: string) =>
     apiClient.delete(`/api/categories/${id}`),
+
+  // Permanently delete category (hard delete)
+  permanentlyDeleteCategory: (id: string) =>
+    apiClient.delete(`/api/categories/${id}/permanent`),
 
   // Toggle category status
   toggleCategoryStatus: (id: string) =>

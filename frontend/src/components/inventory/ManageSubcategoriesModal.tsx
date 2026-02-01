@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { GripVertical, Edit, Trash2, Plus } from 'lucide-react';
+import { GripVertical, Edit, Trash, Power,Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
@@ -102,10 +102,10 @@ export default function ManageSubcategoriesModal({
 
     try {
       setLoading(true);
-      await categoryServices.deleteCategory(deleteDialog.subcategory._id);
+      await categoryServices.permanentlyDeleteCategory(deleteDialog.subcategory._id);
       toast({
         title: "Success",
-        description: "Subcategory deleted successfully",
+        description: "Subcategory permanently deleted successfully",
         variant: "success",
       });
       setDeleteDialog({ open: false, subcategory: null });
@@ -114,6 +114,27 @@ export default function ManageSubcategoriesModal({
       toast({
         title: "Error",
         description: error.response?.data?.message || 'Failed to delete subcategory',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleStatus = async (subcategory: Category) => {
+    try {
+      setLoading(true);
+      await categoryServices.toggleCategoryStatus(subcategory._id);
+      toast({
+        title: "Success",
+        description: `Subcategory ${subcategory.isActive ? 'deactivated' : 'activated'} successfully`,
+        variant: "success",
+      });
+      fetchSubcategories(); // Refresh list
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to toggle subcategory status',
         variant: "destructive",
       });
     } finally {
@@ -260,8 +281,24 @@ export default function ManageSubcategoriesModal({
                          subcategory.type === 'raw_material' ? 'Raw' : 'Finished'}
                       </Badge>
 
+                      {/* Status Badge */}
+                      <Badge 
+                        variant={subcategory.isActive ? 'default' : 'secondary'}
+                        className="flex-shrink-0"
+                      >
+                        {subcategory.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+
                       {/* Actions */}
                       <div className="flex items-center gap-1 flex-shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleStatus(subcategory)}
+                          title={subcategory.isActive ? 'Deactivate' : 'Activate'}
+                        >
+                          <Power className={`h-4 w-4 ${subcategory.isActive ? 'text-green-600' : 'text-gray-400'}`} />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -274,9 +311,9 @@ export default function ManageSubcategoriesModal({
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteSubcategory(subcategory)}
-                          title="Delete"
+                          title="Permanently delete"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash className="h-4 w-4 text-red-600" />
                         </Button>
                       </div>
                     </div>
@@ -312,8 +349,8 @@ export default function ManageSubcategoriesModal({
         open={deleteDialog.open}
         onClose={() => setDeleteDialog({ open: false, subcategory: null })}
         onConfirm={confirmDelete}
-        title="Delete Subcategory"
-        description={`Are you sure you want to delete "${deleteDialog.subcategory?.name}"? This action cannot be undone.`}
+        title="Permanently Delete Subcategory"
+        description={`Are you sure you want to permanently delete "${deleteDialog.subcategory?.name}"? This action cannot be undone and will remove the subcategory from the database.`}
       />
     </>
   );
