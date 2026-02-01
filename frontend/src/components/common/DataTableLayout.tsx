@@ -558,7 +558,7 @@ export default function DataTableLayout({
             {paginationEnabled && totalPages > 0 && (
               <>
                 <div className="flex items-center gap-2">
-                  <Label className="text-sm text-muted-foreground">Go to:</Label>
+                  <Label className="text-sm text-muted-foreground">Go:</Label>
                   <Select
                     value={currentPage.toString()}
                     onValueChange={(value) => onPageChange(parseInt(value))}
@@ -568,10 +568,6 @@ export default function DataTableLayout({
                     </SelectTrigger>
                     <SelectContent>{getPageOptions()}</SelectContent>
                   </Select>
-                </div>
-
-                <div className="text-sm text-muted-foreground">
-                  Total: {totalCount}
                 </div>
               </>
             )}

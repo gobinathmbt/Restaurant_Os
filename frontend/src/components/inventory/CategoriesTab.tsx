@@ -212,8 +212,8 @@ export default function CategoriesTab({
         <DataTableLayout
           statChips={[
             { label: 'Total', value: categoriesTotalCount, variant: 'default' },
-            { label: 'Active', value: activeCategories, variant: 'default', bgColor: 'bg-green-100 text-green-800' },
-            { label: 'Inactive', value: inactiveCategories, variant: 'secondary' },
+            { label: 'Active', value: activeCategories,  variant: 'default' },
+            { label: 'Inactive', value: inactiveCategories,  variant: 'default' },
           ]}
           actionButtons={[
             {

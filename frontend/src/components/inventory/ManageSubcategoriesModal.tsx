@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { GripVertical, Edit, Trash, Power,Plus } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { GripVertical, Edit, Trash, Power, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
@@ -44,6 +44,8 @@ export default function ManageSubcategoriesModal({
   const [subcategories, setSubcategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [draggedItem, setDraggedItem] = useState<Category | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Form modal state
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -60,6 +62,15 @@ export default function ManageSubcategoriesModal({
       fetchSubcategories();
     }
   }, [open, parentCategory]);
+
+  // Cleanup auto-scroll on unmount
+  useEffect(() => {
+    return () => {
+      if (autoScrollIntervalRef.current) {
+        clearInterval(autoScrollIntervalRef.current);
+      }
+    };
+  }, []);
 
   const fetchSubcategories = async () => {
     if (!parentCategory) return;
@@ -148,6 +159,29 @@ export default function ManageSubcategoriesModal({
     fetchSubcategories(); // Refresh list
   };
 
+  const startAutoScroll = (direction: 'up' | 'down') => {
+    if (autoScrollIntervalRef.current) {
+      clearInterval(autoScrollIntervalRef.current);
+    }
+
+    const scrollSpeed = 10; // pixels per interval
+    const scrollInterval = 16; // ~60fps
+
+    autoScrollIntervalRef.current = setInterval(() => {
+      if (scrollContainerRef.current) {
+        const scrollAmount = direction === 'up' ? -scrollSpeed : scrollSpeed;
+        scrollContainerRef.current.scrollTop += scrollAmount;
+      }
+    }, scrollInterval);
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollIntervalRef.current) {
+      clearInterval(autoScrollIntervalRef.current);
+      autoScrollIntervalRef.current = null;
+    }
+  };
+
   const handleDragStart = (e: React.DragEvent, subcategory: Category) => {
     setDraggedItem(subcategory);
     e.dataTransfer.effectAllowed = 'move';
@@ -156,10 +190,38 @@ export default function ManageSubcategoriesModal({
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+
+    // Auto-scroll logic
+    if (!scrollContainerRef.current) return;
+
+    const container = scrollContainerRef.current;
+    const rect = container.getBoundingClientRect();
+    const scrollThreshold = 50; // pixels from edge to trigger scroll
+    const mouseY = e.clientY;
+
+    const distanceFromTop = mouseY - rect.top;
+    const distanceFromBottom = rect.bottom - mouseY;
+
+    if (distanceFromTop < scrollThreshold && container.scrollTop > 0) {
+      // Near top edge - scroll up
+      startAutoScroll('up');
+    } else if (distanceFromBottom < scrollThreshold && 
+               container.scrollTop < container.scrollHeight - container.clientHeight) {
+      // Near bottom edge - scroll down
+      startAutoScroll('down');
+    } else {
+      // Not near edges - stop auto-scroll
+      stopAutoScroll();
+    }
+  };
+
+  const handleDragEnd = () => {
+    stopAutoScroll();
   };
 
   const handleDrop = async (e: React.DragEvent, targetSubcategory: Category) => {
     e.preventDefault();
+    stopAutoScroll();
     
     if (!draggedItem || draggedItem._id === targetSubcategory._id) {
       setDraggedItem(null);
@@ -208,6 +270,11 @@ export default function ManageSubcategoriesModal({
     }
   };
 
+  // Calculate counts
+  const totalCount = subcategories.length;
+  const activeCount = subcategories.filter(s => s.isActive).length;
+  const inactiveCount = subcategories.filter(s => !s.isActive).length;
+
   return (
     <>
       <Dialog open={open} onOpenChange={onClose}>
@@ -218,7 +285,10 @@ export default function ManageSubcategoriesModal({
             </DialogTitle>
           </DialogHeader>
 
-          <DialogBody className="overflow-y-auto">
+          <DialogBody 
+            ref={scrollContainerRef}
+            className="overflow-y-auto"
+          >
             <div className="space-y-2">
               {/* Add Subcategory Button */}
               <Button
@@ -248,6 +318,7 @@ export default function ManageSubcategoriesModal({
                       draggable
                       onDragStart={(e) => handleDragStart(e, subcategory)}
                       onDragOver={handleDragOver}
+                      onDragEnd={handleDragEnd}
                       onDrop={(e) => handleDrop(e, subcategory)}
                       className={cn(
                         "flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors group",
