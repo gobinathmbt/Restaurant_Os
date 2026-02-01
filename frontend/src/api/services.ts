@@ -241,8 +241,20 @@ export const categoryServices = {
     apiClient.patch(`/api/categories/${id}/toggle-status`),
 
   // Get category tree
-  getCategoryTree: (branchId: string) =>
-    apiClient.get(`/api/categories/tree/${branchId}`),
+  getCategoryTree: (branchId?: string, branchIds?: string[]) => {
+    const params: any = {};
+    if (branchId) {
+      // Single branch (backward compatibility)
+      return apiClient.get(`/api/categories/tree/${branchId}`);
+    } else if (branchIds && branchIds.length > 0) {
+      // Multiple branches
+      params.branchIds = branchIds;
+      return apiClient.get("/api/categories/tree", { params });
+    } else {
+      // All accessible branches
+      return apiClient.get("/api/categories/tree");
+    }
+  },
 
   // Get subcategories of a parent category
   getSubcategories: (parentId: string) =>

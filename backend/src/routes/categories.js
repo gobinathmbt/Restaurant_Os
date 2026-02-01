@@ -21,7 +21,7 @@ router.use(authenticate);
 router.get('/', getCategories);
 router.post('/', createCategory);
 router.patch('/reorder', reorderCategories);
-router.get('/tree/:branchId', getCategoryTree);
+router.get('/tree/:branchId?', getCategoryTree); // Optional branchId parameter
 router.get('/:id', getCategoryById);
 router.put('/:id', updateCategory);
 router.delete('/:id', deleteCategory);

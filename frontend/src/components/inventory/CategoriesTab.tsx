@@ -32,15 +32,22 @@ interface Category {
   type: string;
   color: string;
   displayOrder: number;
-  branchId: {
+  branchIds: Array<{
     _id: string;
     name: string;
-  };
+    code: string;
+  }>;
   parent?: {
     _id: string;
     name: string;
   } | string;
   isActive: boolean;
+  editableBranches?: Array<{
+    _id: string;
+    name: string;
+    code: string;
+  }>;
+  canEdit?: boolean;
 }
 
 interface CategoriesTabProps {
@@ -311,6 +318,7 @@ export default function CategoriesTab({
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Branches</TableHead>
                   <TableHead>Color</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -341,6 +349,24 @@ export default function CategoriesTab({
                       </Badge>
                     </TableCell>
                     <TableCell>
+                      <div className="flex flex-wrap gap-1 max-w-xs">
+                        {category.branchIds && category.branchIds.length > 0 ? (
+                          category.branchIds.slice(0, 3).map((branch) => (
+                            <Badge key={branch._id} variant="secondary" className="text-xs">
+                              {branch.name}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground text-xs">No branches</span>
+                        )}
+                        {category.branchIds && category.branchIds.length > 3 && (
+                          <Badge variant="secondary" className="text-xs">
+                            +{category.branchIds.length - 3} more
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-2">
                         <div
                           className="w-6 h-6 rounded border"
@@ -369,6 +395,7 @@ export default function CategoriesTab({
                           size="sm"
                           onClick={() => handleToggleCategoryStatus(category)}
                           title={category.isActive ? 'Deactivate' : 'Activate'}
+                          disabled={!category.canEdit}
                         >
                           <Power className={`h-4 w-4 ${category.isActive ? 'text-green-600' : 'text-gray-400'}`} />
                         </Button>
@@ -377,6 +404,7 @@ export default function CategoriesTab({
                           size="sm"
                           onClick={() => handleEditCategory(category)}
                           title="Edit"
+                          disabled={!category.canEdit}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -385,6 +413,7 @@ export default function CategoriesTab({
                           size="sm"
                           onClick={() => handleDeleteCategory(category)}
                           title="Permanently delete"
+                          disabled={!category.canEdit}
                         >
                           <Trash className="h-4 w-4 text-red-600" />
                         </Button>

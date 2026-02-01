@@ -311,24 +311,42 @@ export const toggleCategoryStatus = async (req, res, next) => {
 };
 
 /**
- * Get category tree for a branch
- * GET /api/categories/tree/:branchId
+ * Get category tree for branches
+ * GET /api/categories/tree/:branchId or GET /api/categories/tree (with query params)
  */
 export const getCategoryTree = async (req, res, next) => {
   try {
-    const { companyId, role, branchIds } = req.user;
+    const { companyId, role, branchIds: userBranchIds } = req.user;
     const { branchId } = req.params;
+    const { branchIds: queryBranchIds } = req.query;
 
-    // If user is company_admin, verify they have access to the branch
-    if (role === 'company_admin' && !branchIds.includes(branchId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Determine which branches to get tree for
+    let targetBranchIds = [];
+    
+    if (branchId) {
+      // Single branch from params
+      targetBranchIds = [branchId];
+    } else if (queryBranchIds) {
+      // Multiple branches from query
+      targetBranchIds = Array.isArray(queryBranchIds) ? queryBranchIds : [queryBranchIds];
+    } else if (userBranchIds && userBranchIds.length > 0) {
+      // User's accessible branches
+      targetBranchIds = userBranchIds;
+    }
+
+    // If user is company_admin, verify they have access to requested branches
+    if (role === 'company_admin' && userBranchIds && userBranchIds.length > 0) {
+      const invalidBranches = targetBranchIds.filter(id => !userBranchIds.includes(id));
+      if (invalidBranches.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to one or more requested branches'
+        });
+      }
     }
 
     // Get category tree
-    const tree = await categoryService.getCategoryTree(branchId, companyId);
+    const tree = await categoryService.getCategoryTree(targetBranchIds, companyId);
 
     res.json({
       success: true,

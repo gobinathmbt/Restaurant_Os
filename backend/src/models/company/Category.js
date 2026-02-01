@@ -10,11 +10,11 @@ const categorySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  branchId: {
+  branchIds: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch',
     required: true
-  },
+  }],
   type: {
     type: String,
     enum: ['raw_material', 'finished_good', 'both'],
@@ -46,8 +46,8 @@ const categorySchema = new mongoose.Schema({
 });
 
 // Indexes for faster queries
-categorySchema.index({ name: 1, branchId: 1 });
-categorySchema.index({ branchId: 1 });
+categorySchema.index({ name: 1 });
+categorySchema.index({ branchIds: 1 });
 categorySchema.index({ parent: 1 });
 categorySchema.index({ isActive: 1 });
 categorySchema.index({ displayOrder: 1 });
@@ -80,16 +80,22 @@ categorySchema.methods.getPath = async function() {
 };
 
 // Static method to get category tree
-categorySchema.statics.getTree = async function(branchId, parentId = null) {
-  const categories = await this.find({ 
-    branchId, 
+categorySchema.statics.getTree = async function(branchIds, parentId = null) {
+  const query = { 
     parent: parentId, 
     isActive: true 
-  }).sort({ displayOrder: 1, name: 1 });
+  };
+  
+  // Filter by branches if provided
+  if (branchIds && branchIds.length > 0) {
+    query.branchIds = { $in: branchIds };
+  }
+  
+  const categories = await this.find(query).sort({ displayOrder: 1, name: 1 });
   
   const tree = [];
   for (const category of categories) {
-    const subcategories = await this.getTree(branchId, category._id);
+    const subcategories = await this.getTree(branchIds, category._id);
     tree.push({
       ...category.toObject(),
       subcategories

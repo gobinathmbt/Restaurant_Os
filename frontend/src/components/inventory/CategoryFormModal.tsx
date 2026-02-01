@@ -2,7 +2,14 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -10,9 +17,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { ChevronsUpDown, Check, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { categoryServices } from '@/api/services';
+import { categoryServices, branchServices } from '@/api/services';
+import { useAuth } from '@/contexts/AuthContext';
+
+interface Branch {
+  _id: string;
+  name: string;
+  code: string;
+}
 
 interface Category {
   _id: string;
@@ -21,17 +48,22 @@ interface Category {
   type: string;
   color: string;
   displayOrder: number;
-  parent?: {
-    _id: string;
-    name: string;
-  } | string;
+  branchIds?: Array<{ _id: string; name: string; code: string }>;
+  parent?:
+    | {
+        _id: string;
+        name: string;
+      }
+    | string;
+  editableBranches?: Array<{ _id: string; name: string; code: string }>;
+  canEdit?: boolean;
 }
 
 interface CategoryFormModalProps {
   open: boolean;
   onClose: () => void;
   category: Category | null;
-  branchId: string;
+  branchId?: string;
   onSuccess: () => void;
   parentCategory?: Category | null;
 }
@@ -42,45 +74,107 @@ export default function CategoryFormModal({
   category,
   branchId,
   onSuccess,
-  parentCategory
+  parentCategory,
 }: CategoryFormModalProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     type: 'both',
-    color: '#6366f1'
+    color: '#6366f1',
+    selectedBranches: [] as string[],
   });
+
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(
+    user?.role || ''
+  );
+
+  useEffect(() => {
+    if (open) {
+      fetchBranches();
+    }
+  }, [open]);
 
   useEffect(() => {
     if (category && open) {
+      // For editing, use editableBranches if available (filtered by user permissions)
+      const branchIdsToUse = category.editableBranches || category.branchIds || [];
+
       setFormData({
         name: category.name || '',
         description: category.description || '',
         type: category.type || 'both',
-        color: category.color || '#6366f1'
+        color: category.color || '#6366f1',
+        selectedBranches: branchIdsToUse.map((b) => b._id),
       });
     } else if (!category && open) {
       resetForm();
     }
-  }, [category, open, parentCategory]);
+  }, [category, open, parentCategory, branches]);
+
+  const fetchBranches = async () => {
+    try {
+      setLoadingBranches(true);
+      const response = await branchServices.getBranches({ limit: 1000, isActive: true });
+      setBranches(response.data.data.branches || []);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to fetch branches',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingBranches(false);
+    }
+  };
 
   const resetForm = () => {
     setFormData({
       name: '',
       description: '',
       type: 'both',
-      color: '#6366f1'
+      color: '#6366f1',
+      selectedBranches: branchId ? [branchId] : [],
     });
+  };
+
+  const handleBranchToggle = (branchIdToToggle: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      selectedBranches: prev.selectedBranches.includes(branchIdToToggle)
+        ? prev.selectedBranches.filter((id) => id !== branchIdToToggle)
+        : [...prev.selectedBranches, branchIdToToggle],
+    }));
+  };
+
+  const handleSelectAllBranches = () => {
+    if (formData.selectedBranches.length === branches.length) {
+      setFormData((prev) => ({ ...prev, selectedBranches: [] }));
+    } else {
+      setFormData((prev) => ({ ...prev, selectedBranches: branches.map((b) => b._id) }));
+    }
   };
 
   const validateForm = () => {
     if (!formData.name.trim()) {
       toast({
-        title: "Validation Error",
-        description: "Category name is required",
-        variant: "destructive",
+        title: 'Validation Error',
+        description: 'Category name is required',
+        variant: 'destructive',
+      });
+      return false;
+    }
+
+    if (formData.selectedBranches.length === 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please select at least one branch',
+        variant: 'destructive',
       });
       return false;
     }
@@ -101,36 +195,37 @@ export default function CategoryFormModal({
       const submitData = {
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
-        branchId,
+        branchIds: formData.selectedBranches,
         type: formData.type,
         color: formData.color,
-        parent: parentCategory?._id || null
+        parent: parentCategory?._id || null,
       };
 
       if (category) {
         await categoryServices.updateCategory(category._id, submitData);
         toast({
-          title: "Success",
-          description: "Category updated successfully",
-          variant: "success",
+          title: 'Success',
+          description: 'Category updated successfully',
+          variant: 'success',
         });
       } else {
         await categoryServices.createCategory(submitData);
         toast({
-          title: "Success",
-          description: parentCategory 
-            ? `Subcategory added to ${parentCategory.name}` 
-            : "Category created successfully",
-          variant: "success",
+          title: 'Success',
+          description: parentCategory
+            ? `Subcategory added to ${parentCategory.name}`
+            : 'Category created successfully',
+          variant: 'success',
         });
       }
 
       onSuccess();
     } catch (error: any) {
       toast({
-        title: "Error",
-        description: error.response?.data?.message || `Failed to ${category ? 'update' : 'create'} category`,
-        variant: "destructive",
+        title: 'Error',
+        description:
+          error.response?.data?.message || `Failed to ${category ? 'update' : 'create'} category`,
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -152,13 +247,13 @@ export default function CategoryFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {category 
-              ? 'Edit Category' 
-              : parentCategory 
-                ? `Add Subcategory to ${parentCategory.name}` 
+            {category
+              ? 'Edit Category'
+              : parentCategory
+                ? `Add Subcategory to ${parentCategory.name}`
                 : 'Add Category'}
           </DialogTitle>
         </DialogHeader>
@@ -168,7 +263,17 @@ export default function CategoryFormModal({
             {parentCategory && (
               <div className="bg-muted p-3 rounded-lg">
                 <p className="text-sm text-muted-foreground">
-                  Parent Category: <span className="font-medium text-foreground">{parentCategory.name}</span>
+                  Parent Category:{' '}
+                  <span className="font-medium text-foreground">{parentCategory.name}</span>
+                </p>
+              </div>
+            )}
+
+            {category && !category.canEdit && (
+              <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  You can only edit branches you have access to. Other branch assignments will be
+                  preserved.
                 </p>
               </div>
             )}
@@ -244,6 +349,95 @@ export default function CategoryFormModal({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Assign to Branches *</Label>
+                {isSuperAdmin && (
+                  <Button type="button" variant="ghost" size="sm" onClick={handleSelectAllBranches}>
+                    {formData.selectedBranches.length === branches.length
+                      ? 'Deselect All'
+                      : 'Select All'}
+                  </Button>
+                )}
+              </div>
+
+              {loadingBranches ? (
+                <div className="text-sm text-muted-foreground">Loading branches...</div>
+              ) : (
+                <>
+                  {/* Dropdown */}
+                  <Popover open={branchDropdownOpen} onOpenChange={setBranchDropdownOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={branchDropdownOpen}
+                        className="w-full justify-between"
+                      >
+                        {formData.selectedBranches.length > 0
+                          ? `${formData.selectedBranches.length} branch${
+                              formData.selectedBranches.length > 1 ? 'es' : ''
+                            } selected`
+                          : 'Select branches...'}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search branches..." />
+                        <CommandEmpty>No branches found.</CommandEmpty>
+                        <CommandList>
+                          <CommandGroup>
+                            {branches.map((branch) => (
+                              <CommandItem
+                                key={branch._id}
+                                value={`${branch.name} ${branch.code}`}
+                                onSelect={() => handleBranchToggle(branch._id)}
+                              >
+                                <Check
+                                  className={cn(
+                                    'mr-2 h-4 w-4',
+                                    formData.selectedBranches.includes(branch._id)
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{branch.name}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {branch.code}
+                                  </span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Selected branches chips */}
+                  {formData.selectedBranches.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {formData.selectedBranches.map((branchId) => {
+                        const branch = branches.find((b) => b._id === branchId);
+                        return branch ? (
+                          <Badge key={branchId} variant="secondary" className="text-xs gap-1">
+                            {branch.name}
+                            <X
+                              className="h-3 w-3 cursor-pointer"
+                              onClick={() => handleBranchToggle(branchId)}
+                            />
+                          </Badge>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </form>
         </DialogBody>

@@ -23,26 +23,29 @@ export const createCategory = async (categoryData, companyId, userBranchIds = nu
     getBranchModel(companyDB);
 
     // Validate required fields
-    if (!categoryData.name || !categoryData.branchId) {
-      throw new Error('Category name and branch are required');
+    if (!categoryData.name || !categoryData.branchIds || categoryData.branchIds.length === 0) {
+      throw new Error('Category name and at least one branch are required');
     }
 
-    // If user is company_admin, validate they have access to the branch
+    // If user is company_admin, validate they have access to all selected branches
     if (userBranchIds && userBranchIds.length > 0) {
-      if (!userBranchIds.includes(categoryData.branchId.toString())) {
-        throw new Error('You do not have access to this branch');
+      const invalidBranches = categoryData.branchIds.filter(
+        branchId => !userBranchIds.includes(branchId.toString())
+      );
+      
+      if (invalidBranches.length > 0) {
+        throw new Error('You do not have access to one or more selected branches');
       }
     }
 
-    // Check for duplicate category name in the same branch
+    // Check for duplicate category name (global check, not per branch)
     const existingCategory = await Category.findOne({
       name: categoryData.name,
-      branchId: categoryData.branchId,
       parent: categoryData.parent || null
     });
 
     if (existingCategory) {
-      throw new Error('A category with this name already exists in this branch');
+      throw new Error('A category with this name already exists');
     }
 
     // Create category
@@ -53,6 +56,9 @@ export const createCategory = async (categoryData, companyId, userBranchIds = nu
     });
 
     await category.save();
+
+    // Populate branches for response
+    await category.populate('branchIds', 'name code');
 
     logger.info(`Category created: ${category._id} for company: ${companyId}`);
 
@@ -100,10 +106,10 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
 
     // Branch filtering
     if (branchId) {
-      query.branchId = branchId;
+      query.branchIds = branchId;
     } else if (userBranchIds && userBranchIds.length > 0) {
-      // For company_admin, only show categories from their branches
-      query.branchId = { $in: userBranchIds };
+      // For company_admin, only show categories that have at least one of their branches
+      query.branchIds = { $in: userBranchIds };
     }
 
     // Search filter
@@ -132,7 +138,7 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
     // Execute query
     const [categories, total] = await Promise.all([
       Category.find(query)
-        .populate('branchId', 'name code')
+        .populate('branchIds', 'name code')
         .populate('parent', 'name')
         .sort({ displayOrder: 1, name: 1 })
         .skip(skip)
@@ -141,8 +147,26 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
       Category.countDocuments(query)
     ]);
 
+    // Filter categories based on user's branch access for editing
+    const categoriesWithPermissions = categories.map(category => {
+      let editableBranches = category.branchIds;
+      
+      // If user is company_admin, only show branches they have access to
+      if (userBranchIds && userBranchIds.length > 0) {
+        editableBranches = category.branchIds.filter(branch => 
+          userBranchIds.includes(branch._id.toString())
+        );
+      }
+      
+      return {
+        ...category,
+        editableBranches,
+        canEdit: editableBranches.length > 0
+      };
+    });
+
     return {
-      categories,
+      categories: categoriesWithPermissions,
       pagination: {
         total,
         page: parseInt(page),
@@ -171,7 +195,7 @@ export const getCategoryById = async (categoryId, companyId, userBranchIds = nul
     getBranchModel(companyDB);
 
     const category = await Category.findById(categoryId)
-      .populate('branchId', 'name code')
+      .populate('branchIds', 'name code')
       .populate('parent', 'name')
       .lean();
 
@@ -179,14 +203,26 @@ export const getCategoryById = async (categoryId, companyId, userBranchIds = nul
       throw new Error('Category not found');
     }
 
-    // If user is company_admin, verify they have access to the category's branch
+    // Determine which branches the user can edit
+    let editableBranches = category.branchIds;
+    
+    // If user is company_admin, filter to only their accessible branches
     if (userBranchIds && userBranchIds.length > 0) {
-      if (!userBranchIds.includes(category.branchId._id.toString())) {
+      editableBranches = category.branchIds.filter(branch => 
+        userBranchIds.includes(branch._id.toString())
+      );
+      
+      // User must have access to at least one branch to view the category
+      if (editableBranches.length === 0) {
         throw new Error('You do not have access to this category');
       }
     }
 
-    return category;
+    return {
+      ...category,
+      editableBranches,
+      canEdit: editableBranches.length > 0
+    };
   } catch (error) {
     logger.error('Error getting category by ID:', error);
     throw error;
@@ -214,17 +250,48 @@ export const updateCategory = async (categoryId, updateData, companyId, userBran
       throw new Error('Category not found');
     }
 
-    // If user is company_admin, verify they have access
+    // Determine which branches the user can edit
+    let editableBranchIds = existingCategory.branchIds.map(id => id.toString());
+    
+    // If user is company_admin, filter to only their accessible branches
     if (userBranchIds && userBranchIds.length > 0) {
-      if (!userBranchIds.includes(existingCategory.branchId.toString())) {
-        throw new Error('You do not have access to this category');
+      editableBranchIds = existingCategory.branchIds
+        .map(id => id.toString())
+        .filter(branchId => userBranchIds.includes(branchId));
+      
+      if (editableBranchIds.length === 0) {
+        throw new Error('You do not have access to edit this category');
       }
+    }
 
-      // If updating branchId, validate new branch access
-      if (updateData.branchId && updateData.branchId !== existingCategory.branchId.toString()) {
-        if (!userBranchIds.includes(updateData.branchId.toString())) {
-          throw new Error('You do not have access to the target branch');
+    // If updating branchIds, validate access
+    if (updateData.branchIds) {
+      // Super admins can update all branches
+      if (!userBranchIds || userBranchIds.length === 0) {
+        // Super admin - can set any branches
+        editableBranchIds = updateData.branchIds;
+      } else {
+        // Company admin - can only update branches they have access to
+        // Keep existing branches they don't have access to
+        const existingInaccessibleBranches = existingCategory.branchIds
+          .map(id => id.toString())
+          .filter(branchId => !userBranchIds.includes(branchId));
+        
+        // Validate new branches
+        const newBranches = updateData.branchIds.filter(
+          branchId => !existingInaccessibleBranches.includes(branchId)
+        );
+        
+        const invalidBranches = newBranches.filter(
+          branchId => !userBranchIds.includes(branchId)
+        );
+        
+        if (invalidBranches.length > 0) {
+          throw new Error('You do not have access to one or more selected branches');
         }
+        
+        // Merge: keep inaccessible branches + add new accessible branches
+        updateData.branchIds = [...existingInaccessibleBranches, ...newBranches];
       }
     }
 
@@ -232,19 +299,22 @@ export const updateCategory = async (categoryId, updateData, companyId, userBran
     if (updateData.name && updateData.name !== existingCategory.name) {
       const duplicate = await Category.findOne({
         name: updateData.name,
-        branchId: updateData.branchId || existingCategory.branchId,
         parent: updateData.parent !== undefined ? updateData.parent : existingCategory.parent,
         _id: { $ne: categoryId }
       });
 
       if (duplicate) {
-        throw new Error('A category with this name already exists in this branch');
+        throw new Error('A category with this name already exists');
       }
     }
 
     // Update category
     Object.assign(existingCategory, updateData);
     await existingCategory.save();
+
+    // Populate for response
+    await existingCategory.populate('branchIds', 'name code');
+    await existingCategory.populate('parent', 'name');
 
     logger.info(`Category updated: ${categoryId} for company: ${companyId}`);
 
@@ -274,9 +344,13 @@ export const deleteCategory = async (categoryId, companyId, userBranchIds = null
       throw new Error('Category not found');
     }
 
-    // If user is company_admin, verify they have access
+    // If user is company_admin, verify they have access to at least one branch
     if (userBranchIds && userBranchIds.length > 0) {
-      if (!userBranchIds.includes(category.branchId.toString())) {
+      const hasAccess = category.branchIds.some(branchId => 
+        userBranchIds.includes(branchId.toString())
+      );
+      
+      if (!hasAccess) {
         throw new Error('You do not have access to this category');
       }
     }
@@ -319,9 +393,13 @@ export const permanentlyDeleteCategory = async (categoryId, companyId, userBranc
       throw new Error('Category not found');
     }
 
-    // If user is company_admin, verify they have access
+    // If user is company_admin, verify they have access to at least one branch
     if (userBranchIds && userBranchIds.length > 0) {
-      if (!userBranchIds.includes(category.branchId.toString())) {
+      const hasAccess = category.branchIds.some(branchId => 
+        userBranchIds.includes(branchId.toString())
+      );
+      
+      if (!hasAccess) {
         throw new Error('You do not have access to this category');
       }
     }
@@ -345,19 +423,22 @@ export const permanentlyDeleteCategory = async (categoryId, companyId, userBranc
 };
 
 /**
- * Get category tree for a branch
- * @param {string} branchId - Branch ID
+ * Get category tree for branches
+ * @param {string|Array} branchIds - Branch ID(s)
  * @param {string} companyId - Company ID
  * @returns {Promise<Array>} Category tree
  */
-export const getCategoryTree = async (branchId, companyId) => {
+export const getCategoryTree = async (branchIds, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
     // Ensure Branch model is registered for population
     getBranchModel(companyDB);
 
-    const tree = await Category.getTree(branchId);
+    // Convert single branchId to array
+    const branchIdArray = Array.isArray(branchIds) ? branchIds : [branchIds];
+
+    const tree = await Category.getTree(branchIdArray);
 
     return tree;
   } catch (error) {
@@ -388,9 +469,13 @@ export const reorderCategories = async (updates, companyId, userBranchIds = null
         throw new Error(`Category ${update.categoryId} not found`);
       }
 
-      // If user is company_admin, verify they have access
+      // If user is company_admin, verify they have access to at least one branch
       if (userBranchIds && userBranchIds.length > 0) {
-        if (!userBranchIds.includes(category.branchId.toString())) {
+        const hasAccess = category.branchIds.some(branchId => 
+          userBranchIds.includes(branchId.toString())
+        );
+        
+        if (!hasAccess) {
           throw new Error('You do not have access to one or more categories');
         }
       }
