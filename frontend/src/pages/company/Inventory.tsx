@@ -16,8 +16,8 @@ import CategoriesTab from '@/components/inventory/CategoriesTab';
 import GRNTab from '@/components/inventory/GRNTab';
 import StockAdjustmentsTab from '@/components/inventory/StockAdjustmentsTab';
 import StockTransfersTab from '@/components/inventory/StockTransfersTab';
-import { COOKIE_KEYS } from '@/utils/cookies';
-import { useTabCookie } from '@/hooks/useCookie';
+import { STORAGE_KEYS } from '@/utils/storage';
+import { useTabStorage } from '@/hooks/useStorage';
 
 interface Branch {
   _id: string;
@@ -32,8 +32,8 @@ export default function Inventory() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   
-  // Use cookie hook to persist active tab (12-hour expiration)
-  const [activeTab, setActiveTab] = useTabCookie(COOKIE_KEYS.INVENTORY_ACTIVE_TAB, 'items');
+  // Use storage hook to persist active tab per browser tab (sessionStorage)
+  const [activeTab, setActiveTab] = useTabStorage(STORAGE_KEYS.INVENTORY_ACTIVE_TAB, 'items');
 
   // Determine user's branch access
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
