@@ -204,7 +204,7 @@ export default function Recipes() {
                   <SelectValue placeholder="All finished goods" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All finished goods</SelectItem>
+                  <SelectItem value="all">All finished goods</SelectItem>
                   {finishedGoods.map((item) => (
                     <SelectItem key={item._id} value={item._id}>
                       {item.name}

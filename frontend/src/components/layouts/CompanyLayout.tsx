@@ -20,6 +20,9 @@ import {
   Wallet,
   ChevronLeft,
   ChevronRight,
+  PackageOpen,
+  BookOpen,
+  Truck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -41,6 +44,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 
 interface MenuItem {
+  title: string;
+  href?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  roles?: string[];
+  subItems?: SubMenuItem[];
+}
+
+interface SubMenuItem {
   title: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -73,9 +84,28 @@ const menuItems: MenuItem[] = [
   },
   {
     title: 'Inventory',
-    href: '/inventory',
     icon: Package,
     roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+    subItems: [
+      {
+        title: 'Inventory',
+        href: '/inventory',
+        icon: PackageOpen,
+        roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+      },
+      {
+        title: 'Recipes',
+        href: '/recipes',
+        icon: BookOpen,
+        roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+      },
+      {
+        title: 'Suppliers',
+        href: '/suppliers',
+        icon: Truck,
+        roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+      },
+    ],
   },
   {
     title: 'Customers',
@@ -123,6 +153,7 @@ export default function CompanyLayout() {
     const collapsedCookie = cookies.find(c => c.trim().startsWith('sidebar-collapsed='));
     return collapsedCookie ? collapsedCookie.split('=')[1] === 'true' : false;
   });
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
   const location = useLocation();
   const { user, logout } = useAuth();
 
@@ -137,6 +168,21 @@ export default function CompanyLayout() {
   };
 
   const filteredMenuItems = menuItems.filter(item => hasAccess(item.roles));
+
+  const toggleMenu = (title: string) => {
+    setExpandedMenus(prev => ({
+      ...prev,
+      [title]: !prev[title]
+    }));
+  };
+
+  const isMenuActive = (item: MenuItem): boolean => {
+    if (item.href && location.pathname === item.href) return true;
+    if (item.subItems) {
+      return item.subItems.some(subItem => location.pathname === subItem.href);
+    }
+    return false;
+  };
 
   const handleLogout = () => {
     logout();
@@ -217,41 +263,126 @@ export default function CompanyLayout() {
                 )}>
                   <TooltipProvider delayDuration={0}>
                     {filteredMenuItems.map((item) => {
-                      const isActive = location.pathname === item.href;
-                      const linkContent = (
-                        <Link
-                          to={item.href}
-                          className={cn(
-                            'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300',
-                            isActive
-                              ? 'bg-primary-500 text-white'
-                              : 'text-gray-400 hover:text-white hover:bg-neutral-900',
-                            sidebarCollapsed && 'justify-center'
-                          )}
-                        >
-                          <item.icon className="h-5 w-5 shrink-0" />
-                          {!sidebarCollapsed && (
-                            <span className="transition-opacity duration-300">{item.title}</span>
-                          )}
-                        </Link>
-                      );
+                      const isActive = isMenuActive(item);
+                      const hasSubItems = item.subItems && item.subItems.length > 0;
+                      const isExpanded = expandedMenus[item.title];
 
-                      return (
-                        <li key={item.title}>
-                          {sidebarCollapsed ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                {linkContent}
-                              </TooltipTrigger>
-                              <TooltipContent side="right" className="font-semibold">
-                                {item.title}
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            linkContent
-                          )}
-                        </li>
-                      );
+                      if (hasSubItems) {
+                        // Parent menu item with sub-items
+                        return (
+                          <li key={item.title}>
+                            {sidebarCollapsed ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={() => toggleMenu(item.title)}
+                                    className={cn(
+                                      'w-full group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300 justify-center',
+                                      isActive
+                                        ? 'bg-primary-500 text-white'
+                                        : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                    )}
+                                  >
+                                    <item.icon className="h-5 w-5 shrink-0" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="font-semibold">
+                                  <div className="space-y-1">
+                                    <div>{item.title}</div>
+                                    {item.subItems?.filter(subItem => hasAccess(subItem.roles)).map(subItem => (
+                                      <Link
+                                        key={subItem.title}
+                                        to={subItem.href}
+                                        className="block text-xs text-muted-foreground hover:text-foreground"
+                                      >
+                                        {subItem.title}
+                                      </Link>
+                                    ))}
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => toggleMenu(item.title)}
+                                  className={cn(
+                                    'w-full group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300',
+                                    isActive
+                                      ? 'bg-primary-500 text-white'
+                                      : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                  )}
+                                >
+                                  <item.icon className="h-5 w-5 shrink-0" />
+                                  <span className="flex-1 text-left transition-opacity duration-300">{item.title}</span>
+                                  <ChevronDown className={cn(
+                                    "h-4 w-4 transition-transform duration-200",
+                                    isExpanded && "rotate-180"
+                                  )} />
+                                </button>
+                                {isExpanded && (
+                                  <ul className="mt-1 space-y-1 pl-9">
+                                    {item.subItems?.filter(subItem => hasAccess(subItem.roles)).map((subItem) => {
+                                      const isSubActive = location.pathname === subItem.href;
+                                      return (
+                                        <li key={subItem.title}>
+                                          <Link
+                                            to={subItem.href}
+                                            className={cn(
+                                              'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
+                                              isSubActive
+                                                ? 'bg-primary-500 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                            )}
+                                          >
+                                            <subItem.icon className="h-4 w-4 shrink-0" />
+                                            <span>{subItem.title}</span>
+                                          </Link>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                              </>
+                            )}
+                          </li>
+                        );
+                      } else {
+                        // Regular menu item without sub-items
+                        const linkContent = (
+                          <Link
+                            to={item.href!}
+                            className={cn(
+                              'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300',
+                              isActive
+                                ? 'bg-primary-500 text-white'
+                                : 'text-gray-400 hover:text-white hover:bg-neutral-900',
+                              sidebarCollapsed && 'justify-center'
+                            )}
+                          >
+                            <item.icon className="h-5 w-5 shrink-0" />
+                            {!sidebarCollapsed && (
+                              <span className="transition-opacity duration-300">{item.title}</span>
+                            )}
+                          </Link>
+                        );
+
+                        return (
+                          <li key={item.title}>
+                            {sidebarCollapsed ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  {linkContent}
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="font-semibold">
+                                  {item.title}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              linkContent
+                            )}
+                          </li>
+                        );
+                      }
                     })}
                   </TooltipProvider>
                 </ul>
@@ -294,24 +425,76 @@ export default function CompanyLayout() {
           <nav className="px-4 py-4">
             <ul role="list" className="space-y-1">
               {filteredMenuItems.map((item) => {
-                const isActive = location.pathname === item.href;
-                return (
-                  <li key={item.title}>
-                    <Link
-                      to={item.href}
-                      onClick={() => setSidebarOpen(false)}
-                      className={cn(
-                        'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
-                        isActive
-                          ? 'bg-primary-500 text-white'
-                          : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                const isActive = isMenuActive(item);
+                const hasSubItems = item.subItems && item.subItems.length > 0;
+                const isExpanded = expandedMenus[item.title];
+
+                if (hasSubItems) {
+                  // Parent menu item with sub-items
+                  return (
+                    <li key={item.title}>
+                      <button
+                        onClick={() => toggleMenu(item.title)}
+                        className={cn(
+                          'w-full group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
+                          isActive
+                            ? 'bg-primary-500 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                        )}
+                      >
+                        <item.icon className="h-5 w-5 shrink-0" />
+                        <span className="flex-1 text-left">{item.title}</span>
+                        <ChevronDown className={cn(
+                          "h-4 w-4 transition-transform duration-200",
+                          isExpanded && "rotate-180"
+                        )} />
+                      </button>
+                      {isExpanded && (
+                        <ul className="mt-1 space-y-1 pl-9">
+                          {item.subItems?.filter(subItem => hasAccess(subItem.roles)).map((subItem) => {
+                            const isSubActive = location.pathname === subItem.href;
+                            return (
+                              <li key={subItem.title}>
+                                <Link
+                                  to={subItem.href}
+                                  onClick={() => setSidebarOpen(false)}
+                                  className={cn(
+                                    'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
+                                    isSubActive
+                                      ? 'bg-primary-500 text-white'
+                                      : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                  )}
+                                >
+                                  <subItem.icon className="h-4 w-4 shrink-0" />
+                                  {subItem.title}
+                                </Link>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       )}
-                    >
-                      <item.icon className="h-5 w-5 shrink-0" />
-                      {item.title}
-                    </Link>
-                  </li>
-                );
+                    </li>
+                  );
+                } else {
+                  // Regular menu item without sub-items
+                  return (
+                    <li key={item.title}>
+                      <Link
+                        to={item.href!}
+                        onClick={() => setSidebarOpen(false)}
+                        className={cn(
+                          'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
+                          isActive
+                            ? 'bg-primary-500 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                        )}
+                      >
+                        <item.icon className="h-5 w-5 shrink-0" />
+                        {item.title}
+                      </Link>
+                    </li>
+                  );
+                }
               })}
             </ul>
           </nav>

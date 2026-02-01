@@ -19,6 +19,12 @@ import CompanySettings from "@/pages/company/CompanySettings";
 import Branches from "@/pages/company/Branches";
 import Staff from "@/pages/company/Staff";
 import { isElectron } from "@/utils/platform";
+import { lazy, Suspense } from "react";
+
+// Lazy load inventory pages for better performance
+const Inventory = lazy(() => import("@/pages/company/Inventory"));
+const Recipes = lazy(() => import("@/pages/company/Recipes"));
+const Suppliers = lazy(() => import("@/pages/company/Suppliers"));
 
 const queryClient = new QueryClient();
 
@@ -88,7 +94,30 @@ const App = () => {
                   <Route path="pos" element={<div className="p-8">POS Page Coming Soon</div>} />
                   <Route path="orders" element={<div className="p-8">Orders Page Coming Soon</div>} />
                   <Route path="menu" element={<div className="p-8">Menu Page Coming Soon</div>} />
-                  <Route path="inventory" element={<div className="p-8">Inventory Page Coming Soon</div>} />
+                  <Route 
+                    path="inventory" 
+                    element={
+                      <Suspense fallback={<div className="p-8">Loading...</div>}>
+                        <Inventory />
+                      </Suspense>
+                    } 
+                  />
+                  <Route 
+                    path="recipes" 
+                    element={
+                      <Suspense fallback={<div className="p-8">Loading...</div>}>
+                        <Recipes />
+                      </Suspense>
+                    } 
+                  />
+                  <Route 
+                    path="suppliers" 
+                    element={
+                      <Suspense fallback={<div className="p-8">Loading...</div>}>
+                        <Suppliers />
+                      </Suspense>
+                    } 
+                  />
                   <Route path="customers" element={<div className="p-8">Customers Page Coming Soon</div>} />
                   <Route path="staff" element={<Staff />} />
                   <Route path="reports" element={<div className="p-8">Reports Page Coming Soon</div>} />

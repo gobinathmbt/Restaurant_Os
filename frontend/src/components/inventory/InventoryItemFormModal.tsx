@@ -391,7 +391,7 @@ export default function InventoryItemFormModal({
                       <SelectValue placeholder="Select supplier" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="null">None</SelectItem>
                       {suppliers.map((supplier) => (
                         <SelectItem key={supplier._id} value={supplier._id}>
                           {supplier.name}
