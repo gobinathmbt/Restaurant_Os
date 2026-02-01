@@ -46,64 +46,32 @@ export default function CategoryFormModal({
 }: CategoryFormModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     type: 'both',
-    color: '#6366f1',
-    displayOrder: 0,
-    parent: ''
+    color: '#6366f1'
   });
 
   useEffect(() => {
-    if (open) {
-      fetchCategories();
-    }
     if (category && open) {
-      const parentId = typeof category.parent === 'object' && category.parent 
-        ? category.parent._id 
-        : (typeof category.parent === 'string' ? category.parent : '');
       setFormData({
         name: category.name || '',
         description: category.description || '',
         type: category.type || 'both',
-        color: category.color || '#6366f1',
-        displayOrder: category.displayOrder || 0,
-        parent: parentId || ''
+        color: category.color || '#6366f1'
       });
     } else if (!category && open) {
       resetForm();
     }
   }, [category, open, parentCategory]);
 
-  const fetchCategories = async () => {
-    if (!branchId) return;
-    try {
-      const response = await categoryServices.getCategories({
-        branchId,
-        limit: 1000,
-        isActive: true
-      });
-      // Filter out current category to prevent self-parenting
-      const allCategories = response.data.data.categories || [];
-      const filteredCategories = category 
-        ? allCategories.filter((cat: Category) => cat._id !== category._id)
-        : allCategories;
-      setCategories(filteredCategories);
-    } catch (error) {
-      // Silently fail
-    }
-  };
-
   const resetForm = () => {
     setFormData({
       name: '',
       description: '',
       type: 'both',
-      color: '#6366f1',
-      displayOrder: 0,
-      parent: parentCategory?._id || ''
+      color: '#6366f1'
     });
   };
 
@@ -112,15 +80,6 @@ export default function CategoryFormModal({
       toast({
         title: "Validation Error",
         description: "Category name is required",
-        variant: "destructive",
-      });
-      return false;
-    }
-
-    if (formData.displayOrder < 0) {
-      toast({
-        title: "Validation Error",
-        description: "Display order cannot be negative",
         variant: "destructive",
       });
       return false;
@@ -145,8 +104,7 @@ export default function CategoryFormModal({
         branchId,
         type: formData.type,
         color: formData.color,
-        displayOrder: formData.displayOrder,
-        parent: formData.parent && formData.parent !== '' ? formData.parent : null
+        parent: parentCategory?._id || null
       };
 
       if (category) {
@@ -160,7 +118,9 @@ export default function CategoryFormModal({
         await categoryServices.createCategory(submitData);
         toast({
           title: "Success",
-          description: "Category created successfully",
+          description: parentCategory 
+            ? `Subcategory added to ${parentCategory.name}` 
+            : "Category created successfully",
           variant: "success",
         });
       }
@@ -195,12 +155,24 @@ export default function CategoryFormModal({
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {category ? 'Edit Category' : parentCategory ? `Add Subcategory to ${parentCategory.name}` : 'Add Category'}
+            {category 
+              ? 'Edit Category' 
+              : parentCategory 
+                ? `Add Subcategory to ${parentCategory.name}` 
+                : 'Add Category'}
           </DialogTitle>
         </DialogHeader>
 
         <DialogBody>
           <form id="category-form" onSubmit={handleSubmit} className="space-y-4">
+            {parentCategory && (
+              <div className="bg-muted p-3 rounded-lg">
+                <p className="text-sm text-muted-foreground">
+                  Parent Category: <span className="font-medium text-foreground">{parentCategory.name}</span>
+                </p>
+              </div>
+            )}
+
             <div>
               <Label htmlFor="name">Name *</Label>
               <Input
@@ -224,34 +196,6 @@ export default function CategoryFormModal({
             </div>
 
             <div>
-              <Label htmlFor="parent">Parent Category (Optional)</Label>
-              <Select
-                value={formData.parent || "none"}
-                onValueChange={(value) => setFormData({ ...formData, parent: value === "none" ? "" : value })}
-                disabled={!!parentCategory}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="None (Main Category)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None (Main Category)</SelectItem>
-                  {categories
-                    .filter((cat) => !cat.parent) // Only show main categories as parent options
-                    .map((cat) => (
-                      <SelectItem key={cat._id} value={cat._id}>
-                        {cat.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              {parentCategory && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  This will be a subcategory of {parentCategory.name}
-                </p>
-              )}
-            </div>
-
-            <div>
               <Label htmlFor="type">Type</Label>
               <Select
                 value={formData.type}
@@ -268,51 +212,37 @@ export default function CategoryFormModal({
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="color">Color</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="color"
-                    type="color"
-                    value={formData.color}
-                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                    className="w-16 h-10 p-1 cursor-pointer"
-                  />
-                  <Select
-                    value={formData.color}
-                    onValueChange={(value) => setFormData({ ...formData, color: value })}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {colorOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-4 h-4 rounded"
-                              style={{ backgroundColor: option.value }}
-                            />
-                            {option.label}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="displayOrder">Display Order</Label>
+            <div>
+              <Label htmlFor="color">Color</Label>
+              <div className="flex gap-2">
                 <Input
-                  id="displayOrder"
-                  type="number"
-                  min="0"
-                  value={formData.displayOrder}
-                  onChange={(e) => setFormData({ ...formData, displayOrder: parseInt(e.target.value) || 0 })}
-                  placeholder="0"
+                  id="color"
+                  type="color"
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                  className="w-16 h-10 p-1 cursor-pointer"
                 />
+                <Select
+                  value={formData.color}
+                  onValueChange={(value) => setFormData({ ...formData, color: value })}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {colorOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-4 h-4 rounded"
+                            style={{ backgroundColor: option.value }}
+                          />
+                          {option.label}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </form>
@@ -323,7 +253,7 @@ export default function CategoryFormModal({
             Cancel
           </Button>
           <Button type="submit" form="category-form" disabled={loading}>
-            {loading ? 'Saving...' : category ? 'Update Category' : 'Create Category'}
+            {loading ? 'Saving...' : category ? 'Update' : 'Create'}
           </Button>
         </DialogFooter>
       </DialogContent>
