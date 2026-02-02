@@ -13,6 +13,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { supplierServices, branchServices } from '@/api/services';
 import SupplierFormModal from '@/components/inventory/SupplierFormModal';
+import SupplierCategoryFilter from '@/components/inventory/SupplierCategoryFilter';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -70,10 +71,10 @@ export default function Suppliers() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [suppliersLoading, setSuppliersLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [branchFilter, setBranchFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [subcategoryFilter, setSubcategoryFilter] = useState('all');
+  const [branchFilter, setBranchFilter] = useState('all');
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
@@ -115,6 +116,11 @@ export default function Suppliers() {
       }
 
       setBranches(availableBranches);
+
+      // Auto-select branch for single-branch admin
+      if (isSingleBranchAdmin && availableBranches.length === 1) {
+        setBranchFilter(availableBranches[0]._id);
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -135,7 +141,7 @@ export default function Suppliers() {
       setHasMore(true);
       fetchSuppliersInfinite(1, true);
     }
-  }, [page, rowsPerPage, search, categoryFilter, branchFilter, paginationEnabled]);
+  }, [page, rowsPerPage, search, categoryFilter, subcategoryFilter, branchFilter, paginationEnabled]);
 
   const fetchSuppliers = async () => {
     if (!paginationEnabled) return;
@@ -146,8 +152,9 @@ export default function Suppliers() {
         page,
         limit: rowsPerPage,
         search: search || undefined,
-        category: categoryFilter || undefined,
-        branchId: branchFilter || undefined,
+        category: categoryFilter !== 'all' ? categoryFilter : undefined,
+        subcategory: subcategoryFilter !== 'all' ? subcategoryFilter : undefined,
+        branchId: branchFilter !== 'all' ? branchFilter : undefined,
         isActive: true
       });
 
@@ -155,17 +162,6 @@ export default function Suppliers() {
       setSuppliers(fetchedSuppliers);
       setTotalCount(response.data.data.pagination.total);
       setTotalPages(response.data.data.pagination.pages);
-
-      // Extract unique categories from categoryIds
-      const allCategories = new Set<string>();
-      fetchedSuppliers.forEach((supplier: Supplier) => {
-        supplier.categoryIds?.forEach((cat: any) => {
-          const categoryId = typeof cat === 'string' ? cat : cat._id;
-          const categoryName = typeof cat === 'string' ? cat : cat.name;
-          allCategories.add(categoryId);
-        });
-      });
-      setCategories(Array.from(allCategories).sort());
     } catch (error: any) {
       toast({
         title: "Error",
@@ -189,8 +185,9 @@ export default function Suppliers() {
         page: page,
         limit: 20, // Fixed batch size for infinite scroll
         search: search || undefined,
-        category: categoryFilter || undefined,
-        branchId: branchFilter || undefined,
+        category: categoryFilter !== 'all' ? categoryFilter : undefined,
+        subcategory: subcategoryFilter !== 'all' ? subcategoryFilter : undefined,
+        branchId: branchFilter !== 'all' ? branchFilter : undefined,
         isActive: true
       });
 
@@ -199,15 +196,6 @@ export default function Suppliers() {
 
       if (reset) {
         setSuppliers(fetchedSuppliers);
-        // Extract unique categories from categoryIds
-        const allCategories = new Set<string>();
-        fetchedSuppliers.forEach((supplier: Supplier) => {
-          supplier.categoryIds?.forEach((cat: any) => {
-            const categoryId = typeof cat === 'string' ? cat : cat._id;
-            allCategories.add(categoryId);
-          });
-        });
-        setCategories(Array.from(allCategories).sort());
       } else {
         setSuppliers(prev => [...prev, ...fetchedSuppliers]);
       }
@@ -387,19 +375,13 @@ export default function Suppliers() {
                   </SelectContent>
                 </Select>
               )}
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-48 h-9">
-                  <SelectValue placeholder="All categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All categories</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SupplierCategoryFilter
+                selectedBranchId={branchFilter}
+                selectedCategoryId={categoryFilter}
+                selectedSubcategoryId={subcategoryFilter}
+                onCategoryChange={setCategoryFilter}
+                onSubcategoryChange={setSubcategoryFilter}
+              />
             </div>
           )
         }}
@@ -460,10 +442,29 @@ export default function Suppliers() {
                   {supplier.email || <span className="text-muted-foreground">-</span>}
                 </TableCell>
                 <TableCell>
-                  {renderStarRating(supplier.rating)}
+                  {supplier.categoryIds && supplier.categoryIds.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {supplier.categoryIds.slice(0, 2).map((category, idx) => (
+                        <Badge key={idx} variant="outline" className="text-xs gap-1">
+                          <div
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          {category.name}
+                        </Badge>
+                      ))}
+                      {supplier.categoryIds.length > 2 && (
+                        <Badge variant="secondary" className="text-xs">
+                          +{supplier.categoryIds.length - 2}
+                        </Badge>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
                 </TableCell>
-                <TableCell className="text-right">
-                  {formatPercentage(supplier.onTimeDeliveryRate)}
+                <TableCell>
+                  {renderStarRating(supplier.rating)}
                 </TableCell>
                 <TableCell className="text-right">
                   {formatCurrency(supplier.averageOrderValue)}
@@ -512,10 +513,10 @@ export default function Suppliers() {
             ? {
               icon: <Package className="h-12 w-12" />,
               title: 'No suppliers found',
-              description: search || categoryFilter || branchFilter
+              description: search || categoryFilter !== 'all' || subcategoryFilter !== 'all' || branchFilter !== 'all'
                 ? 'Try adjusting your filters'
                 : 'Get started by adding your first supplier',
-              action: !search && !categoryFilter && !branchFilter ? (
+              action: !search && categoryFilter === 'all' && subcategoryFilter === 'all' && branchFilter === 'all' ? (
                 <Button onClick={handleCreate}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Supplier

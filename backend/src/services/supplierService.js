@@ -160,6 +160,7 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
       limit = 10,
       search = '',
       category = '',
+      subcategory = '',
       isActive = true,
       branchId = ''
     } = filters;
@@ -170,7 +171,7 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
     };
 
     // Branch filtering
-    if (branchId) {
+    if (branchId && branchId !== 'all') {
       // Filter by specific branch
       query.branchIds = branchId;
     } else if (userBranchIds && userBranchIds.length > 0) {
@@ -188,9 +189,14 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
       ];
     }
 
-    // Category filter
-    if (category) {
+    // Category filter (main category)
+    if (category && category !== 'all') {
       query.categoryIds = category;
+    }
+
+    // Subcategory filter
+    if (subcategory && subcategory !== 'all') {
+      query.subcategoryIds = subcategory;
     }
 
     // Calculate pagination
