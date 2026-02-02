@@ -66,25 +66,34 @@ export default function CategorySubcategorySearch({
   const [initialSubcategories, setInitialSubcategories] = useState<Category[]>([]);
   const [searchSubcategories, setSearchSubcategories] = useState<Category[]>([]);
 
+  // Track last fetched parameters to avoid redundant fetches
+  const [lastFetchedBranchIds, setLastFetchedBranchIds] = useState<string>('');
+  const [lastFetchedCategoryIds, setLastFetchedCategoryIds] = useState<string>('');
+
   const displayMainCategories = mainCategoriesSearch ? searchMainCategories : initialMainCategories;
   const displaySubcategories = subcategoriesSearch ? searchSubcategories : initialSubcategories;
 
-  // When branches change, filter out categories that don't belong to ANY of the remaining branches
+  // Reset all states when branches change significantly
   useEffect(() => {
+    const branchIdsKey = branchIds.join(',');
+    
     if (branchIds.length === 0) {
       // All branches removed - clear everything
       if (selectedCategoryIds.length > 0 || selectedSubcategoryIds.length > 0) {
         onCategoriesChange([], []);
-        setInitialMainCategories([]);
-        setSearchMainCategories([]);
-        setInitialSubcategories([]);
-        setSearchSubcategories([]);
-        setMainCategoriesSearch('');
-        setSubcategoriesSearch('');
       }
+      setInitialMainCategories([]);
+      setSearchMainCategories([]);
+      setInitialSubcategories([]);
+      setSearchSubcategories([]);
+      setMainCategoriesSearch('');
+      setSubcategoriesSearch('');
+      setLastFetchedBranchIds('');
+      setLastFetchedCategoryIds('');
       return;
     }
 
+    // When branches change, validate and filter existing selections
     if (selectedCategoryIds.length > 0 && (initialMainCategories.length > 0 || searchMainCategories.length > 0)) {
       // Filter selected main categories - KEEP those belonging to at least one remaining branch
       const validMainCategories = selectedCategoryIds.filter(catId => {
@@ -129,61 +138,56 @@ export default function CategorySubcategorySearch({
         
         // Update the parent with filtered selections
         onCategoriesChange(validMainCategories, validSubcategories);
-        
-        // Keep the category data in cache so we can display the remaining selections
-        // Filter the cached data to only keep categories that belong to remaining branches
-        const filteredMainCategories = [...initialMainCategories, ...searchMainCategories].filter(cat => {
-          const catBranchIds = cat.branchIds?.map((b: any) => typeof b === 'string' ? b : b._id) || [];
-          return branchIds.some(branchId => catBranchIds.includes(branchId));
-        });
-        
-        const filteredSubcategories = [...initialSubcategories, ...searchSubcategories].filter(cat => {
-          const catBranchIds = cat.branchIds?.map((b: any) => typeof b === 'string' ? b : b._id) || [];
-          return branchIds.some(branchId => catBranchIds.includes(branchId));
-        });
-        
-        // Update cache with filtered data
-        setInitialMainCategories(filteredMainCategories);
-        setSearchMainCategories([]);
-        setInitialSubcategories(filteredSubcategories);
-        setSearchSubcategories([]);
       }
+      
+      // Clear cached data to force refresh with new branches
+      setInitialMainCategories([]);
+      setSearchMainCategories([]);
+      setInitialSubcategories([]);
+      setSearchSubcategories([]);
+      setLastFetchedBranchIds('');
+      setLastFetchedCategoryIds('');
     }
   }, [branchIds.join(',')]);
 
-  // Load initial categories when branches are available
+  // Fetch initial main categories when branches are available or when opening popover
   useEffect(() => {
-    if (branchIds.length > 0 && initialMainCategories.length === 0) {
+    const branchIdsKey = branchIds.join(',');
+    
+    if (mainCategoriesOpen && branchIds.length > 0) {
+      // Always fetch when opening to ensure fresh data
       fetchInitialMainCategories();
+      setLastFetchedBranchIds(branchIdsKey);
+    } else if (branchIds.length > 0 && initialMainCategories.length === 0 && lastFetchedBranchIds !== branchIdsKey) {
+      // Initial fetch when branches are first available
+      fetchInitialMainCategories();
+      setLastFetchedBranchIds(branchIdsKey);
     }
-  }, [branchIds.length]);
+  }, [mainCategoriesOpen, branchIds.join(',')]);
 
-  // Load initial subcategories when selected main categories exist
+  // Fetch initial subcategories when selected main categories exist or when opening popover
   useEffect(() => {
-    if (branchIds.length > 0 && selectedCategoryIds.length > 0 && initialSubcategories.length === 0) {
+    const categoryIdsKey = selectedCategoryIds.join(',');
+    const branchIdsKey = branchIds.join(',');
+    const combinedKey = `${branchIdsKey}_${categoryIdsKey}`;
+    
+    if (subcategoriesOpen && branchIds.length > 0 && selectedCategoryIds.length > 0) {
+      // Always fetch when opening to ensure fresh data
       fetchInitialSubcategories();
+      setLastFetchedCategoryIds(combinedKey);
+    } else if (branchIds.length > 0 && selectedCategoryIds.length > 0 && lastFetchedCategoryIds !== combinedKey) {
+      // Fetch when categories or branches change
+      fetchInitialSubcategories();
+      setLastFetchedCategoryIds(combinedKey);
     } else if (selectedCategoryIds.length === 0) {
       // Clear subcategories when no main categories are selected
       setInitialSubcategories([]);
       setSearchSubcategories([]);
+      setLastFetchedCategoryIds('');
     }
-  }, [branchIds.length, selectedCategoryIds.length]);
+  }, [subcategoriesOpen, branchIds.join(','), selectedCategoryIds.join(',')]);
 
-  // Also fetch when popover opens (for lazy loading and refresh)
-  useEffect(() => {
-    if (mainCategoriesOpen && branchIds.length > 0) {
-      // Always refresh when opening to get latest data for current branches
-      fetchInitialMainCategories();
-    }
-  }, [mainCategoriesOpen]);
-
-  useEffect(() => {
-    if (subcategoriesOpen && branchIds.length > 0 && selectedCategoryIds.length > 0) {
-      // Always refresh when opening to get latest data
-      fetchInitialSubcategories();
-    }
-  }, [subcategoriesOpen]);
-
+  // Search for main categories
   useEffect(() => {
     if (mainCategoriesSearch && branchIds.length > 0) {
       fetchSearchMainCategories(mainCategoriesSearch);
@@ -192,6 +196,7 @@ export default function CategorySubcategorySearch({
     }
   }, [mainCategoriesSearch, branchIds.join(',')]);
 
+  // Search for subcategories
   useEffect(() => {
     if (subcategoriesSearch && branchIds.length > 0 && selectedCategoryIds.length > 0) {
       fetchSearchSubcategories(subcategoriesSearch);
@@ -204,12 +209,11 @@ export default function CategorySubcategorySearch({
     try {
       setMainCategoriesLoading(true);
       
-      // Use comma-separated branch IDs for the API call
       const response = await categoryServices.getCategories({
         limit: 50,
         isActive: 'true',
         parentId: 'null',
-        branchId: branchIds.join(','), // Send all branch IDs comma-separated
+        branchId: branchIds.join(','),
       });
       
       let categories = response.data.data.categories || [];
@@ -287,18 +291,16 @@ export default function CategorySubcategorySearch({
     try {
       setMainCategoriesLoading(true);
       
-      // Use comma-separated branch IDs for the API call
       const response = await categoryServices.getCategories({
         limit: 50,
         isActive: 'true',
         search,
         parentId: 'null',
-        branchId: branchIds.join(','), // Send all branch IDs comma-separated
+        branchId: branchIds.join(','),
       });
       
       let categories = response.data.data.categories || [];
       
-      // Filter to ensure categories belong to at least one of the selected branches
       categories = categories.filter((cat: Category) => {
         if (!cat.branchIds) return false;
         const categoryBranchIds = cat.branchIds.map((b: any) => 
@@ -373,7 +375,6 @@ export default function CategorySubcategorySearch({
     if (isSubcategory) {
       const subcategory = [...initialSubcategories, ...searchSubcategories].find(c => c._id === categoryId);
       
-      // Validate subcategory belongs to selected main categories
       if (subcategory) {
         const parentId = typeof subcategory.parent === 'string' ? subcategory.parent : subcategory.parent?._id;
         if (parentId && !selectedCategoryIds.includes(parentId)) {
@@ -385,7 +386,6 @@ export default function CategorySubcategorySearch({
           return;
         }
 
-        // Validate subcategory belongs to selected branches
         const subcategoryBranchIds = subcategory.branchIds?.map((b: any) => 
           typeof b === 'string' ? b : b._id
         ) || [];
@@ -408,7 +408,6 @@ export default function CategorySubcategorySearch({
     } else {
       const category = [...initialMainCategories, ...searchMainCategories].find(c => c._id === categoryId);
       
-      // Validate category belongs to selected branches
       if (category) {
         const categoryBranchIds = category.branchIds?.map((b: any) => 
           typeof b === 'string' ? b : b._id
@@ -430,10 +429,8 @@ export default function CategorySubcategorySearch({
         ? selectedCategoryIds.filter((id) => id !== categoryId)
         : [...selectedCategoryIds, categoryId];
       
-      // If removing a main category, also remove its subcategories
       let newSubcategorySelection = selectedSubcategoryIds;
       if (isRemoving) {
-        // Find and remove subcategories that belong to this main category
         const subcatsToRemove = [...initialSubcategories, ...searchSubcategories]
           .filter(subcat => {
             const parentId = typeof subcat.parent === 'string' ? subcat.parent : subcat.parent?._id;
@@ -451,10 +448,10 @@ export default function CategorySubcategorySearch({
           });
         }
         
-        // Reset subcategories cache if no main categories left
         if (newSelection.length === 0) {
           setInitialSubcategories([]);
           setSearchSubcategories([]);
+          setLastFetchedCategoryIds('');
         }
       }
       
@@ -466,7 +463,6 @@ export default function CategorySubcategorySearch({
     if (isSubcategory) {
       onCategoriesChange(selectedCategoryIds, selectedSubcategoryIds.filter((id) => id !== categoryId));
     } else {
-      // When removing a main category, also remove its subcategories
       const subcatsToRemove = [...initialSubcategories, ...searchSubcategories]
         .filter(subcat => {
           const parentId = typeof subcat.parent === 'string' ? subcat.parent : subcat.parent?._id;
@@ -487,10 +483,10 @@ export default function CategorySubcategorySearch({
       
       onCategoriesChange(newMainCategories, newSubcategories);
       
-      // Reset subcategories cache if no main categories left
       if (newMainCategories.length === 0) {
         setInitialSubcategories([]);
         setSearchSubcategories([]);
+        setLastFetchedCategoryIds('');
       }
     }
   };
@@ -509,7 +505,6 @@ export default function CategorySubcategorySearch({
     );
   };
 
-  // Helper to check if a category belongs to selected branches
   const isCategoryValidForBranches = (category: Category): boolean => {
     if (!category.branchIds || branchIds.length === 0) return true;
     
@@ -520,7 +515,6 @@ export default function CategorySubcategorySearch({
     return branchIds.some(branchId => categoryBranchIds.includes(branchId));
   };
 
-  // Helper to check if a subcategory belongs to selected main categories
   const isSubcategoryValidForCategories = (subcategory: Category): boolean => {
     if (!subcategory.parent || selectedCategoryIds.length === 0) return true;
     
