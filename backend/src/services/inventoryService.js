@@ -10,6 +10,7 @@ import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
 import { getCategoryModel } from '../models/company/Category.js';
 import { getBranchModel } from '../models/company/Branch.js';
+import { getSupplierModel } from '../models/company/Supplier.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -148,6 +149,7 @@ export const getInventoryItems = async (companyId, userBranchIds, userRole, filt
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const {
       page = 1,
@@ -249,6 +251,7 @@ export const getInventoryItemById = async (itemId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const item = await InventoryItem.findById(itemId)
       .populate('supplier', 'name contactPerson phone email rating categories')
@@ -452,16 +455,22 @@ export const checkLowStock = async (companyId, branchId, userBranchIds = [], use
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const query = {
       isActive: true,
       $expr: { $lte: ['$currentStock', '$minimumStock'] }
     };
 
-    // Branch filter - only add if not "all"
-    if (branchId && branchId !== 'all') {
+    // Branch filter based on user role
+    if (userRole === 'company_admin') {
+      // Company admins see items from their assigned branches
+      query.branchIds = { $in: userBranchIds };
+    } else if (branchId && branchId !== 'all') {
+      // Super admins can filter by specific branch
       query.branchIds = { $in: [branchId] };
     }
+    // If branchId is "all" and user is super admin, no branch filter (see all)
 
     const items = await InventoryItem.find(query)
       .populate('supplier', 'name contactPerson phone email')
@@ -497,6 +506,7 @@ export const checkExpiringItems = async (companyId, branchId, daysAhead = 7, use
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -512,10 +522,15 @@ export const checkExpiringItems = async (companyId, branchId, daysAhead = 7, use
       }
     };
 
-    // Branch filter - only add if not "all"
-    if (branchId && branchId !== 'all') {
+    // Branch filter based on user role
+    if (userRole === 'company_admin') {
+      // Company admins see items from their assigned branches
+      query.branchIds = { $in: userBranchIds };
+    } else if (branchId && branchId !== 'all') {
+      // Super admins can filter by specific branch
       query.branchIds = { $in: [branchId] };
     }
+    // If branchId is "all" and user is super admin, no branch filter (see all)
 
     const items = await InventoryItem.find(query)
       .populate('supplier', 'name contactPerson phone email')
@@ -555,10 +570,15 @@ export const getInventoryCategories = async (companyId, branchId, userBranchIds 
       isActive: true
     };
 
-    // Branch filter - only add if not "all"
-    if (branchId && branchId !== 'all') {
+    // Branch filter based on user role
+    if (userRole === 'company_admin') {
+      // Company admins see items from their assigned branches
+      query.branchIds = { $in: userBranchIds };
+    } else if (branchId && branchId !== 'all') {
+      // Super admins can filter by specific branch
       query.branchIds = { $in: [branchId] };
     }
+    // If branchId is "all" and user is super admin, no branch filter (see all)
 
     const categories = await InventoryItem.distinct('category', query);
 
@@ -733,6 +753,7 @@ export const getGRNs = async (companyId, branchId, filters = {}) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const GRN = getGRNModel(companyDB);
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const {
       page = 1,
@@ -814,6 +835,7 @@ export const getGRNById = async (grnId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const GRN = getGRNModel(companyDB);
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const grn = await GRN.findById(grnId)
       .populate('supplier', 'name contactPerson phone email address gstNumber')

@@ -11,17 +11,19 @@ const inventoryItemSchema = new mongoose.Schema({
     required: true,
     enum: ['raw_material', 'finished_good']
   },
-  branchIds: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch',
+  branchIds: {
+    type: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Branch'
+    }],
     required: true,
     validate: {
       validator: function(v) {
-        return v && v.length > 0;
+        return Array.isArray(v) && v.length > 0;
       },
       message: 'At least one branch must be assigned'
     }
-  }],
+  },
   category: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',

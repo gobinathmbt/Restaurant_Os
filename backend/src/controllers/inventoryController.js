@@ -324,7 +324,7 @@ export const deleteInventoryItem = async (req, res, next) => {
 export const getLowStockItems = async (req, res, next) => {
   try {
     const { companyId, userId, role, branchIds: userBranchIds } = req.user;
-    const { branchId } = req.query;
+    let { branchId } = req.query;
 
     // Get user's branch IDs if not already in req.user (for company admins)
     let effectiveBranchIds = userBranchIds;
@@ -333,35 +333,42 @@ export const getLowStockItems = async (req, res, next) => {
       effectiveBranchIds = user?.branchIds || [];
     }
 
-    // Validate branchId is provided
-    if (!branchId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Branch ID is required'
-      });
-    }
-
-    // Verify branch access (skip verification for "all" if user is super admin)
-    if (branchId !== 'all') {
-      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-      if (!hasAccess) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have access to this branch'
-        });
+    // For company admins, if no branchId specified or "all", use their assigned branches
+    if (role === 'company_admin') {
+      if (!branchId || branchId === 'all') {
+        branchId = 'all'; // Will be handled by service layer with effectiveBranchIds
+      } else {
+        // Verify they have access to the specific branch
+        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this branch'
+          });
+        }
       }
     } else {
-      // Only super admins can use "all"
-      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
-      if (!isSuperAdmin) {
-        return res.status(403).json({
+      // For super admins, validate branchId is provided
+      if (!branchId) {
+        return res.status(400).json({
           success: false,
-          message: 'Only super admins can view all branches'
+          message: 'Branch ID is required'
         });
+      }
+
+      // Verify branch access for specific branch
+      if (branchId !== 'all') {
+        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this branch'
+          });
+        }
       }
     }
 
-    // Get low stock items - pass user's branchIds and role for future service layer enhancements
+    // Get low stock items - pass user's branchIds and role for service layer
     const items = await inventoryService.checkLowStock(companyId, branchId, effectiveBranchIds || [], role);
 
     res.json({
@@ -381,7 +388,7 @@ export const getLowStockItems = async (req, res, next) => {
 export const getExpiringItems = async (req, res, next) => {
   try {
     const { companyId, userId, role, branchIds: userBranchIds } = req.user;
-    const { branchId, daysAhead } = req.query;
+    let { branchId, daysAhead } = req.query;
 
     // Get user's branch IDs if not already in req.user (for company admins)
     let effectiveBranchIds = userBranchIds;
@@ -390,31 +397,38 @@ export const getExpiringItems = async (req, res, next) => {
       effectiveBranchIds = user?.branchIds || [];
     }
 
-    // Validate branchId is provided
-    if (!branchId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Branch ID is required'
-      });
-    }
-
-    // Verify branch access (skip verification for "all" if user is super admin)
-    if (branchId !== 'all') {
-      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-      if (!hasAccess) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have access to this branch'
-        });
+    // For company admins, if no branchId specified or "all", use their assigned branches
+    if (role === 'company_admin') {
+      if (!branchId || branchId === 'all') {
+        branchId = 'all'; // Will be handled by service layer with effectiveBranchIds
+      } else {
+        // Verify they have access to the specific branch
+        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this branch'
+          });
+        }
       }
     } else {
-      // Only super admins can use "all"
-      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
-      if (!isSuperAdmin) {
-        return res.status(403).json({
+      // For super admins, validate branchId is provided
+      if (!branchId) {
+        return res.status(400).json({
           success: false,
-          message: 'Only super admins can view all branches'
+          message: 'Branch ID is required'
         });
+      }
+
+      // Verify branch access for specific branch
+      if (branchId !== 'all') {
+        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this branch'
+          });
+        }
       }
     }
 
@@ -444,7 +458,7 @@ export const getExpiringItems = async (req, res, next) => {
 export const getInventoryCategories = async (req, res, next) => {
   try {
     const { companyId, userId, role, branchIds: userBranchIds } = req.user;
-    const { branchId } = req.query;
+    let { branchId } = req.query;
 
     // Get user's branch IDs if not already in req.user (for company admins)
     let effectiveBranchIds = userBranchIds;
@@ -453,31 +467,38 @@ export const getInventoryCategories = async (req, res, next) => {
       effectiveBranchIds = user?.branchIds || [];
     }
 
-    // Validate branchId is provided
-    if (!branchId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Branch ID is required'
-      });
-    }
-
-    // Verify branch access (skip verification for "all" if user is super admin)
-    if (branchId !== 'all') {
-      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-      if (!hasAccess) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have access to this branch'
-        });
+    // For company admins, if no branchId specified or "all", use their assigned branches
+    if (role === 'company_admin') {
+      if (!branchId || branchId === 'all') {
+        branchId = 'all'; // Will be handled by service layer with effectiveBranchIds
+      } else {
+        // Verify they have access to the specific branch
+        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this branch'
+          });
+        }
       }
     } else {
-      // Only super admins can use "all"
-      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
-      if (!isSuperAdmin) {
-        return res.status(403).json({
+      // For super admins, validate branchId is provided
+      if (!branchId) {
+        return res.status(400).json({
           success: false,
-          message: 'Only super admins can view all branches'
+          message: 'Branch ID is required'
         });
+      }
+
+      // Verify branch access for specific branch
+      if (branchId !== 'all') {
+        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this branch'
+          });
+        }
       }
     }
 
