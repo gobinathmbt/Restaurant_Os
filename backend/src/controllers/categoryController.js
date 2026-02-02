@@ -324,11 +324,21 @@ export const getCategoryTree = async (req, res, next) => {
     let targetBranchIds = [];
     
     if (branchId) {
-      // Single branch from params
-      targetBranchIds = [branchId];
+      // Single branch from params - handle comma-separated values
+      if (typeof branchId === 'string' && branchId.includes(',')) {
+        targetBranchIds = branchId.split(',').map(id => id.trim()).filter(id => id);
+      } else {
+        targetBranchIds = [branchId];
+      }
     } else if (queryBranchIds) {
-      // Multiple branches from query
-      targetBranchIds = Array.isArray(queryBranchIds) ? queryBranchIds : [queryBranchIds];
+      // Multiple branches from query - handle comma-separated string or array
+      if (typeof queryBranchIds === 'string') {
+        targetBranchIds = queryBranchIds.split(',').map(id => id.trim()).filter(id => id);
+      } else if (Array.isArray(queryBranchIds)) {
+        targetBranchIds = queryBranchIds;
+      } else {
+        targetBranchIds = [queryBranchIds];
+      }
     } else if (userBranchIds && userBranchIds.length > 0) {
       // User's accessible branches
       targetBranchIds = userBranchIds;

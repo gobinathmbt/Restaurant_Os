@@ -71,7 +71,21 @@ export default function CategorySubcategorySearch({
 
   // When branches change, filter out categories that don't belong to ANY of the remaining branches
   useEffect(() => {
-    if (branchIds.length > 0 && selectedCategoryIds.length > 0 && (initialMainCategories.length > 0 || searchMainCategories.length > 0)) {
+    if (branchIds.length === 0) {
+      // All branches removed - clear everything
+      if (selectedCategoryIds.length > 0 || selectedSubcategoryIds.length > 0) {
+        onCategoriesChange([], []);
+        setInitialMainCategories([]);
+        setSearchMainCategories([]);
+        setInitialSubcategories([]);
+        setSearchSubcategories([]);
+        setMainCategoriesSearch('');
+        setSubcategoriesSearch('');
+      }
+      return;
+    }
+
+    if (selectedCategoryIds.length > 0 && (initialMainCategories.length > 0 || searchMainCategories.length > 0)) {
       // Filter selected main categories - KEEP those belonging to at least one remaining branch
       const validMainCategories = selectedCategoryIds.filter(catId => {
         const category = [...initialMainCategories, ...searchMainCategories].find(c => c._id === catId);
@@ -82,9 +96,7 @@ export default function CategorySubcategorySearch({
         ) || [];
         
         // KEEP if category belongs to at least ONE of the remaining branches
-        const belongsToRemainingBranch = branchIds.some(branchId => categoryBranchIds.includes(branchId));
-
-        return belongsToRemainingBranch;
+        return branchIds.some(branchId => categoryBranchIds.includes(branchId));
       });
 
       // Filter selected subcategories - KEEP those belonging to at least one remaining branch
@@ -97,9 +109,7 @@ export default function CategorySubcategorySearch({
         ) || [];
         
         // KEEP if subcategory belongs to at least ONE of the remaining branches
-        const belongsToRemainingBranch = branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
-
-        return belongsToRemainingBranch;
+        return branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
       });
 
       // Update selections if any were filtered out
@@ -139,20 +149,12 @@ export default function CategorySubcategorySearch({
         setSearchSubcategories([]);
       }
     }
-  }, [branchIds.join(','), initialMainCategories.length, searchMainCategories.length]);
+  }, [branchIds.join(',')]);
 
   // Load initial categories when branches are available
   useEffect(() => {
     if (branchIds.length > 0 && initialMainCategories.length === 0) {
       fetchInitialMainCategories();
-    } else if (branchIds.length === 0) {
-      // Clear cache when all branches are removed
-      setInitialMainCategories([]);
-      setSearchMainCategories([]);
-      setInitialSubcategories([]);
-      setSearchSubcategories([]);
-      setMainCategoriesSearch('');
-      setSubcategoriesSearch('');
     }
   }, [branchIds.length]);
 
@@ -160,6 +162,10 @@ export default function CategorySubcategorySearch({
   useEffect(() => {
     if (branchIds.length > 0 && selectedCategoryIds.length > 0 && initialSubcategories.length === 0) {
       fetchInitialSubcategories();
+    } else if (selectedCategoryIds.length === 0) {
+      // Clear subcategories when no main categories are selected
+      setInitialSubcategories([]);
+      setSearchSubcategories([]);
     }
   }, [branchIds.length, selectedCategoryIds.length]);
 
@@ -181,37 +187,45 @@ export default function CategorySubcategorySearch({
   useEffect(() => {
     if (mainCategoriesSearch && branchIds.length > 0) {
       fetchSearchMainCategories(mainCategoriesSearch);
+    } else {
+      setSearchMainCategories([]);
     }
-  }, [mainCategoriesSearch, branchIds]);
+  }, [mainCategoriesSearch, branchIds.join(',')]);
 
   useEffect(() => {
     if (subcategoriesSearch && branchIds.length > 0 && selectedCategoryIds.length > 0) {
       fetchSearchSubcategories(subcategoriesSearch);
+    } else {
+      setSearchSubcategories([]);
     }
-  }, [subcategoriesSearch, branchIds, selectedCategoryIds]);
+  }, [subcategoriesSearch, branchIds.join(','), selectedCategoryIds.join(',')]);
 
   const fetchInitialMainCategories = async () => {
     try {
       setMainCategoriesLoading(true);
+      
+      // Use comma-separated branch IDs for the API call
       const response = await categoryServices.getCategories({
         limit: 50,
         isActive: 'true',
         parentId: 'null',
-        branchId: branchIds.length === 1 ? branchIds[0] : undefined,
+        branchId: branchIds.join(','), // Send all branch IDs comma-separated
       });
       
       let categories = response.data.data.categories || [];
       
-      if (branchIds.length > 1) {
-        categories = categories.filter((cat: Category) => 
-          cat.branchIds && cat.branchIds.some((b: any) => 
-            branchIds.includes(typeof b === 'string' ? b : b._id)
-          )
+      // Filter to ensure categories belong to at least one of the selected branches
+      categories = categories.filter((cat: Category) => {
+        if (!cat.branchIds) return false;
+        const categoryBranchIds = cat.branchIds.map((b: any) => 
+          typeof b === 'string' ? b : b._id
         );
-      }
+        return branchIds.some(branchId => categoryBranchIds.includes(branchId));
+      });
       
       setInitialMainCategories(categories);
     } catch (error: any) {
+      console.error('Failed to fetch main categories:', error);
       toast({
         title: 'Error',
         description: 'Failed to fetch main categories',
@@ -244,19 +258,21 @@ export default function CategorySubcategorySearch({
         index === self.findIndex((c) => c._id === cat._id)
       );
       
-      // Filter by branches
-      let filteredSubcats = uniqueSubcats.filter((cat: Category) => cat.parent);
-      
-      if (branchIds.length > 1) {
-        filteredSubcats = filteredSubcats.filter((cat: Category) => 
-          cat.branchIds && cat.branchIds.some((b: any) => 
-            branchIds.includes(typeof b === 'string' ? b : b._id)
-          )
+      // Filter by branches - only show subcategories that belong to selected branches
+      let filteredSubcats = uniqueSubcats.filter((cat: Category) => {
+        if (!cat.parent) return false;
+        if (!cat.branchIds) return false;
+        
+        const subcategoryBranchIds = cat.branchIds.map((b: any) => 
+          typeof b === 'string' ? b : b._id
         );
-      }
+        
+        return branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
+      });
       
       setInitialSubcategories(filteredSubcats.slice(0, 1000));
     } catch (error: any) {
+      console.error('Failed to fetch subcategories:', error);
       toast({
         title: 'Error',
         description: 'Failed to fetch subcategories',
@@ -270,26 +286,30 @@ export default function CategorySubcategorySearch({
   const fetchSearchMainCategories = async (search: string) => {
     try {
       setMainCategoriesLoading(true);
+      
+      // Use comma-separated branch IDs for the API call
       const response = await categoryServices.getCategories({
         limit: 50,
         isActive: 'true',
         search,
         parentId: 'null',
-        branchId: branchIds.length === 1 ? branchIds[0] : undefined,
+        branchId: branchIds.join(','), // Send all branch IDs comma-separated
       });
       
       let categories = response.data.data.categories || [];
       
-      if (branchIds.length > 1) {
-        categories = categories.filter((cat: Category) => 
-          cat.branchIds && cat.branchIds.some((b: any) => 
-            branchIds.includes(typeof b === 'string' ? b : b._id)
-          )
+      // Filter to ensure categories belong to at least one of the selected branches
+      categories = categories.filter((cat: Category) => {
+        if (!cat.branchIds) return false;
+        const categoryBranchIds = cat.branchIds.map((b: any) => 
+          typeof b === 'string' ? b : b._id
         );
-      }
+        return branchIds.some(branchId => categoryBranchIds.includes(branchId));
+      });
       
       setSearchMainCategories(categories);
     } catch (error: any) {
+      console.error('Failed to search main categories:', error);
       toast({
         title: 'Error',
         description: 'Failed to search main categories',
@@ -325,18 +345,20 @@ export default function CategorySubcategorySearch({
         index === self.findIndex((c) => c._id === cat._id)
       );
       
-      let filteredSubcats = uniqueSubcats.filter((cat: Category) => cat.parent);
-      
-      if (branchIds.length > 1) {
-        filteredSubcats = filteredSubcats.filter((cat: Category) => 
-          cat.branchIds && cat.branchIds.some((b: any) => 
-            branchIds.includes(typeof b === 'string' ? b : b._id)
-          )
+      let filteredSubcats = uniqueSubcats.filter((cat: Category) => {
+        if (!cat.parent) return false;
+        if (!cat.branchIds) return false;
+        
+        const subcategoryBranchIds = cat.branchIds.map((b: any) => 
+          typeof b === 'string' ? b : b._id
         );
-      }
+        
+        return branchIds.some(branchId => subcategoryBranchIds.includes(branchId));
+      });
       
       setSearchSubcategories(filteredSubcats);
     } catch (error: any) {
+      console.error('Failed to search subcategories:', error);
       toast({
         title: 'Error',
         description: 'Failed to search subcategories',
@@ -454,6 +476,14 @@ export default function CategorySubcategorySearch({
       
       const newMainCategories = selectedCategoryIds.filter((id) => id !== categoryId);
       const newSubcategories = selectedSubcategoryIds.filter((id) => !subcatsToRemove.includes(id));
+      
+      if (subcatsToRemove.length > 0) {
+        toast({
+          title: 'Categories Updated',
+          description: `Removed ${subcatsToRemove.length} subcategor${subcatsToRemove.length !== 1 ? 'ies' : 'y'} belonging to this category`,
+          variant: 'default',
+        });
+      }
       
       onCategoriesChange(newMainCategories, newSubcategories);
       

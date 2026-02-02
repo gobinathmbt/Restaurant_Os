@@ -115,6 +115,8 @@ export default function SupplierFormModal({
           typeof b === 'string' ? b : b._id
         );
         setSelectedBranches(branchIdStrings);
+      } else {
+        setSelectedBranches([]);
       }
 
       // Set selected categories
@@ -123,6 +125,8 @@ export default function SupplierFormModal({
           typeof c === 'string' ? c : c._id
         );
         setSelectedCategories(categoryIdStrings);
+      } else {
+        setSelectedCategories([]);
       }
 
       // Set selected subcategories
@@ -131,6 +135,8 @@ export default function SupplierFormModal({
           typeof c === 'string' ? c : c._id
         );
         setSelectedSubcategories(subcategoryIdStrings);
+      } else {
+        setSelectedSubcategories([]);
       }
     } else if (!supplier && open) {
       resetForm();
@@ -168,19 +174,15 @@ export default function SupplierFormModal({
   };
 
   const handleBranchesChange = (branchIds: string[]) => {
-    const previousBranches = selectedBranches;
     setSelectedBranches(branchIds);
     
+    // If all branches are cleared, clear categories and subcategories
     if (branchIds.length === 0) {
-      // All branches cleared - clear everything
       setSelectedCategories([]);
       setSelectedSubcategories([]);
-    } else {
-      // Branches changed - filter out categories/subcategories that don't belong to remaining branches
-      // We'll validate this by checking if categories still belong to the selected branches
-      // The CategorySubcategorySearch component will handle the actual filtering
-      // For now, we keep the selections and let the component validate them
     }
+    // Note: CategorySubcategorySearch component will handle filtering of invalid categories
+    // when branches change through its own useEffect
   };
 
   const handleCategoriesChange = (categoryIds: string[], subcategoryIds: string[]) => {

@@ -88,6 +88,7 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
       limit = 10,
       search = '',
       branchId = '',
+      branchIds = '',
       type = '',
       isActive = '',
       parentId = ''
@@ -104,9 +105,32 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
     }
     // If isActive is empty string or not provided, show all
 
-    // Branch filtering
-    if (branchId && branchId !== 'all') {
-      query.branchIds = branchId;
+    // Branch filtering - handle both single branchId and multiple branchIds
+    let targetBranchIds = [];
+    
+    // Check for branchIds (comma-separated or array)
+    if (branchIds && branchIds !== 'all') {
+      if (typeof branchIds === 'string') {
+        // Handle comma-separated string
+        targetBranchIds = branchIds.split(',').map(id => id.trim()).filter(id => id);
+      } else if (Array.isArray(branchIds)) {
+        // Handle array
+        targetBranchIds = branchIds;
+      }
+    }
+    // Fallback to single branchId for backward compatibility
+    else if (branchId && branchId !== 'all') {
+      if (typeof branchId === 'string' && branchId.includes(',')) {
+        // Handle comma-separated string in branchId
+        targetBranchIds = branchId.split(',').map(id => id.trim()).filter(id => id);
+      } else {
+        targetBranchIds = [branchId];
+      }
+    }
+
+    // Apply branch filter
+    if (targetBranchIds.length > 0) {
+      query.branchIds = targetBranchIds.length === 1 ? targetBranchIds[0] : { $in: targetBranchIds };
     } else if (userBranchIds && userBranchIds.length > 0) {
       // For company_admin, only show categories that have at least one of their branches
       query.branchIds = { $in: userBranchIds };

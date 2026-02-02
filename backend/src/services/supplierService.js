@@ -6,6 +6,7 @@
 import { getCompanyDB } from '../config/database.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
 import { getCategoryModel } from '../models/company/Category.js';
+import { getBranchModel } from '../models/company/Branch.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -150,6 +151,9 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
+    // Ensure Category and Branch models are registered for population
+    getCategoryModel(companyDB);
+    getBranchModel(companyDB);
 
     const {
       page = 1,
@@ -244,6 +248,9 @@ export const getSupplierById = async (supplierId, companyId, userBranchIds = nul
   try {
     const companyDB = getCompanyDB(companyId);
     const Supplier = getSupplierModel(companyDB);
+    // Ensure Category and Branch models are registered for population
+    getCategoryModel(companyDB);
+    getBranchModel(companyDB);
 
     const supplier = await Supplier.findById(supplierId)
       .populate('branchIds', 'name code')
