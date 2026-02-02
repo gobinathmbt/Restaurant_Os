@@ -42,7 +42,7 @@ export default function InventoryItemFormModal({
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [activeTab, setActiveTab] = useState('basic');
   
-  // Multi-branch and category selection state
+  // Multi-branch and single category/subcategory selection state
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
@@ -255,7 +255,7 @@ export default function InventoryItemFormModal({
     if (selectedCategories.length === 0) {
       toast({
         title: "Validation Error",
-        description: "At least one category must be selected",
+        description: "Category is required",
         variant: "destructive",
       });
       setActiveTab('assignment');
@@ -280,7 +280,7 @@ export default function InventoryItemFormModal({
     if (invalidCategories.length > 0) {
       toast({
         title: "Validation Error",
-        description: "Invalid category IDs detected. Please reselect categories.",
+        description: "Invalid category ID detected. Please reselect category.",
         variant: "destructive",
       });
       setActiveTab('assignment');
@@ -291,7 +291,7 @@ export default function InventoryItemFormModal({
     if (invalidSubcategories.length > 0) {
       toast({
         title: "Validation Error",
-        description: "Invalid subcategory IDs detected. Please reselect subcategories.",
+        description: "Invalid subcategory ID detected. Please reselect subcategory.",
         variant: "destructive",
       });
       setActiveTab('assignment');
@@ -325,8 +325,8 @@ export default function InventoryItemFormModal({
         sku: formData.sku.trim() || undefined,
         barcode: formData.barcode.trim() || undefined,
         branchIds: selectedBranches,
-        // Backend expects single category and subcategory, not arrays
-        category: selectedCategories.length > 0 ? selectedCategories[0] : undefined,
+        // Backend expects single category and subcategory (take first from array)
+        category: selectedCategories[0],
         subcategory: selectedSubcategories.length > 0 ? selectedSubcategories[0] : undefined,
       };
 
@@ -511,7 +511,7 @@ export default function InventoryItemFormModal({
                   <div>
                     <h3 className="font-semibold">Assign Categories & Subcategories *</h3>
                     <p className="text-sm text-muted-foreground">
-                      Select categories and subcategories for this item. Categories are filtered based on selected branches.
+                      Select category and subcategory for this item. Categories are filtered based on selected branches.
                     </p>
                   </div>
 
@@ -521,6 +521,8 @@ export default function InventoryItemFormModal({
                     onCategoriesChange={handleCategoriesChange}
                     branchIds={selectedBranches}
                     required={true}
+                    isCategoryMulti={false}
+                    isSubcategoryMulti={false}
                   />
                 </div>
               </TabsContent>

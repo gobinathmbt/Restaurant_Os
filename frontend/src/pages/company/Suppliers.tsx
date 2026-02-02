@@ -393,8 +393,8 @@ export default function Suppliers() {
             <TableHead>Contact Person</TableHead>
             <TableHead>Phone</TableHead>
             <TableHead>Email</TableHead>
-            <TableHead>Rating</TableHead>
             <TableHead>Categories</TableHead>
+            <TableHead>Rating</TableHead>
             <TableHead className="text-right">Avg Order Value</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>

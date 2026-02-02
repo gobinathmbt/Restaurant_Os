@@ -39,6 +39,8 @@ interface CategorySubcategorySearchProps {
   disabled?: boolean;
   className?: string;
   required?: boolean;
+  isCategoryMulti?: boolean;  // New: Allow multi-select for categories (default: true)
+  isSubcategoryMulti?: boolean;  // New: Allow multi-select for subcategories (default: true)
 }
 
 export default function CategorySubcategorySearch({
@@ -49,6 +51,8 @@ export default function CategorySubcategorySearch({
   disabled = false,
   className = '',
   required = false,
+  isCategoryMulti = true,  // Default to multi-select for backward compatibility
+  isSubcategoryMulti = true,  // Default to multi-select for backward compatibility
 }: CategorySubcategorySearchProps) {
   const { toast } = useToast();
   
@@ -401,9 +405,17 @@ export default function CategorySubcategorySearch({
         }
       }
 
-      const newSelection = selectedSubcategoryIds.includes(categoryId)
-        ? selectedSubcategoryIds.filter((id) => id !== categoryId)
-        : [...selectedSubcategoryIds, categoryId];
+      // Handle single vs multi-select for subcategories
+      let newSelection: string[];
+      if (isSubcategoryMulti) {
+        // Multi-select: toggle the subcategory
+        newSelection = selectedSubcategoryIds.includes(categoryId)
+          ? selectedSubcategoryIds.filter((id) => id !== categoryId)
+          : [...selectedSubcategoryIds, categoryId];
+      } else {
+        // Single-select: replace with the new subcategory (or clear if clicking the same one)
+        newSelection = selectedSubcategoryIds.includes(categoryId) ? [] : [categoryId];
+      }
       onCategoriesChange(selectedCategoryIds, newSelection);
     } else {
       const category = [...initialMainCategories, ...searchMainCategories].find(c => c._id === categoryId);
@@ -425,12 +437,22 @@ export default function CategorySubcategorySearch({
       }
 
       const isRemoving = selectedCategoryIds.includes(categoryId);
-      const newSelection = isRemoving
-        ? selectedCategoryIds.filter((id) => id !== categoryId)
-        : [...selectedCategoryIds, categoryId];
+      
+      // Handle single vs multi-select for categories
+      let newSelection: string[];
+      if (isCategoryMulti) {
+        // Multi-select: toggle the category
+        newSelection = isRemoving
+          ? selectedCategoryIds.filter((id) => id !== categoryId)
+          : [...selectedCategoryIds, categoryId];
+      } else {
+        // Single-select: replace with the new category (or clear if clicking the same one)
+        newSelection = isRemoving ? [] : [categoryId];
+      }
       
       let newSubcategorySelection = selectedSubcategoryIds;
-      if (isRemoving) {
+      if (isRemoving || !isCategoryMulti) {
+        // When removing a category or in single-select mode, remove its subcategories
         const subcatsToRemove = [...initialSubcategories, ...searchSubcategories]
           .filter(subcat => {
             const parentId = typeof subcat.parent === 'string' ? subcat.parent : subcat.parent?._id;
@@ -440,7 +462,7 @@ export default function CategorySubcategorySearch({
         
         newSubcategorySelection = selectedSubcategoryIds.filter(id => !subcatsToRemove.includes(id));
         
-        if (subcatsToRemove.length > 0) {
+        if (subcatsToRemove.length > 0 && isRemoving) {
           toast({
             title: 'Categories Updated',
             description: `Removed ${subcatsToRemove.length} subcategor${subcatsToRemove.length !== 1 ? 'ies' : 'y'} belonging to this category`,
@@ -542,7 +564,9 @@ export default function CategorySubcategorySearch({
     <div className={cn('space-y-4', className)}>
       {/* Main Categories */}
       <div className="space-y-2">
-        <Label>Main Categories {required && <span className="text-red-500">*</span>}</Label>
+        <Label>
+          {isCategoryMulti ? 'Main Categories' : 'Category'} {required && <span className="text-red-500">*</span>}
+        </Label>
         <Popover open={mainCategoriesOpen} onOpenChange={setMainCategoriesOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -553,8 +577,12 @@ export default function CategorySubcategorySearch({
               disabled={disabled}
             >
               {selectedMainCategories.length > 0
-                ? `${selectedMainCategories.length} main categor${selectedMainCategories.length > 1 ? 'ies' : 'y'} selected`
-                : 'Select main categories...'}
+                ? isCategoryMulti
+                  ? `${selectedMainCategories.length} main categor${selectedMainCategories.length > 1 ? 'ies' : 'y'} selected`
+                  : selectedMainCategories[0].name
+                : isCategoryMulti
+                  ? 'Select main categories...'
+                  : 'Select category...'}
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
@@ -640,7 +668,9 @@ export default function CategorySubcategorySearch({
 
       {/* Subcategories */}
       <div className="space-y-2">
-        <Label>Subcategories {required && <span className="text-red-500">*</span>}</Label>
+        <Label>
+          {isSubcategoryMulti ? 'Subcategories' : 'Subcategory'} {required && <span className="text-red-500">*</span>}
+        </Label>
         <Popover open={subcategoriesOpen} onOpenChange={setSubcategoriesOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -651,10 +681,12 @@ export default function CategorySubcategorySearch({
               disabled={disabled || selectedCategoryIds.length === 0}
             >
               {selectedSubcategories.length > 0
-                ? `${selectedSubcategories.length} subcategor${selectedSubcategories.length > 1 ? 'ies' : 'y'} selected`
+                ? isSubcategoryMulti
+                  ? `${selectedSubcategories.length} subcategor${selectedSubcategories.length > 1 ? 'ies' : 'y'} selected`
+                  : selectedSubcategories[0].name
                 : selectedCategoryIds.length === 0
-                  ? 'Select main categories first...'
-                  : 'Select subcategories...'}
+                  ? isCategoryMulti ? 'Select main categories first...' : 'Select category first...'
+                  : isSubcategoryMulti ? 'Select subcategories...' : 'Select subcategory...'}
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
@@ -749,10 +781,16 @@ export default function CategorySubcategorySearch({
 
       <p className="text-sm text-muted-foreground">
         {(selectedMainCategories.length > 0 || selectedSubcategories.length > 0)
-          ? `${selectedMainCategories.length} main + ${selectedSubcategories.length} sub = ${selectedMainCategories.length + selectedSubcategories.length} total selected`
+          ? isCategoryMulti || isSubcategoryMulti
+            ? `${selectedMainCategories.length} main + ${selectedSubcategories.length} sub = ${selectedMainCategories.length + selectedSubcategories.length} total selected`
+            : `Selected: ${selectedMainCategories[0]?.name || ''}${selectedSubcategories[0] ? ` > ${selectedSubcategories[0].name}` : ''}`
           : required 
-            ? 'Please select at least one main category and one subcategory (required)'
-            : 'Select categories and subcategories for this supplier'}
+            ? isCategoryMulti
+              ? 'Please select at least one main category and one subcategory (required)'
+              : 'Please select a category (required)'
+            : isCategoryMulti
+              ? 'Select categories and subcategories'
+              : 'Select a category and subcategory'}
       </p>
     </div>
   );
