@@ -23,8 +23,7 @@ import { inventoryServices } from '@/api/services';
 import InventoryItemFormModal from '@/components/inventory/InventoryItemFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
-import BranchSearch from '@/components/common/BranchSearch';
-import CategorySubcategorySearch from '@/components/common/CategorySubcategorySearch';
+import SupplierCategoryFilter from '@/components/inventory/SupplierCategoryFilter';
 
 interface Branch {
   _id: string;
@@ -88,10 +87,8 @@ export default function InventoryItemsTab({
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemsSearch, setItemsSearch] = useState('');
   const [itemsTypeFilter, setItemsTypeFilter] = useState('');
-  const [itemsCategoryFilter, setItemsCategoryFilter] = useState('');
-  const [itemsBranchFilter, setItemsBranchFilter] = useState<string[]>([]);
-  const [itemsCategoryIdsFilter, setItemsCategoryIdsFilter] = useState<string[]>([]);
-  const [itemsSubcategoryIdsFilter, setItemsSubcategoryIdsFilter] = useState<string[]>([]);
+  const [itemsCategoryFilter, setItemsCategoryFilter] = useState('all');
+  const [itemsSubcategoryFilter, setItemsSubcategoryFilter] = useState('all');
   const [categories, setCategories] = useState<string[]>([]);
   const [itemsPage, setItemsPage] = useState(1);
   const [itemsRowsPerPage, setItemsRowsPerPage] = useState(10);
@@ -112,7 +109,7 @@ export default function InventoryItemsTab({
       fetchCategories();
       fetchAlertCounts();
     }
-  }, [selectedBranch, itemsPage, itemsRowsPerPage, itemsSearch, itemsTypeFilter, itemsCategoryFilter, itemsBranchFilter, itemsCategoryIdsFilter, itemsSubcategoryIdsFilter]);
+  }, [selectedBranch, itemsPage, itemsRowsPerPage, itemsSearch, itemsTypeFilter, itemsCategoryFilter, itemsSubcategoryFilter]);
 
   const fetchItems = async () => {
     if (!selectedBranch) return;
@@ -120,31 +117,17 @@ export default function InventoryItemsTab({
     try {
       setItemsLoading(true);
       
-      // Determine which branch IDs to send
-      let branchIdParam = selectedBranch;
-      if (itemsBranchFilter.length > 0) {
-        // If branch filter is active, use filtered branches
-        branchIdParam = itemsBranchFilter.join(',');
-      }
-      
       // Build params object
       const params: any = {
         page: itemsPage,
         limit: itemsRowsPerPage,
         search: itemsSearch || undefined,
         type: itemsTypeFilter || undefined,
-        category: itemsCategoryFilter || undefined,
+        category: itemsCategoryFilter !== 'all' ? itemsCategoryFilter : undefined,
+        subcategory: itemsSubcategoryFilter !== 'all' ? itemsSubcategoryFilter : undefined,
       };
       
-      // Add category/subcategory filters if present
-      if (itemsCategoryIdsFilter.length > 0) {
-        params.categoryId = itemsCategoryIdsFilter.join(',');
-      }
-      if (itemsSubcategoryIdsFilter.length > 0) {
-        params.subcategoryId = itemsSubcategoryIdsFilter.join(',');
-      }
-      
-      const response = await inventoryServices.getInventoryItems(branchIdParam, params);
+      const response = await inventoryServices.getInventoryItems(selectedBranch, params);
 
       setItems(response.data.data.items || []);
       setItemsTotalCount(response.data.data.pagination.total);
@@ -237,27 +220,17 @@ export default function InventoryItemsTab({
 
   const handleLowStockClick = () => {
     setItemsTypeFilter('');
-    setItemsCategoryFilter('');
+    setItemsCategoryFilter('all');
+    setItemsSubcategoryFilter('all');
     setItemsSearch('');
-    setItemsBranchFilter([]);
-    setItemsCategoryIdsFilter([]);
-    setItemsSubcategoryIdsFilter([]);
     setItemsPage(1);
   };
 
   const handleExpiringClick = () => {
     setItemsTypeFilter('');
-    setItemsCategoryFilter('');
+    setItemsCategoryFilter('all');
+    setItemsSubcategoryFilter('all');
     setItemsSearch('');
-    setItemsBranchFilter([]);
-    setItemsCategoryIdsFilter([]);
-    setItemsSubcategoryIdsFilter([]);
-    setItemsPage(1);
-  };
-
-  const handleCategoryFilterChange = (categoryIds: string[], subcategoryIds: string[]) => {
-    setItemsCategoryIdsFilter(categoryIds);
-    setItemsSubcategoryIdsFilter(subcategoryIds);
     setItemsPage(1);
   };
 
@@ -314,32 +287,21 @@ export default function InventoryItemsTab({
               {/* Filters */}
               <div className="flex items-center gap-2 flex-wrap">
                 {(isSuperAdmin || isMultiBranchAdmin) && (
-                  <>
-                    <Select value={selectedBranch} onValueChange={onBranchChange}>
-                      <SelectTrigger className="w-48 h-9">
-                        <SelectValue placeholder="Select branch" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {isSuperAdmin && (
-                          <SelectItem value="all">All Branches</SelectItem>
-                        )}
-                        {branches.map((branch) => (
-                          <SelectItem key={branch._id} value={branch._id}>
-                            {branch.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    
-                    {/* Multi-branch filter */}
-                    <BranchSearch
-                      selectedBranchIds={itemsBranchFilter}
-                      onBranchesChange={setItemsBranchFilter}
-                      placeholder="Filter by branches..."
-                      showSelectAll={false}
-                      className="w-64"
-                    />
-                  </>
+                  <Select value={selectedBranch} onValueChange={onBranchChange}>
+                    <SelectTrigger className="w-48 h-9">
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {isSuperAdmin && (
+                        <SelectItem value="all">All Branches</SelectItem>
+                      )}
+                      {branches.map((branch) => (
+                        <SelectItem key={branch._id} value={branch._id}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
                 <Select value={itemsTypeFilter || "all"} onValueChange={(value) => setItemsTypeFilter(value === "all" ? "" : value)}>
                   <SelectTrigger className="w-40 h-9">
@@ -352,13 +314,13 @@ export default function InventoryItemsTab({
                   </SelectContent>
                 </Select>
                 
-                {/* Category/Subcategory filter */}
-                <CategorySubcategorySearch
-                  selectedCategoryIds={itemsCategoryIdsFilter}
-                  selectedSubcategoryIds={itemsSubcategoryIdsFilter}
-                  onCategoriesChange={handleCategoryFilterChange}
-                  branchIds={itemsBranchFilter.length > 0 ? itemsBranchFilter : (selectedBranch === 'all' ? [] : [selectedBranch])}
-                  className="w-64"
+                {/* Category/Subcategory filter - same as Suppliers */}
+                <SupplierCategoryFilter
+                  selectedBranchId={selectedBranch}
+                  selectedCategoryId={itemsCategoryFilter}
+                  selectedSubcategoryId={itemsSubcategoryFilter}
+                  onCategoryChange={setItemsCategoryFilter}
+                  onSubcategoryChange={setItemsSubcategoryFilter}
                 />
               </div>
 
@@ -400,11 +362,11 @@ export default function InventoryItemsTab({
               <Package className="h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold mb-2">No inventory items found</h3>
               <p className="text-muted-foreground text-center mb-4">
-                {itemsSearch || itemsTypeFilter || itemsCategoryFilter
+                {itemsSearch || itemsTypeFilter || (itemsCategoryFilter !== 'all') || (itemsSubcategoryFilter !== 'all')
                   ? 'Try adjusting your filters'
                   : 'Get started by adding your first inventory item'}
               </p>
-              {!itemsSearch && !itemsTypeFilter && !itemsCategoryFilter && (
+              {!itemsSearch && !itemsTypeFilter && itemsCategoryFilter === 'all' && itemsSubcategoryFilter === 'all' && (
                 <Button onClick={handleCreateItem}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Item
