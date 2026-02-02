@@ -37,33 +37,28 @@ const verifyBranchAccess = async (userId, branchId, role, companyId) => {
  */
 export const createInventoryItem = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
-    const { branchId, ...itemData } = req.body;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
+    const itemData = req.body;
 
-    // Validate branchId is provided
-    if (!branchId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Branch ID is required'
-      });
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
-    }
-
-    // Create inventory item
-    const item = await inventoryService.createInventoryItem(itemData, companyId, branchId);
+    // Create inventory item with user's branch access and role
+    const item = await inventoryService.createInventoryItem(
+      itemData, 
+      companyId, 
+      effectiveBranchIds || [], 
+      role
+    );
 
     logger.info('Inventory item created via API', { 
       itemId: item._id, 
       companyId, 
-      branchId, 
+      branchIds: itemData.branchIds,
       userId 
     });
 
@@ -79,7 +74,13 @@ export const createInventoryItem = async (req, res, next) => {
     if (error.message.includes('Missing required fields') || 
         error.message.includes('cannot be negative') ||
         error.message.includes('Maximum stock cannot be less') ||
-        error.message.includes('already exists')) {
+        error.message.includes('already exists') ||
+        error.message.includes('At least one branch must be selected') ||
+        error.message.includes('You do not have access to one or more selected branches') ||
+        error.message.includes('Invalid branch ID detected') ||
+        error.message.includes('Selected category does not exist') ||
+        error.message.includes('Selected subcategory does not exist') ||
+        error.message.includes('Subcategory does not belong to the selected category')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -96,39 +97,23 @@ export const createInventoryItem = async (req, res, next) => {
  */
 export const getInventoryItems = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
-    const { branchId, ...filters } = req.query;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
+    const filters = req.query;
 
-    // Validate branchId is provided
-    if (!branchId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Branch ID is required'
-      });
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds || [];
     }
 
-    // Verify branch access (skip verification for "all" if user is super admin)
-    if (branchId !== 'all') {
-      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-      if (!hasAccess) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have access to this branch'
-        });
-      }
-    } else {
-      // Only super admins can use "all"
-      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
-      if (!isSuperAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: 'Only super admins can view all branches'
-        });
-      }
-    }
-
-    // Get inventory items
-    const result = await inventoryService.getInventoryItems(companyId, branchId, filters);
+    // Get inventory items with user's branch access and role
+    const result = await inventoryService.getInventoryItems(
+      companyId, 
+      effectiveBranchIds || [], 
+      role, 
+      filters
+    );
 
     res.json({
       success: true,
@@ -146,19 +131,35 @@ export const getInventoryItems = async (req, res, next) => {
  */
 export const getInventoryItemById = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { id } = req.params;
 
     // Get inventory item
     const item = await inventoryService.getInventoryItemById(id, companyId);
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, item.branch.toString(), role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
+    }
+
+    // Verify branch access - check if user has access to any of item's branches
+    // Super admins have access to all branches
+    const isSuperAdmin = role === 'company_super_admin_primary' || role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      // For company admins, check if they have access to at least one of the item's branches
+      const hasAccess = item.branchIds.some(branchId => 
+        effectiveBranchIds.includes(branchId.toString())
+      );
+      
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this inventory item'
+        });
+      }
     }
 
     res.json({
@@ -185,24 +186,25 @@ export const getInventoryItemById = async (req, res, next) => {
  */
 export const updateInventoryItem = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { id } = req.params;
     const updateData = req.body;
 
-    // Get existing item to verify branch access
-    const existingItem = await inventoryService.getInventoryItemById(id, companyId);
-
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, existingItem.branch.toString(), role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
     }
 
-    // Update inventory item
-    const item = await inventoryService.updateInventoryItem(id, updateData, companyId);
+    // Update inventory item with user's branch access and role
+    const item = await inventoryService.updateInventoryItem(
+      id, 
+      updateData, 
+      companyId, 
+      effectiveBranchIds || [], 
+      role
+    );
 
     logger.info('Inventory item updated via API', { 
       itemId: id, 
@@ -227,8 +229,21 @@ export const updateInventoryItem = async (req, res, next) => {
 
     if (error.message.includes('cannot be negative') ||
         error.message.includes('Maximum stock cannot be less') ||
-        error.message.includes('already exists')) {
+        error.message.includes('already exists') ||
+        error.message.includes('At least one branch must be selected') ||
+        error.message.includes('You do not have access') ||
+        error.message.includes('Invalid branch ID detected') ||
+        error.message.includes('Selected category does not exist') ||
+        error.message.includes('Selected subcategory does not exist') ||
+        error.message.includes('Subcategory does not belong to the selected category')) {
       return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message === 'You do not have access to this inventory item') {
+      return res.status(403).json({
         success: false,
         message: error.message
       });
@@ -244,19 +259,35 @@ export const updateInventoryItem = async (req, res, next) => {
  */
 export const deleteInventoryItem = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { id } = req.params;
 
     // Get existing item to verify branch access
     const existingItem = await inventoryService.getInventoryItemById(id, companyId);
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, existingItem.branch.toString(), role, companyId);
-    if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this branch'
-      });
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
+    }
+
+    // Verify branch access - check if user has access to any of item's branches
+    // Super admins have access to all branches
+    const isSuperAdmin = role === 'company_super_admin_primary' || role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      // For company admins, check if they have access to at least one of the item's branches
+      const hasAccess = existingItem.branchIds.some(branchId => 
+        effectiveBranchIds.includes(branchId.toString())
+      );
+      
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this inventory item'
+        });
+      }
     }
 
     // Delete inventory item
@@ -292,8 +323,15 @@ export const deleteInventoryItem = async (req, res, next) => {
  */
 export const getLowStockItems = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { branchId } = req.query;
+
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds || [];
+    }
 
     // Validate branchId is provided
     if (!branchId) {
@@ -323,8 +361,8 @@ export const getLowStockItems = async (req, res, next) => {
       }
     }
 
-    // Get low stock items
-    const items = await inventoryService.checkLowStock(companyId, branchId);
+    // Get low stock items - pass user's branchIds and role for future service layer enhancements
+    const items = await inventoryService.checkLowStock(companyId, branchId, effectiveBranchIds || [], role);
 
     res.json({
       success: true,
@@ -342,8 +380,15 @@ export const getLowStockItems = async (req, res, next) => {
  */
 export const getExpiringItems = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { branchId, daysAhead } = req.query;
+
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds || [];
+    }
 
     // Validate branchId is provided
     if (!branchId) {
@@ -373,11 +418,13 @@ export const getExpiringItems = async (req, res, next) => {
       }
     }
 
-    // Get expiring items
+    // Get expiring items - pass user's branchIds and role
     const items = await inventoryService.checkExpiringItems(
       companyId, 
       branchId, 
-      daysAhead ? parseInt(daysAhead) : 7
+      daysAhead ? parseInt(daysAhead) : 7,
+      effectiveBranchIds || [],
+      role
     );
 
     res.json({
@@ -396,8 +443,15 @@ export const getExpiringItems = async (req, res, next) => {
  */
 export const getInventoryCategories = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { branchId } = req.query;
+
+    // Get user's branch IDs if not already in req.user (for company admins)
+    let effectiveBranchIds = userBranchIds;
+    if (!effectiveBranchIds && role === 'company_admin') {
+      const user = await CompanyUser.findById(userId).select('branchIds');
+      effectiveBranchIds = user?.branchIds || [];
+    }
 
     // Validate branchId is provided
     if (!branchId) {
@@ -427,8 +481,13 @@ export const getInventoryCategories = async (req, res, next) => {
       }
     }
 
-    // Get categories
-    const categories = await inventoryService.getInventoryCategories(companyId, branchId);
+    // Get categories - pass user's branchIds and role to service function
+    const categories = await inventoryService.getInventoryCategories(
+      companyId, 
+      branchId, 
+      effectiveBranchIds || [], 
+      role
+    );
 
     res.json({
       success: true,

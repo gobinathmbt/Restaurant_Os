@@ -12,11 +12,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import InventoryItemFormModal from '@/components/inventory/InventoryItemFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
+import BranchSearch from '@/components/common/BranchSearch';
+import CategorySubcategorySearch from '@/components/common/CategorySubcategorySearch';
 
 interface Branch {
   _id: string;
@@ -28,7 +36,21 @@ interface InventoryItem {
   _id: string;
   name: string;
   type: 'raw_material' | 'finished_good';
-  category: string;
+  branchIds: Array<{
+    _id: string;
+    name: string;
+    code: string;
+  } | string>;
+  category: {
+    _id: string;
+    name: string;
+    color: string;
+  } | string;
+  subcategory?: {
+    _id: string;
+    name: string;
+    color: string;
+  } | string;
   unit: string;
   currentStock: number;
   minimumStock: number;
@@ -67,6 +89,9 @@ export default function InventoryItemsTab({
   const [itemsSearch, setItemsSearch] = useState('');
   const [itemsTypeFilter, setItemsTypeFilter] = useState('');
   const [itemsCategoryFilter, setItemsCategoryFilter] = useState('');
+  const [itemsBranchFilter, setItemsBranchFilter] = useState<string[]>([]);
+  const [itemsCategoryIdsFilter, setItemsCategoryIdsFilter] = useState<string[]>([]);
+  const [itemsSubcategoryIdsFilter, setItemsSubcategoryIdsFilter] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [itemsPage, setItemsPage] = useState(1);
   const [itemsRowsPerPage, setItemsRowsPerPage] = useState(10);
@@ -87,20 +112,39 @@ export default function InventoryItemsTab({
       fetchCategories();
       fetchAlertCounts();
     }
-  }, [selectedBranch, itemsPage, itemsRowsPerPage, itemsSearch, itemsTypeFilter, itemsCategoryFilter]);
+  }, [selectedBranch, itemsPage, itemsRowsPerPage, itemsSearch, itemsTypeFilter, itemsCategoryFilter, itemsBranchFilter, itemsCategoryIdsFilter, itemsSubcategoryIdsFilter]);
 
   const fetchItems = async () => {
     if (!selectedBranch) return;
     
     try {
       setItemsLoading(true);
-      const response = await inventoryServices.getInventoryItems(selectedBranch, {
+      
+      // Determine which branch IDs to send
+      let branchIdParam = selectedBranch;
+      if (itemsBranchFilter.length > 0) {
+        // If branch filter is active, use filtered branches
+        branchIdParam = itemsBranchFilter.join(',');
+      }
+      
+      // Build params object
+      const params: any = {
         page: itemsPage,
         limit: itemsRowsPerPage,
         search: itemsSearch || undefined,
         type: itemsTypeFilter || undefined,
-        category: itemsCategoryFilter || undefined
-      });
+        category: itemsCategoryFilter || undefined,
+      };
+      
+      // Add category/subcategory filters if present
+      if (itemsCategoryIdsFilter.length > 0) {
+        params.categoryId = itemsCategoryIdsFilter.join(',');
+      }
+      if (itemsSubcategoryIdsFilter.length > 0) {
+        params.subcategoryId = itemsSubcategoryIdsFilter.join(',');
+      }
+      
+      const response = await inventoryServices.getInventoryItems(branchIdParam, params);
 
       setItems(response.data.data.items || []);
       setItemsTotalCount(response.data.data.pagination.total);
@@ -195,6 +239,9 @@ export default function InventoryItemsTab({
     setItemsTypeFilter('');
     setItemsCategoryFilter('');
     setItemsSearch('');
+    setItemsBranchFilter([]);
+    setItemsCategoryIdsFilter([]);
+    setItemsSubcategoryIdsFilter([]);
     setItemsPage(1);
   };
 
@@ -202,6 +249,15 @@ export default function InventoryItemsTab({
     setItemsTypeFilter('');
     setItemsCategoryFilter('');
     setItemsSearch('');
+    setItemsBranchFilter([]);
+    setItemsCategoryIdsFilter([]);
+    setItemsSubcategoryIdsFilter([]);
+    setItemsPage(1);
+  };
+
+  const handleCategoryFilterChange = (categoryIds: string[], subcategoryIds: string[]) => {
+    setItemsCategoryIdsFilter(categoryIds);
+    setItemsSubcategoryIdsFilter(subcategoryIds);
     setItemsPage(1);
   };
 
@@ -256,23 +312,34 @@ export default function InventoryItemsTab({
               </div>
 
               {/* Filters */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {(isSuperAdmin || isMultiBranchAdmin) && (
-                  <Select value={selectedBranch} onValueChange={onBranchChange}>
-                    <SelectTrigger className="w-48 h-9">
-                      <SelectValue placeholder="Select branch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {isSuperAdmin && (
-                        <SelectItem value="all">All Branches</SelectItem>
-                      )}
-                      {branches.map((branch) => (
-                        <SelectItem key={branch._id} value={branch._id}>
-                          {branch.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <>
+                    <Select value={selectedBranch} onValueChange={onBranchChange}>
+                      <SelectTrigger className="w-48 h-9">
+                        <SelectValue placeholder="Select branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {isSuperAdmin && (
+                          <SelectItem value="all">All Branches</SelectItem>
+                        )}
+                        {branches.map((branch) => (
+                          <SelectItem key={branch._id} value={branch._id}>
+                            {branch.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
+                    {/* Multi-branch filter */}
+                    <BranchSearch
+                      selectedBranchIds={itemsBranchFilter}
+                      onBranchesChange={setItemsBranchFilter}
+                      placeholder="Filter by branches..."
+                      showSelectAll={false}
+                      className="w-64"
+                    />
+                  </>
                 )}
                 <Select value={itemsTypeFilter || "all"} onValueChange={(value) => setItemsTypeFilter(value === "all" ? "" : value)}>
                   <SelectTrigger className="w-40 h-9">
@@ -284,19 +351,15 @@ export default function InventoryItemsTab({
                     <SelectItem value="finished_good">Finished Good</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={itemsCategoryFilter || "all"} onValueChange={(value) => setItemsCategoryFilter(value === "all" ? "" : value)}>
-                  <SelectTrigger className="w-40 h-9">
-                    <SelectValue placeholder="All categories" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All categories</SelectItem>
-                    {categories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                
+                {/* Category/Subcategory filter */}
+                <CategorySubcategorySearch
+                  selectedCategoryIds={itemsCategoryIdsFilter}
+                  selectedSubcategoryIds={itemsSubcategoryIdsFilter}
+                  onCategoriesChange={handleCategoryFilterChange}
+                  branchIds={itemsBranchFilter.length > 0 ? itemsBranchFilter : (selectedBranch === 'all' ? [] : [selectedBranch])}
+                  className="w-64"
+                />
               </div>
 
               {/* Spacer */}
@@ -355,6 +418,7 @@ export default function InventoryItemsTab({
                   <TableHead className="w-16">S.No</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Branches</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead className="text-right">Current Stock</TableHead>
                   <TableHead className="text-right">Min Stock</TableHead>
@@ -367,71 +431,126 @@ export default function InventoryItemsTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((item, index) => (
-                  <TableRow key={item._id}>
-                    <TableCell className="font-medium text-muted-foreground">
-                      {(itemsPage - 1) * itemsRowsPerPage + index + 1}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{item.name}</p>
-                        {(item.isLowStock || item.isExpiringSoon) && (
-                          <div className="flex gap-1 mt-1">
-                            {item.isLowStock && (
-                              <Badge variant="destructive" className="text-xs">Low Stock</Badge>
-                            )}
-                            {item.isExpiringSoon && (
-                              <Badge className="text-xs bg-orange-100 text-orange-800">Expiring Soon</Badge>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {item.type === 'raw_material' ? 'Raw Material' : 'Finished Good'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{item.category || '-'}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {item.currentStock}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {item.minimumStock}
-                    </TableCell>
-                    <TableCell>{item.unit}</TableCell>
-                    <TableCell className="text-right">
-                      {item.costPrice ? formatCurrency(item.costPrice) : '-'}
-                    </TableCell>
-                    <TableCell>{item.supplier?.name || '-'}</TableCell>
-                    <TableCell>
-                      {item.expiryDate ? formatDate(item.expiryDate) : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.isActive ? 'default' : 'secondary'}>
-                        {item.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditItem(item)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteItem(item)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {items.map((item, index) => {
+                  // Helper function to get branch names
+                  const getBranchNames = () => {
+                    if (!item.branchIds || item.branchIds.length === 0) return [];
+                    return item.branchIds.map(branch => 
+                      typeof branch === 'string' ? branch : branch.name
+                    );
+                  };
+
+                  // Helper function to format category path
+                  const getCategoryPath = () => {
+                    if (!item.category) return '-';
+                    
+                    const categoryName = typeof item.category === 'string' 
+                      ? item.category 
+                      : item.category.name;
+                    
+                    if (item.subcategory) {
+                      const subcategoryName = typeof item.subcategory === 'string'
+                        ? item.subcategory
+                        : item.subcategory.name;
+                      return `${categoryName} > ${subcategoryName}`;
+                    }
+                    
+                    return categoryName;
+                  };
+
+                  const branchNames = getBranchNames();
+                  const branchCount = item.branchIds?.length || 0;
+
+                  return (
+                    <TableRow key={item._id}>
+                      <TableCell className="font-medium text-muted-foreground">
+                        {(itemsPage - 1) * itemsRowsPerPage + index + 1}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{item.name}</p>
+                          {(item.isLowStock || item.isExpiringSoon) && (
+                            <div className="flex gap-1 mt-1">
+                              {item.isLowStock && (
+                                <Badge variant="destructive" className="text-xs">Low Stock</Badge>
+                              )}
+                              {item.isExpiringSoon && (
+                                <Badge className="text-xs bg-orange-100 text-orange-800">Expiring Soon</Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {item.type === 'raw_material' ? 'Raw Material' : 'Finished Good'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="secondary" className="cursor-help">
+                                {branchCount} branch{branchCount !== 1 ? 'es' : ''}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="max-w-xs">
+                                {branchNames.length > 0 ? (
+                                  <ul className="list-disc list-inside">
+                                    {branchNames.map((name, idx) => (
+                                      <li key={idx}>{name}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p>No branches assigned</p>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                      <TableCell>{getCategoryPath()}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {item.currentStock}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {item.minimumStock}
+                      </TableCell>
+                      <TableCell>{item.unit}</TableCell>
+                      <TableCell className="text-right">
+                        {item.costPrice ? formatCurrency(item.costPrice) : '-'}
+                      </TableCell>
+                      <TableCell>{item.supplier?.name || '-'}</TableCell>
+                      <TableCell>
+                        {item.expiryDate ? formatDate(item.expiryDate) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={item.isActive ? 'default' : 'secondary'}>
+                          {item.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditItem(item)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteItem(item)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

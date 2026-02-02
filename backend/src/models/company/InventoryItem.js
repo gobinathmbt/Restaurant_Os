@@ -11,10 +11,26 @@ const inventoryItemSchema = new mongoose.Schema({
     required: true,
     enum: ['raw_material', 'finished_good']
   },
-  category: {
-    type: String,
+  branchIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Branch',
     required: true,
-    trim: true
+    validate: {
+      validator: function(v) {
+        return v && v.length > 0;
+      },
+      message: 'At least one branch must be assigned'
+    }
+  }],
+  category: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    required: true
+  },
+  subcategory: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    default: null
   },
   unit: {
     type: String,
@@ -43,11 +59,6 @@ const inventoryItemSchema = new mongoose.Schema({
   costPrice: {
     type: Number,
     min: 0
-  },
-  branch: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch',
-    required: true
   },
   supplier: {
     type: mongoose.Schema.Types.ObjectId,
@@ -113,14 +124,15 @@ inventoryItemSchema.set('toJSON', { virtuals: true });
 inventoryItemSchema.set('toObject', { virtuals: true });
 
 // Indexes
-inventoryItemSchema.index({ branch: 1, name: 1 });
-inventoryItemSchema.index({ branch: 1, type: 1 });
-inventoryItemSchema.index({ branch: 1, currentStock: 1 });
+inventoryItemSchema.index({ branchIds: 1, name: 1 });
+inventoryItemSchema.index({ branchIds: 1, type: 1 });
+inventoryItemSchema.index({ branchIds: 1, currentStock: 1 });
+inventoryItemSchema.index({ category: 1 });
+inventoryItemSchema.index({ subcategory: 1 });
 inventoryItemSchema.index({ expiryDate: 1 });
 inventoryItemSchema.index({ sku: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ barcode: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ isActive: 1 });
-inventoryItemSchema.index({ category: 1 });
 
 export const getInventoryItemModel = (companyDB) => {
   return companyDB.model('InventoryItem', inventoryItemSchema);

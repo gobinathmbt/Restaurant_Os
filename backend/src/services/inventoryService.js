@@ -8,26 +8,76 @@ import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getGRNModel } from '../models/company/GRN.js';
 import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
+import { getCategoryModel } from '../models/company/Category.js';
+import { getBranchModel } from '../models/company/Branch.js';
 import { logger } from '../utils/logger.js';
 
 /**
  * Create a new inventory item
  * @param {Object} itemData - Inventory item data
  * @param {string} companyId - Company ID
- * @param {string} branchId - Branch ID
+ * @param {Array<string>} userBranchIds - User's accessible branch IDs
+ * @param {string} userRole - User's role (company_admin, company_super_admin_primary, company_super_admin_secondary)
  * @returns {Promise<Object>} Created inventory item
  */
-export const createInventoryItem = async (itemData, companyId, branchId) => {
+export const createInventoryItem = async (itemData, companyId, userBranchIds, userRole) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const Category = getCategoryModel(companyDB);
+    const Branch = getBranchModel(companyDB);
 
     // Validate required fields
-    const requiredFields = ['name', 'type', 'unit', 'minimumStock'];
+    const requiredFields = ['name', 'type', 'unit', 'minimumStock', 'branchIds', 'category'];
     const missingFields = requiredFields.filter(field => !itemData[field]);
     
     if (missingFields.length > 0) {
       throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    // Validate branchIds is an array with at least one element
+    if (!Array.isArray(itemData.branchIds) || itemData.branchIds.length === 0) {
+      throw new Error('At least one branch must be selected');
+    }
+
+    // For company admins, validate that all branchIds are in userBranchIds
+    if (userRole === 'company_admin') {
+      const invalidBranches = itemData.branchIds.filter(
+        branchId => !userBranchIds.includes(branchId.toString())
+      );
+      
+      if (invalidBranches.length > 0) {
+        throw new Error('You do not have access to one or more selected branches');
+      }
+    }
+
+    // Validate that all branch IDs exist
+    const branches = await Branch.find({ 
+      _id: { $in: itemData.branchIds },
+      isActive: true 
+    });
+    
+    if (branches.length !== itemData.branchIds.length) {
+      throw new Error('Invalid branch ID detected');
+    }
+
+    // Validate that category ObjectId references an existing Category document
+    const category = await Category.findById(itemData.category);
+    if (!category) {
+      throw new Error('Selected category does not exist');
+    }
+
+    // If subcategory is provided, validate it exists and belongs to the category
+    if (itemData.subcategory) {
+      const subcategory = await Category.findById(itemData.subcategory);
+      if (!subcategory) {
+        throw new Error('Selected subcategory does not exist');
+      }
+      
+      // Verify subcategory belongs to the selected category
+      if (!subcategory.parent || subcategory.parent.toString() !== itemData.category.toString()) {
+        throw new Error('Subcategory does not belong to the selected category');
+      }
     }
 
     // Validate negative values
@@ -66,10 +116,12 @@ export const createInventoryItem = async (itemData, companyId, branchId) => {
       itemData.currentStock = 0;
     }
 
-    // Create inventory item
+    // Create inventory item with branchIds array
     const inventoryItem = new InventoryItem({
       ...itemData,
-      branch: branchId,
+      branchIds: itemData.branchIds,
+      category: itemData.category,
+      subcategory: itemData.subcategory || null,
       isActive: true
     });
 
@@ -87,11 +139,12 @@ export const createInventoryItem = async (itemData, companyId, branchId) => {
 /**
  * Get inventory items with filtering and pagination
  * @param {string} companyId - Company ID
- * @param {string} branchId - Branch ID
+ * @param {Array<string>} userBranchIds - User's accessible branch IDs
+ * @param {string} userRole - User's role (company_admin, company_super_admin_primary, company_super_admin_secondary)
  * @param {Object} filters - Filter options
  * @returns {Promise<Object>} Paginated inventory items
  */
-export const getInventoryItems = async (companyId, branchId, filters = {}) => {
+export const getInventoryItems = async (companyId, userBranchIds, userRole, filters = {}) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
@@ -102,7 +155,8 @@ export const getInventoryItems = async (companyId, branchId, filters = {}) => {
       search = '',
       type = '',
       category = '',
-      lowStock = false
+      lowStock = false,
+      branchIds = []
     } = filters;
 
     // Build query
@@ -110,9 +164,16 @@ export const getInventoryItems = async (companyId, branchId, filters = {}) => {
       isActive: true
     };
 
-    // Branch filter - only add if not "all"
-    if (branchId && branchId !== 'all') {
-      query.branch = branchId;
+    // Branch filter based on user role and filters
+    if (userRole === 'company_admin') {
+      // Company admins can only see items from their assigned branches
+      query.branchIds = { $in: userBranchIds };
+    } else if (userRole === 'company_super_admin_primary' || userRole === 'company_super_admin_secondary') {
+      // Super admins can see all branches, but can filter by specific branches
+      if (branchIds && branchIds.length > 0 && !branchIds.includes('all')) {
+        query.branchIds = { $in: branchIds };
+      }
+      // If branchIds is empty or includes 'all', query all branches (no filter)
     }
 
     // Search filter
@@ -142,10 +203,13 @@ export const getInventoryItems = async (companyId, branchId, filters = {}) => {
     // Calculate pagination
     const skip = (page - 1) * limit;
 
-    // Execute query
+    // Execute query with population of category and subcategory
     const [items, total] = await Promise.all([
       InventoryItem.find(query)
         .populate('supplier', 'name contactPerson phone email')
+        .populate('category', 'name type parent')
+        .populate('subcategory', 'name type parent')
+        .populate('branchIds', 'name location')
         .sort({ name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -188,6 +252,9 @@ export const getInventoryItemById = async (itemId, companyId) => {
 
     const item = await InventoryItem.findById(itemId)
       .populate('supplier', 'name contactPerson phone email rating categories')
+      .populate('category', 'name type parent')
+      .populate('subcategory', 'name type parent')
+      .populate('branchIds', 'name location')
       .lean();
 
     if (!item) {
@@ -210,17 +277,85 @@ export const getInventoryItemById = async (itemId, companyId) => {
  * @param {string} itemId - Inventory item ID
  * @param {Object} updateData - Update data
  * @param {string} companyId - Company ID
+ * @param {Array<string>} userBranchIds - User's accessible branch IDs
+ * @param {string} userRole - User's role (company_admin, company_super_admin_primary, company_super_admin_secondary)
  * @returns {Promise<Object>} Updated inventory item
  */
-export const updateInventoryItem = async (itemId, updateData, companyId) => {
+export const updateInventoryItem = async (itemId, updateData, companyId, userBranchIds, userRole) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const Category = getCategoryModel(companyDB);
+    const Branch = getBranchModel(companyDB);
 
     // Get existing item
     const existingItem = await InventoryItem.findById(itemId);
     if (!existingItem) {
       throw new Error('Inventory item not found');
+    }
+
+    // Validate user has access to at least one of the item's current branches
+    if (userRole === 'company_admin') {
+      const hasAccess = existingItem.branchIds.some(branchId => 
+        userBranchIds.includes(branchId.toString())
+      );
+      
+      if (!hasAccess) {
+        throw new Error('You do not have access to this inventory item');
+      }
+    }
+
+    // If branchIds being updated, validate new branch access
+    if (updateData.branchIds) {
+      // Validate branchIds is an array with at least one element
+      if (!Array.isArray(updateData.branchIds) || updateData.branchIds.length === 0) {
+        throw new Error('At least one branch must be selected');
+      }
+
+      // For company admins, validate that all new branchIds are in userBranchIds
+      if (userRole === 'company_admin') {
+        const invalidBranches = updateData.branchIds.filter(
+          branchId => !userBranchIds.includes(branchId.toString())
+        );
+        
+        if (invalidBranches.length > 0) {
+          throw new Error('You do not have access to one or more selected branches');
+        }
+      }
+
+      // Validate that all branch IDs exist
+      const branches = await Branch.find({ 
+        _id: { $in: updateData.branchIds },
+        isActive: true 
+      });
+      
+      if (branches.length !== updateData.branchIds.length) {
+        throw new Error('Invalid branch ID detected');
+      }
+    }
+
+    // If category being updated, validate category exists
+    if (updateData.category) {
+      const category = await Category.findById(updateData.category);
+      if (!category) {
+        throw new Error('Selected category does not exist');
+      }
+    }
+
+    // If subcategory being updated, validate it belongs to category
+    if (updateData.subcategory) {
+      const subcategory = await Category.findById(updateData.subcategory);
+      if (!subcategory) {
+        throw new Error('Selected subcategory does not exist');
+      }
+      
+      // Determine which category to validate against
+      const categoryToValidate = updateData.category || existingItem.category;
+      
+      // Verify subcategory belongs to the selected category
+      if (!subcategory.parent || subcategory.parent.toString() !== categoryToValidate.toString()) {
+        throw new Error('Subcategory does not belong to the selected category');
+      }
     }
 
     // Validate negative values
@@ -308,10 +443,12 @@ export const deleteInventoryItem = async (itemId, companyId) => {
 /**
  * Check low stock items
  * @param {string} companyId - Company ID
- * @param {string} branchId - Branch ID
+ * @param {string} branchId - Branch ID (can be "all" for super admins)
+ * @param {Array<string>} userBranchIds - User's accessible branch IDs
+ * @param {string} userRole - User's role
  * @returns {Promise<Array>} Low stock items
  */
-export const checkLowStock = async (companyId, branchId) => {
+export const checkLowStock = async (companyId, branchId, userBranchIds = [], userRole = '') => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
@@ -323,11 +460,13 @@ export const checkLowStock = async (companyId, branchId) => {
 
     // Branch filter - only add if not "all"
     if (branchId && branchId !== 'all') {
-      query.branch = branchId;
+      query.branchIds = { $in: [branchId] };
     }
 
     const items = await InventoryItem.find(query)
       .populate('supplier', 'name contactPerson phone email')
+      .populate('category', 'name type')
+      .populate('subcategory', 'name type')
       .sort({ currentStock: 1 })
       .lean();
 
@@ -348,11 +487,13 @@ export const checkLowStock = async (companyId, branchId) => {
 /**
  * Check expiring items
  * @param {string} companyId - Company ID
- * @param {string} branchId - Branch ID
+ * @param {string} branchId - Branch ID (can be "all" for super admins)
  * @param {number} daysAhead - Days ahead to check (default: 7)
+ * @param {Array<string>} userBranchIds - User's accessible branch IDs
+ * @param {string} userRole - User's role
  * @returns {Promise<Array>} Expiring items
  */
-export const checkExpiringItems = async (companyId, branchId, daysAhead = 7) => {
+export const checkExpiringItems = async (companyId, branchId, daysAhead = 7, userBranchIds = [], userRole = '') => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
@@ -373,11 +514,13 @@ export const checkExpiringItems = async (companyId, branchId, daysAhead = 7) => 
 
     // Branch filter - only add if not "all"
     if (branchId && branchId !== 'all') {
-      query.branch = branchId;
+      query.branchIds = { $in: [branchId] };
     }
 
     const items = await InventoryItem.find(query)
       .populate('supplier', 'name contactPerson phone email')
+      .populate('category', 'name type')
+      .populate('subcategory', 'name type parent')
       .sort({ expiryDate: 1 })
       .lean();
 
@@ -399,9 +542,11 @@ export const checkExpiringItems = async (companyId, branchId, daysAhead = 7) => 
  * Get distinct inventory categories
  * @param {string} companyId - Company ID
  * @param {string} branchId - Branch ID
+ * @param {Array<string>} userBranchIds - User's accessible branch IDs
+ * @param {string} userRole - User's role
  * @returns {Promise<Array>} List of categories
  */
-export const getInventoryCategories = async (companyId, branchId) => {
+export const getInventoryCategories = async (companyId, branchId, userBranchIds = [], userRole = '') => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
@@ -412,7 +557,7 @@ export const getInventoryCategories = async (companyId, branchId) => {
 
     // Branch filter - only add if not "all"
     if (branchId && branchId !== 'all') {
-      query.branch = branchId;
+      query.branchIds = { $in: [branchId] };
     }
 
     const categories = await InventoryItem.distinct('category', query);

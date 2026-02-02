@@ -10,8 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices, supplierServices } from '@/api/services';
+import BranchSearch from '@/components/common/BranchSearch';
+import CategorySubcategorySearch from '@/components/common/CategorySubcategorySearch';
+import { cn } from '@/lib/utils';
 
 interface InventoryItemFormModalProps {
   open: boolean;
@@ -36,10 +40,16 @@ export default function InventoryItemFormModal({
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [activeTab, setActiveTab] = useState('basic');
+  
+  // Multi-branch and category selection state
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
+  
   const [formData, setFormData] = useState({
     name: '',
     type: 'raw_material',
-    category: '',
     unit: 'kg',
     currentStock: 0,
     minimumStock: 0,
@@ -61,10 +71,10 @@ export default function InventoryItemFormModal({
 
   useEffect(() => {
     if (item) {
+      // Set form data
       setFormData({
         name: item.name || '',
         type: item.type || 'raw_material',
-        category: item.category || '',
         unit: item.unit || 'kg',
         currentStock: item.currentStock || 0,
         minimumStock: item.minimumStock || 0,
@@ -77,11 +87,37 @@ export default function InventoryItemFormModal({
         sku: item.sku || '',
         barcode: item.barcode || ''
       });
+      
+      // Set branch selection - handle both array and populated object formats
+      if (item.branchIds) {
+        const branchIds = Array.isArray(item.branchIds) 
+          ? item.branchIds.map((b: any) => typeof b === 'string' ? b : b._id)
+          : [];
+        setSelectedBranches(branchIds);
+      } else {
+        setSelectedBranches([]);
+      }
+      
+      // Set category selection - handle both ObjectId and populated object formats
+      if (item.category) {
+        const categoryId = typeof item.category === 'string' ? item.category : item.category._id;
+        setSelectedCategories([categoryId]);
+      } else {
+        setSelectedCategories([]);
+      }
+      
+      // Set subcategory selection - handle both ObjectId and populated object formats
+      if (item.subcategory) {
+        const subcategoryId = typeof item.subcategory === 'string' ? item.subcategory : item.subcategory._id;
+        setSelectedSubcategories([subcategoryId]);
+      } else {
+        setSelectedSubcategories([]);
+      }
     } else {
+      // Reset form for new item
       setFormData({
         name: '',
         type: 'raw_material',
-        category: '',
         unit: 'kg',
         currentStock: 0,
         minimumStock: 0,
@@ -94,8 +130,13 @@ export default function InventoryItemFormModal({
         sku: '',
         barcode: ''
       });
+      
+      // Initialize with the passed branchId if available
+      setSelectedBranches(branchId ? [branchId] : []);
+      setSelectedCategories([]);
+      setSelectedSubcategories([]);
     }
-  }, [item, open]);
+  }, [item, open, branchId]);
 
   const fetchSuppliers = async () => {
     try {
@@ -110,6 +151,15 @@ export default function InventoryItemFormModal({
     }
   };
 
+  const handleBranchesChange = (branchIds: string[]) => {
+    setSelectedBranches(branchIds);
+  };
+
+  const handleCategoriesChange = (categoryIds: string[], subcategoryIds: string[]) => {
+    setSelectedCategories(categoryIds);
+    setSelectedSubcategories(subcategoryIds);
+  };
+
   const validateForm = () => {
     if (!formData.name.trim()) {
       toast({
@@ -117,6 +167,7 @@ export default function InventoryItemFormModal({
         description: "Name is required",
         variant: "destructive",
       });
+      setActiveTab('basic');
       return false;
     }
 
@@ -126,6 +177,7 @@ export default function InventoryItemFormModal({
         description: "Type is required",
         variant: "destructive",
       });
+      setActiveTab('basic');
       return false;
     }
 
@@ -135,6 +187,7 @@ export default function InventoryItemFormModal({
         description: "Unit is required",
         variant: "destructive",
       });
+      setActiveTab('basic');
       return false;
     }
 
@@ -144,6 +197,7 @@ export default function InventoryItemFormModal({
         description: "Current stock cannot be negative",
         variant: "destructive",
       });
+      setActiveTab('basic');
       return false;
     }
 
@@ -153,6 +207,7 @@ export default function InventoryItemFormModal({
         description: "Minimum stock cannot be negative",
         variant: "destructive",
       });
+      setActiveTab('basic');
       return false;
     }
 
@@ -162,6 +217,7 @@ export default function InventoryItemFormModal({
         description: "Maximum stock must be greater than or equal to minimum stock",
         variant: "destructive",
       });
+      setActiveTab('basic');
       return false;
     }
 
@@ -171,6 +227,65 @@ export default function InventoryItemFormModal({
         description: "Cost price cannot be negative",
         variant: "destructive",
       });
+      setActiveTab('details');
+      return false;
+    }
+
+    // Validate at least one branch selected
+    if (selectedBranches.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one branch must be selected",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
+      return false;
+    }
+
+    // Validate at least one category selected
+    if (selectedCategories.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one category must be selected",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
+      return false;
+    }
+
+    // Validate ObjectId format (24 hex characters)
+    const isValidObjectId = (id: string) => /^[0-9a-fA-F]{24}$/.test(id);
+
+    const invalidBranches = selectedBranches.filter(id => !isValidObjectId(id));
+    if (invalidBranches.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid branch IDs detected. Please reselect branches.",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
+      return false;
+    }
+
+    const invalidCategories = selectedCategories.filter(id => !isValidObjectId(id));
+    if (invalidCategories.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid category IDs detected. Please reselect categories.",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
+      return false;
+    }
+
+    const invalidSubcategories = selectedSubcategories.filter(id => !isValidObjectId(id));
+    if (invalidSubcategories.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid subcategory IDs detected. Please reselect subcategories.",
+        variant: "destructive",
+      });
+      setActiveTab('assignment');
       return false;
     }
 
@@ -190,7 +305,6 @@ export default function InventoryItemFormModal({
       const submitData: any = {
         name: formData.name.trim(),
         type: formData.type,
-        category: formData.category.trim(),
         unit: formData.unit,
         minimumStock: formData.minimumStock,
         maximumStock: formData.maximumStock || undefined,
@@ -200,7 +314,10 @@ export default function InventoryItemFormModal({
         expiryDate: formData.expiryDate || undefined,
         batchNumber: formData.batchNumber.trim() || undefined,
         sku: formData.sku.trim() || undefined,
-        barcode: formData.barcode.trim() || undefined
+        barcode: formData.barcode.trim() || undefined,
+        branchIds: selectedBranches,
+        categoryIds: selectedCategories,
+        subcategoryIds: selectedSubcategories,
       };
 
       // Only include currentStock for new items
@@ -244,207 +361,244 @@ export default function InventoryItemFormModal({
         </DialogHeader>
 
         <DialogBody>
-          <form id="inventory-item-form" onSubmit={handleSubmit} className="space-y-6">
-            {/* Basic Information */}
-            <div className="space-y-4">
-              <h3 className="font-semibold">Basic Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="name">Name *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., Tomatoes"
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="type">Type *</Label>
-                  <Select
-                    value={formData.type}
-                    onValueChange={(value) => setFormData({ ...formData, type: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="raw_material">Raw Material</SelectItem>
-                      <SelectItem value="finished_good">Finished Good</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="category">Category</Label>
-                  <Input
-                    id="category"
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    placeholder="e.g., Vegetables"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="unit">Unit *</Label>
-                  <Select
-                    value={formData.unit}
-                    onValueChange={(value) => setFormData({ ...formData, unit: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="kg">Kilogram (kg)</SelectItem>
-                      <SelectItem value="gram">Gram (g)</SelectItem>
-                      <SelectItem value="liter">Liter (L)</SelectItem>
-                      <SelectItem value="ml">Milliliter (ml)</SelectItem>
-                      <SelectItem value="piece">Piece</SelectItem>
-                      <SelectItem value="dozen">Dozen</SelectItem>
-                      <SelectItem value="packet">Packet</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
+          <form id="inventory-item-form" onSubmit={handleSubmit}>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="basic">Basic Info</TabsTrigger>
+                <TabsTrigger value="assignment">Branch & Category</TabsTrigger>
+                <TabsTrigger value="details">Details</TabsTrigger>
+              </TabsList>
 
-            {/* Stock Information */}
-            <div className="space-y-4">
-              <h3 className="font-semibold">Stock Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                {!item && (
+              {/* Basic Information Tab */}
+              <TabsContent value="basic" className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="currentStock">Initial Stock *</Label>
+                    <Label htmlFor="name">Name *</Label>
                     <Input
-                      id="currentStock"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.currentStock}
-                      onChange={(e) => setFormData({ ...formData, currentStock: parseFloat(e.target.value) || 0 })}
-                      placeholder="0"
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="e.g., Tomatoes"
                       required
                     />
                   </div>
-                )}
-                <div>
-                  <Label htmlFor="minimumStock">Minimum Stock *</Label>
-                  <Input
-                    id="minimumStock"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.minimumStock}
-                    onChange={(e) => setFormData({ ...formData, minimumStock: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                    required
-                  />
+                  <div>
+                    <Label htmlFor="type">Type *</Label>
+                    <Select
+                      value={formData.type}
+                      onValueChange={(value) => setFormData({ ...formData, type: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="raw_material">Raw Material</SelectItem>
+                        <SelectItem value="finished_good">Finished Good</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="unit">Unit *</Label>
+                    <Select
+                      value={formData.unit}
+                      onValueChange={(value) => setFormData({ ...formData, unit: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="kg">Kilogram (kg)</SelectItem>
+                        <SelectItem value="gram">Gram (g)</SelectItem>
+                        <SelectItem value="liter">Liter (L)</SelectItem>
+                        <SelectItem value="ml">Milliliter (ml)</SelectItem>
+                        <SelectItem value="piece">Piece</SelectItem>
+                        <SelectItem value="dozen">Dozen</SelectItem>
+                        <SelectItem value="packet">Packet</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="maximumStock">Maximum Stock</Label>
-                  <Input
-                    id="maximumStock"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.maximumStock}
-                    onChange={(e) => setFormData({ ...formData, maximumStock: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="reorderPoint">Reorder Point</Label>
-                  <Input
-                    id="reorderPoint"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.reorderPoint}
-                    onChange={(e) => setFormData({ ...formData, reorderPoint: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-            </div>
 
-            {/* Pricing & Supplier */}
-            <div className="space-y-4">
-              <h3 className="font-semibold">Pricing & Supplier</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="costPrice">Cost Price</Label>
-                  <Input
-                    id="costPrice"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.costPrice}
-                    onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
-                    placeholder="0.00"
-                  />
+                {/* Stock Information */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Stock Information</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {!item && (
+                      <div>
+                        <Label htmlFor="currentStock">Initial Stock *</Label>
+                        <Input
+                          id="currentStock"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={formData.currentStock}
+                          onChange={(e) => setFormData({ ...formData, currentStock: parseFloat(e.target.value) || 0 })}
+                          placeholder="0"
+                          required
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <Label htmlFor="minimumStock">Minimum Stock *</Label>
+                      <Input
+                        id="minimumStock"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.minimumStock}
+                        onChange={(e) => setFormData({ ...formData, minimumStock: parseFloat(e.target.value) || 0 })}
+                        placeholder="0"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="maximumStock">Maximum Stock</Label>
+                      <Input
+                        id="maximumStock"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.maximumStock}
+                        onChange={(e) => setFormData({ ...formData, maximumStock: parseFloat(e.target.value) || 0 })}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="reorderPoint">Reorder Point</Label>
+                      <Input
+                        id="reorderPoint"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.reorderPoint}
+                        onChange={(e) => setFormData({ ...formData, reorderPoint: parseFloat(e.target.value) || 0 })}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="supplier">Supplier</Label>
-                  <Select
-                    value={formData.supplier}
-                    onValueChange={(value) => setFormData({ ...formData, supplier: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select supplier" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="null">None</SelectItem>
-                      {suppliers.map((supplier) => (
-                        <SelectItem key={supplier._id} value={supplier._id}>
-                          {supplier.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
+              </TabsContent>
 
-            {/* Additional Details */}
-            <div className="space-y-4">
-              <h3 className="font-semibold">Additional Details</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="expiryDate">Expiry Date</Label>
-                  <Input
-                    id="expiryDate"
-                    type="date"
-                    value={formData.expiryDate}
-                    onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+              {/* Branch & Category Assignment Tab */}
+              <TabsContent value="assignment" className="space-y-6 mt-4" forceMount={true}>
+                <div className={cn("space-y-4", activeTab !== 'assignment' && "hidden")}>
+                  <div>
+                    <h3 className="font-semibold">Assign Branches *</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Select which branches this inventory item belongs to
+                    </p>
+                  </div>
+
+                  <BranchSearch
+                    selectedBranchIds={selectedBranches}
+                    onBranchesChange={handleBranchesChange}
+                    placeholder="Select branches..."
+                    showSelectAll={false}
                   />
                 </div>
-                <div>
-                  <Label htmlFor="batchNumber">Batch Number</Label>
-                  <Input
-                    id="batchNumber"
-                    value={formData.batchNumber}
-                    onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
-                    placeholder="e.g., BATCH-2024-001"
+
+                <div className={cn("border-t pt-6 space-y-4", activeTab !== 'assignment' && "hidden")}>
+                  <div>
+                    <h3 className="font-semibold">Assign Categories & Subcategories *</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Select categories and subcategories for this item. Categories are filtered based on selected branches.
+                    </p>
+                  </div>
+
+                  <CategorySubcategorySearch
+                    selectedCategoryIds={selectedCategories}
+                    selectedSubcategoryIds={selectedSubcategories}
+                    onCategoriesChange={handleCategoriesChange}
+                    branchIds={selectedBranches}
+                    required={true}
                   />
                 </div>
-                <div>
-                  <Label htmlFor="sku">SKU</Label>
-                  <Input
-                    id="sku"
-                    value={formData.sku}
-                    onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                    placeholder="e.g., VEG-TOM-001"
-                  />
+              </TabsContent>
+
+              {/* Additional Details Tab */}
+              <TabsContent value="details" className="space-y-4 mt-4">
+                {/* Pricing & Supplier */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Pricing & Supplier</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="costPrice">Cost Price</Label>
+                      <Input
+                        id="costPrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.costPrice}
+                        onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="supplier">Supplier</Label>
+                      <Select
+                        value={formData.supplier}
+                        onValueChange={(value) => setFormData({ ...formData, supplier: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select supplier" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="null">None</SelectItem>
+                          {suppliers.map((supplier) => (
+                            <SelectItem key={supplier._id} value={supplier._id}>
+                              {supplier.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="barcode">Barcode</Label>
-                  <Input
-                    id="barcode"
-                    value={formData.barcode}
-                    onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                    placeholder="e.g., 1234567890123"
-                  />
+
+                {/* Additional Details */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Additional Details</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="expiryDate">Expiry Date</Label>
+                      <Input
+                        id="expiryDate"
+                        type="date"
+                        value={formData.expiryDate}
+                        onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="batchNumber">Batch Number</Label>
+                      <Input
+                        id="batchNumber"
+                        value={formData.batchNumber}
+                        onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
+                        placeholder="e.g., BATCH-2024-001"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="sku">SKU</Label>
+                      <Input
+                        id="sku"
+                        value={formData.sku}
+                        onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                        placeholder="e.g., VEG-TOM-001"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="barcode">Barcode</Label>
+                      <Input
+                        id="barcode"
+                        value={formData.barcode}
+                        onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                        placeholder="e.g., 1234567890123"
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </TabsContent>
+            </Tabs>
           </form>
         </DialogBody>
 
