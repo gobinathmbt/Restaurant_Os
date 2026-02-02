@@ -140,12 +140,11 @@ export const createInventoryItem = async (itemData, companyId, userBranchIds, us
 /**
  * Get inventory items with filtering and pagination
  * @param {string} companyId - Company ID
- * @param {Array<string>} userBranchIds - User's accessible branch IDs
- * @param {string} userRole - User's role (company_admin, company_super_admin_primary, company_super_admin_secondary)
  * @param {Object} filters - Filter options
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admins)
  * @returns {Promise<Object>} Paginated inventory items
  */
-export const getInventoryItems = async (companyId, userBranchIds, userRole, filters = {}) => {
+export const getInventoryItems = async (companyId, filters = {}, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
@@ -158,7 +157,7 @@ export const getInventoryItems = async (companyId, userBranchIds, userRole, filt
       type = '',
       category = '',
       lowStock = false,
-      branchIds = []
+      branchId = ''
     } = filters;
 
     // Build query
@@ -166,17 +165,15 @@ export const getInventoryItems = async (companyId, userBranchIds, userRole, filt
       isActive: true
     };
 
-    // Branch filter based on user role and filters
-    if (userRole === 'company_admin') {
-      // Company admins can only see items from their assigned branches
+    // Branch filtering - same pattern as supplier service
+    if (branchId && branchId !== 'all') {
+      // Filter by specific branch
+      query.branchIds = branchId;
+    } else if (userBranchIds && userBranchIds.length > 0) {
+      // For company_admin, only show items assigned to their branches
       query.branchIds = { $in: userBranchIds };
-    } else if (userRole === 'company_super_admin_primary' || userRole === 'company_super_admin_secondary') {
-      // Super admins can see all branches, but can filter by specific branches
-      if (branchIds && branchIds.length > 0 && !branchIds.includes('all')) {
-        query.branchIds = { $in: branchIds };
-      }
-      // If branchIds is empty or includes 'all', query all branches (no filter)
     }
+    // If neither condition is met (super admin with no specific branch), return all items
 
     // Search filter
     if (search) {

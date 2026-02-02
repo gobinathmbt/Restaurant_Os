@@ -107,12 +107,16 @@ export const getInventoryItems = async (req, res, next) => {
       effectiveBranchIds = user?.branchIds || [];
     }
 
-    // Get inventory items with user's branch access and role
+    // Determine user's accessible branches
+    const accessibleBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : effectiveBranchIds; // Company admins only have access to their assigned branches
+
+    // Get inventory items with user's branch access
     const result = await inventoryService.getInventoryItems(
       companyId, 
-      effectiveBranchIds || [], 
-      role, 
-      filters
+      filters,
+      accessibleBranchIds
     );
 
     res.json({
