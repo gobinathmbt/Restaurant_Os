@@ -325,8 +325,9 @@ export default function InventoryItemFormModal({
         sku: formData.sku.trim() || undefined,
         barcode: formData.barcode.trim() || undefined,
         branchIds: selectedBranches,
-        categoryIds: selectedCategories,
-        subcategoryIds: selectedSubcategories,
+        // Backend expects single category and subcategory, not arrays
+        category: selectedCategories.length > 0 ? selectedCategories[0] : undefined,
+        subcategory: selectedSubcategories.length > 0 ? selectedSubcategories[0] : undefined,
       };
 
       // Only include currentStock for new items
