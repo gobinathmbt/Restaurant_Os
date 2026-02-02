@@ -131,12 +131,13 @@ export default function InventoryItemFormModal({
         barcode: ''
       });
       
-      // Initialize with the passed branchId if available
-      setSelectedBranches(branchId ? [branchId] : []);
+      // Don't pre-populate branches - let user select them manually
+      // This ensures CategorySubcategorySearch works correctly
+      setSelectedBranches([]);
       setSelectedCategories([]);
       setSelectedSubcategories([]);
     }
-  }, [item, open, branchId]);
+  }, [item, open]);
 
   const fetchSuppliers = async () => {
     try {
@@ -153,6 +154,14 @@ export default function InventoryItemFormModal({
 
   const handleBranchesChange = (branchIds: string[]) => {
     setSelectedBranches(branchIds);
+    
+    // If all branches are cleared, clear categories and subcategories
+    if (branchIds.length === 0) {
+      setSelectedCategories([]);
+      setSelectedSubcategories([]);
+    }
+    // Note: CategorySubcategorySearch component will handle filtering of invalid categories
+    // when branches change through its own useEffect
   };
 
   const handleCategoriesChange = (categoryIds: string[], subcategoryIds: string[]) => {
