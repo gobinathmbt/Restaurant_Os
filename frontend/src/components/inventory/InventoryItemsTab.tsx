@@ -326,8 +326,9 @@ export default function InventoryItemsTab({
   };
 
   return (
-    <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
-      <DataTableLayout
+    <>
+      <div className="h-full flex flex-col">
+        <DataTableLayout
         statChips={[
           { label: 'Total Items', value: itemsTotalCount, variant: 'default' },
           { label: 'Low Stock', value: lowStockCount, variant: 'destructive' },
@@ -598,5 +599,6 @@ export default function InventoryItemsTab({
         description={`Are you sure you want to delete "${itemDeleteDialog.item?.name}"? This action cannot be undone.`}
       />
     </div>
+    </>
   );
 }
