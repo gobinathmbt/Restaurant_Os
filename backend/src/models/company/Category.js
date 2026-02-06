@@ -42,7 +42,8 @@ const categorySchema = new mongoose.Schema({
     default: null
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  optimisticConcurrency: true
 });
 
 // Indexes for faster queries

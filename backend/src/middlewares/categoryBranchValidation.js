@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import { getCompanyDB } from '../config/database.js';
 import CategoryBranchValidationService from '../services/categoryBranchValidationService.js';
 import { logger } from '../utils/logger.js';
+import { isFeatureEnabled, logFeatureDisabledWarning } from '../config/featureFlags.js';
 
 /**
  * Middleware to validate and auto-assign categories when creating/updating inventory items
@@ -20,32 +21,42 @@ import { logger } from '../utils/logger.js';
  * @param {NextFunction} next - Express next function
  */
 export const validateAndAssignItemCategories = async (req, res, next) => {
-  const session = await mongoose.startSession();
+  // Check if auto-assignment feature is enabled
+  if (!isFeatureEnabled('AUTO_ASSIGN_CATEGORIES')) {
+    logFeatureDisabledWarning(
+      'AUTO_ASSIGN_CATEGORIES',
+      'validateAndAssignItemCategories middleware',
+      {
+        companyId: req.user?.companyId,
+        userId: req.user?.userId,
+        operation: 'item_category_assignment'
+      }
+    );
+    // Skip validation and continue to next middleware
+    return next();
+  }
+
+  // Extract user and company info from authenticated request
+  const { companyId, userId } = req.user;
+  const itemData = req.body;
+
+  // Skip validation if no branches or categories specified
+  if (!itemData.branchIds || !Array.isArray(itemData.branchIds) || itemData.branchIds.length === 0) {
+    return next();
+  }
+
+  if (!itemData.category) {
+    return next();
+  }
+
+  // Get company database connection
+  const companyDB = getCompanyDB(companyId);
+  const validationService = new CategoryBranchValidationService(companyDB);
   
   try {
-    // Extract user and company info from authenticated request
-    const { companyId, userId } = req.user;
-    const itemData = req.body;
-
-    // Skip validation if no branches or categories specified
-    if (!itemData.branchIds || !Array.isArray(itemData.branchIds) || itemData.branchIds.length === 0) {
-      return next();
-    }
-
-    if (!itemData.category) {
-      return next();
-    }
-
-    // Get company database connection
-    const companyDB = getCompanyDB(companyId);
-    const validationService = new CategoryBranchValidationService(companyDB);
-
     // Prepare category and subcategory IDs
     const categoryIds = [itemData.category];
     const subcategoryIds = itemData.subcategory ? [itemData.subcategory] : [];
-
-    // Start transaction
-    session.startTransaction();
 
     // Check if categories need to be assigned to branches
     const accessCheck = await validationService.checkCategoryBranchAccess(
@@ -64,29 +75,25 @@ export const validateAndAssignItemCategories = async (req, res, next) => {
         subcategoryIds
       });
 
+      // Note: Passing null for session - transactions require replica set
+      // For standalone MongoDB, operations will run without transaction
       const assignmentResult = await validationService.assignCategoriesToBranches(
         itemData.branchIds,
         categoryIds,
         subcategoryIds,
         userId,
         'item_assignment',
-        session
+        null
       );
 
       // Attach assignment info to request for controller to include in response
       req.autoAssignments = assignmentResult.assigned;
     }
 
-    // Commit transaction
-    await session.commitTransaction();
-
     // Continue to next middleware/controller
     next();
 
   } catch (error) {
-    // Rollback transaction on error
-    await session.abortTransaction();
-    
     logger.error('Error in validateAndAssignItemCategories middleware', {
       error: error.message,
       stack: error.stack,
@@ -94,11 +101,11 @@ export const validateAndAssignItemCategories = async (req, res, next) => {
       userId: req.user?.userId
     });
 
-    // Return transaction error response
+    // Return error response
     return res.status(500).json({
       success: false,
       error: {
-        code: 'TRANSACTION_FAILED',
+        code: 'ASSIGNMENT_FAILED',
         message: 'Failed to validate and assign categories',
         details: {
           operation: 'item_category_assignment',
@@ -106,10 +113,6 @@ export const validateAndAssignItemCategories = async (req, res, next) => {
         }
       }
     });
-
-  } finally {
-    // Always end session
-    session.endSession();
   }
 };
 
@@ -124,32 +127,42 @@ export const validateAndAssignItemCategories = async (req, res, next) => {
  * @param {NextFunction} next - Express next function
  */
 export const validateAndAssignSupplierCategories = async (req, res, next) => {
-  const session = await mongoose.startSession();
+  // Check if auto-assignment feature is enabled
+  if (!isFeatureEnabled('AUTO_ASSIGN_CATEGORIES')) {
+    logFeatureDisabledWarning(
+      'AUTO_ASSIGN_CATEGORIES',
+      'validateAndAssignSupplierCategories middleware',
+      {
+        companyId: req.user?.companyId,
+        userId: req.user?.userId,
+        operation: 'supplier_category_assignment'
+      }
+    );
+    // Skip validation and continue to next middleware
+    return next();
+  }
+
+  // Extract user and company info from authenticated request
+  const { companyId, userId } = req.user;
+  const supplierData = req.body;
+
+  // Skip validation if no branches or categories specified
+  if (!supplierData.branchIds || !Array.isArray(supplierData.branchIds) || supplierData.branchIds.length === 0) {
+    return next();
+  }
+
+  const categoryIds = supplierData.categoryIds || [];
+  const subcategoryIds = supplierData.subcategoryIds || [];
+
+  if (categoryIds.length === 0 && subcategoryIds.length === 0) {
+    return next();
+  }
+
+  // Get company database connection
+  const companyDB = getCompanyDB(companyId);
+  const validationService = new CategoryBranchValidationService(companyDB);
   
   try {
-    // Extract user and company info from authenticated request
-    const { companyId, userId } = req.user;
-    const supplierData = req.body;
-
-    // Skip validation if no branches or categories specified
-    if (!supplierData.branchIds || !Array.isArray(supplierData.branchIds) || supplierData.branchIds.length === 0) {
-      return next();
-    }
-
-    const categoryIds = supplierData.categoryIds || [];
-    const subcategoryIds = supplierData.subcategoryIds || [];
-
-    if (categoryIds.length === 0 && subcategoryIds.length === 0) {
-      return next();
-    }
-
-    // Get company database connection
-    const companyDB = getCompanyDB(companyId);
-    const validationService = new CategoryBranchValidationService(companyDB);
-
-    // Start transaction
-    session.startTransaction();
-
     // Check if categories need to be assigned to branches
     const accessCheck = await validationService.checkCategoryBranchAccess(
       supplierData.branchIds,
@@ -167,29 +180,25 @@ export const validateAndAssignSupplierCategories = async (req, res, next) => {
         subcategoryIds
       });
 
+      // Note: Passing null for session - transactions require replica set
+      // For standalone MongoDB, operations will run without transaction
       const assignmentResult = await validationService.assignCategoriesToBranches(
         supplierData.branchIds,
         categoryIds,
         subcategoryIds,
         userId,
         'supplier_assignment',
-        session
+        null
       );
 
       // Attach assignment info to request for controller to include in response
       req.autoAssignments = assignmentResult.assigned;
     }
 
-    // Commit transaction
-    await session.commitTransaction();
-
     // Continue to next middleware/controller
     next();
 
   } catch (error) {
-    // Rollback transaction on error
-    await session.abortTransaction();
-    
     logger.error('Error in validateAndAssignSupplierCategories middleware', {
       error: error.message,
       stack: error.stack,
@@ -197,11 +206,11 @@ export const validateAndAssignSupplierCategories = async (req, res, next) => {
       userId: req.user?.userId
     });
 
-    // Return transaction error response
+    // Return error response
     return res.status(500).json({
       success: false,
       error: {
-        code: 'TRANSACTION_FAILED',
+        code: 'ASSIGNMENT_FAILED',
         message: 'Failed to validate and assign categories',
         details: {
           operation: 'supplier_category_assignment',
@@ -209,10 +218,6 @@ export const validateAndAssignSupplierCategories = async (req, res, next) => {
         }
       }
     });
-
-  } finally {
-    // Always end session
-    session.endSession();
   }
 };
 
@@ -227,6 +232,23 @@ export const validateAndAssignSupplierCategories = async (req, res, next) => {
  * @param {NextFunction} next - Express next function
  */
 export const validateCategoryBranchRemoval = async (req, res, next) => {
+  // Check if branch removal validation feature is enabled
+  if (!isFeatureEnabled('VALIDATE_BRANCH_REMOVAL')) {
+    logFeatureDisabledWarning(
+      'VALIDATE_BRANCH_REMOVAL',
+      'validateCategoryBranchRemoval middleware',
+      {
+        companyId: req.user?.companyId,
+        userId: req.user?.userId,
+        categoryId: req.params?.categoryId,
+        branchId: req.body?.branchId,
+        operation: 'branch_removal_validation'
+      }
+    );
+    // Skip validation and continue to next middleware
+    return next();
+  }
+
   try {
     // Extract user and company info from authenticated request
     const { companyId, userId } = req.user;

@@ -10,6 +10,7 @@ import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
 import { getCategoryBranchAuditLogModel } from '../models/company/CategoryBranchAuditLog.js';
 import { logger } from '../utils/logger.js';
+import { isFeatureEnabled, logFeatureDisabledWarning } from '../config/featureFlags.js';
 
 /**
  * Category-Branch Validation Service Class
@@ -64,23 +65,35 @@ class CategoryBranchValidationService {
         }
 
         for (const categoryId of validCategoryIds) {
-          const category = await this.Category.findById(categoryId).lean();
+          // Try to get from cache first (only if caching is enabled)
+          let categoryBranchIds = null;
           
-          if (!category) {
-            logger.warn(`Category not found: ${categoryId}`);
-            continue;
+          
+          if (!categoryBranchIds) {
+            // Cache miss or caching disabled - fetch from database
+            const category = await this.Category.findById(categoryId).lean();
+            
+            if (!category) {
+              logger.warn(`Category not found: ${categoryId}`);
+              continue;
+            }
+
+            categoryBranchIds = category.branchIds.map(id => id.toString());
+            
           }
 
           // Check which branches don't have access to this category
-          const categoryBranchIds = category.branchIds.map(id => id.toString());
           const missingBranches = validBranchIds.filter(
             branchId => !categoryBranchIds.includes(branchId.toString())
           );
 
           if (missingBranches.length > 0) {
+            // Fetch category name if not in cache (we only cached branch IDs)
+            const category = await this.Category.findById(categoryId).select('name').lean();
+            
             missingAssignments.categories.push({
               categoryId: categoryId,
-              categoryName: category.name,
+              categoryName: category?.name || 'Unknown',
               missingBranchIds: missingBranches
             });
           }
@@ -95,23 +108,35 @@ class CategoryBranchValidationService {
         }
 
         for (const subcategoryId of validSubcategoryIds) {
-          const subcategory = await this.Category.findById(subcategoryId).lean();
+          // Try to get from cache first (only if caching is enabled)
+          let subcategoryBranchIds = null;
           
-          if (!subcategory) {
-            logger.warn(`Subcategory not found: ${subcategoryId}`);
-            continue;
+          
+          if (!subcategoryBranchIds) {
+            // Cache miss or caching disabled - fetch from database
+            const subcategory = await this.Category.findById(subcategoryId).lean();
+            
+            if (!subcategory) {
+              logger.warn(`Subcategory not found: ${subcategoryId}`);
+              continue;
+            }
+
+            subcategoryBranchIds = subcategory.branchIds.map(id => id.toString());
+            
           }
 
           // Check which branches don't have access to this subcategory
-          const subcategoryBranchIds = subcategory.branchIds.map(id => id.toString());
           const missingBranches = validBranchIds.filter(
             branchId => !subcategoryBranchIds.includes(branchId.toString())
           );
 
           if (missingBranches.length > 0) {
+            // Fetch subcategory name if not in cache (we only cached branch IDs)
+            const subcategory = await this.Category.findById(subcategoryId).select('name').lean();
+            
             missingAssignments.subcategories.push({
               subcategoryId: subcategoryId,
-              subcategoryName: subcategory.name,
+              subcategoryName: subcategory?.name || 'Unknown',
               missingBranchIds: missingBranches
             });
           }
@@ -236,7 +261,7 @@ class CategoryBranchValidationService {
   }
 
   /**
-   * Automatically assign categories and subcategories to branches
+   * Automatically assign categories and subcategories to branches with optimistic locking
    * @param {string[]} branchIds - Branches to assign to
    * @param {string[]} categoryIds - Categories to assign
    * @param {string[]} subcategoryIds - Subcategories to assign
@@ -246,6 +271,38 @@ class CategoryBranchValidationService {
    * @returns {Promise<{assigned: Object, alreadyAssigned: Object}>}
    */
   async assignCategoriesToBranches(branchIds, categoryIds, subcategoryIds, userId, reason, session = null) {
+    const maxRetries = 3;
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        return await this._assignCategoriesToBranchesWithLocking(
+          branchIds, 
+          categoryIds, 
+          subcategoryIds, 
+          userId, 
+          reason, 
+          session
+        );
+      } catch (error) {
+        // Check if it's a version conflict error
+        if (error.name === 'VersionError' && attempt < maxRetries - 1) {
+          attempt++;
+          logger.warn(`Concurrent modification detected, retrying (attempt ${attempt}/${maxRetries})...`);
+          // Add exponential backoff
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Internal method to assign categories with optimistic locking
+   * @private
+   */
+  async _assignCategoriesToBranchesWithLocking(branchIds, categoryIds, subcategoryIds, userId, reason, session = null) {
     try {
       // Validate inputs
       if (!Array.isArray(branchIds) || branchIds.length === 0) {
@@ -291,29 +348,58 @@ class CategoryBranchValidationService {
           );
 
           if (newBranches.length > 0) {
-            // Add new branches to category
-            category.branchIds.push(...newBranches);
-            await category.save({ session });
+            // Use findOneAndUpdate with version checking for optimistic locking
+            const updatedCategory = await this.Category.findOneAndUpdate(
+              { 
+                _id: categoryId,
+                __v: category.__v  // Version check
+              },
+              { 
+                $addToSet: { branchIds: { $each: newBranches } },
+                $inc: { __v: 1 }  // Increment version
+              },
+              { 
+                new: true,
+                session,
+                runValidators: true
+              }
+            );
+
+            if (!updatedCategory) {
+              // Version mismatch - concurrent modification detected
+              const error = new Error('Concurrent modification detected');
+              error.name = 'VersionError';
+              throw error;
+            }
+
 
             assigned.categories.push({
               categoryId: categoryId,
-              categoryName: category.name,
+              categoryName: updatedCategory.name,
               branchIds: newBranches
             });
 
-            // Create audit log
-            await this.createAuditLog(
-              userId,
-              'auto_assign_category',
-              'category',
-              categoryId,
-              categoryId,
-              null,
-              newBranches,
-              reason,
-              { categoryName: category.name },
-              session
-            );
+            // Create audit log (only if audit logging is enabled)
+            if (isFeatureEnabled('ENABLE_AUDIT_LOGGING')) {
+              await this.createAuditLog(
+                userId,
+                'auto_assign_category',
+                'category',
+                categoryId,
+                categoryId,
+                null,
+                newBranches,
+                reason,
+                { categoryName: updatedCategory.name },
+                session
+              );
+            } else {
+              logFeatureDisabledWarning(
+                'ENABLE_AUDIT_LOGGING',
+                'assignCategoriesToBranches - category assignment',
+                { categoryId, branchIds: newBranches }
+              );
+            }
 
             logger.info(`Auto-assigned category ${categoryId} to branches: ${newBranches.join(', ')}`);
           } else {
@@ -343,29 +429,59 @@ class CategoryBranchValidationService {
           );
 
           if (newBranches.length > 0) {
-            // Add new branches to subcategory
-            subcategory.branchIds.push(...newBranches);
-            await subcategory.save({ session });
+            // Use findOneAndUpdate with version checking for optimistic locking
+            const updatedSubcategory = await this.Category.findOneAndUpdate(
+              { 
+                _id: subcategoryId,
+                __v: subcategory.__v  // Version check
+              },
+              { 
+                $addToSet: { branchIds: { $each: newBranches } },
+                $inc: { __v: 1 }  // Increment version
+              },
+              { 
+                new: true,
+                session,
+                runValidators: true
+              }
+            );
+
+            if (!updatedSubcategory) {
+              // Version mismatch - concurrent modification detected
+              const error = new Error('Concurrent modification detected');
+              error.name = 'VersionError';
+              throw error;
+            }
+
+
 
             assigned.subcategories.push({
               subcategoryId: subcategoryId,
-              subcategoryName: subcategory.name,
+              subcategoryName: updatedSubcategory.name,
               branchIds: newBranches
             });
 
-            // Create audit log
-            await this.createAuditLog(
-              userId,
-              'auto_assign_subcategory',
-              'category',
-              subcategoryId,
-              subcategory.parent,
-              subcategoryId,
-              newBranches,
-              reason,
-              { subcategoryName: subcategory.name },
-              session
-            );
+            // Create audit log (only if audit logging is enabled)
+            if (isFeatureEnabled('ENABLE_AUDIT_LOGGING')) {
+              await this.createAuditLog(
+                userId,
+                'auto_assign_subcategory',
+                'category',
+                subcategoryId,
+                updatedSubcategory.parent,
+                subcategoryId,
+                newBranches,
+                reason,
+                { subcategoryName: updatedSubcategory.name },
+                session
+              );
+            } else {
+              logFeatureDisabledWarning(
+                'ENABLE_AUDIT_LOGGING',
+                'assignCategoriesToBranches - subcategory assignment',
+                { subcategoryId, branchIds: newBranches }
+              );
+            }
 
             logger.info(`Auto-assigned subcategory ${subcategoryId} to branches: ${newBranches.join(', ')}`);
           } else {
@@ -421,8 +537,8 @@ class CategoryBranchValidationService {
         total: totalDependencies
       };
 
-      // Create audit log if userId is provided
-      if (userId) {
+      // Create audit log if userId is provided (and audit logging is enabled)
+      if (userId && isFeatureEnabled('ENABLE_AUDIT_LOGGING')) {
         const category = await this.Category.findById(categoryId).select('name parent').lean();
         const action = canRemove ? 'branch_removal_success' : 'branch_removal_blocked';
         
@@ -443,6 +559,12 @@ class CategoryBranchValidationService {
             supplierCount: supplierDependencies.count
           },
           session
+        );
+      } else if (userId && !isFeatureEnabled('ENABLE_AUDIT_LOGGING')) {
+        logFeatureDisabledWarning(
+          'ENABLE_AUDIT_LOGGING',
+          'validateBranchRemoval',
+          { categoryId, branchId, isSubcategory }
         );
       }
 
