@@ -196,6 +196,10 @@ supplierSchema.index({ categoryIds: 1 });
 supplierSchema.index({ subcategoryIds: 1 });
 supplierSchema.index({ branchIds: 1 });
 supplierSchema.index({ name: 'text', contactPerson: 'text' });
+// Additional indexes for category-branch consistency
+supplierSchema.index({ categoryIds: 1, branchIds: 1 });
+supplierSchema.index({ subcategoryIds: 1, branchIds: 1 });
+supplierSchema.index({ branchIds: 1, categoryIds: 1, subcategoryIds: 1 });
 
 export const getSupplierModel = (companyDB) => {
   return companyDB.model('Supplier', supplierSchema);

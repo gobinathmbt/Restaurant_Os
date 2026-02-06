@@ -52,6 +52,9 @@ categorySchema.index({ parent: 1 });
 categorySchema.index({ isActive: 1 });
 categorySchema.index({ displayOrder: 1 });
 categorySchema.index({ type: 1 });
+// Additional indexes for category-branch consistency
+categorySchema.index({ _id: 1, branchIds: 1 });
+categorySchema.index({ parent: 1, branchIds: 1 });
 
 // Virtual for subcategories
 categorySchema.virtual('subcategories', {

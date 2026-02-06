@@ -135,6 +135,10 @@ inventoryItemSchema.index({ expiryDate: 1 });
 inventoryItemSchema.index({ sku: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ barcode: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ isActive: 1 });
+// Additional indexes for category-branch consistency
+inventoryItemSchema.index({ category: 1, branchIds: 1 });
+inventoryItemSchema.index({ subcategory: 1, branchIds: 1 });
+inventoryItemSchema.index({ branchIds: 1, category: 1, subcategory: 1 });
 
 export const getInventoryItemModel = (companyDB) => {
   return companyDB.model('InventoryItem', inventoryItemSchema);

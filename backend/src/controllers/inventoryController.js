@@ -6,6 +6,7 @@
 import * as inventoryService from '../services/inventoryService.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import { logger } from '../utils/logger.js';
+import { formatSuccessWithAssignments } from '../utils/errorResponses.js';
 
 /**
  * Helper function to verify branch access for a user
@@ -62,6 +63,20 @@ export const createInventoryItem = async (req, res, next) => {
       userId 
     });
 
+    // Check if auto-assignments were made by middleware
+    if (req.autoAssignments && Object.keys(req.autoAssignments).length > 0) {
+      // Return success response with auto-assignment details
+      const response = formatSuccessWithAssignments({
+        data: item,
+        autoAssignments: req.autoAssignments,
+        entityType: 'item',
+        operation: 'created'
+      });
+      
+      return res.status(201).json(response);
+    }
+
+    // Return standard success response
     res.status(201).json({
       success: true,
       message: 'Inventory item created successfully',
@@ -216,6 +231,20 @@ export const updateInventoryItem = async (req, res, next) => {
       userId 
     });
 
+    // Check if auto-assignments were made by middleware
+    if (req.autoAssignments && Object.keys(req.autoAssignments).length > 0) {
+      // Return success response with auto-assignment details
+      const response = formatSuccessWithAssignments({
+        data: item,
+        autoAssignments: req.autoAssignments,
+        entityType: 'item',
+        operation: 'updated'
+      });
+      
+      return res.json(response);
+    }
+
+    // Return standard success response
     res.json({
       success: true,
       message: 'Inventory item updated successfully',

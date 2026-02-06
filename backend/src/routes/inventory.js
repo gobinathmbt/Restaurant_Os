@@ -21,6 +21,7 @@ import {
   rejectStockTransfer
 } from '../controllers/inventoryController.js';
 import { authenticate } from '../middlewares/auth.js';
+import { validateAndAssignItemCategories } from '../middlewares/categoryBranchValidation.js';
 
 const router = express.Router();
 
@@ -29,12 +30,12 @@ router.use(authenticate);
 
 // Inventory Item routes
 router.get('/items', getInventoryItems);
-router.post('/items', createInventoryItem);
+router.post('/items', validateAndAssignItemCategories, createInventoryItem);
 router.get('/items/low-stock', getLowStockItems);
 router.get('/items/expiring', getExpiringItems);
 router.get('/items/categories', getInventoryCategories);
 router.get('/items/:id', getInventoryItemById);
-router.put('/items/:id', updateInventoryItem);
+router.put('/items/:id', validateAndAssignItemCategories, updateInventoryItem);
 router.delete('/items/:id', deleteInventoryItem);
 
 // GRN (Goods Receipt Note) routes

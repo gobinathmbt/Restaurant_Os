@@ -8,6 +8,7 @@ import {
   toggleSupplierStatus
 } from '../controllers/supplierController.js';
 import { authenticate } from '../middlewares/auth.js';
+import { validateAndAssignSupplierCategories } from '../middlewares/categoryBranchValidation.js';
 
 const router = express.Router();
 
@@ -16,9 +17,9 @@ router.use(authenticate);
 
 // Supplier routes
 router.get('/', getSuppliers);
-router.post('/', createSupplier);
+router.post('/', validateAndAssignSupplierCategories, createSupplier);
 router.get('/:id', getSupplierById);
-router.put('/:id', updateSupplier);
+router.put('/:id', validateAndAssignSupplierCategories, updateSupplier);
 router.delete('/:id', deleteSupplier);
 router.patch('/:id/toggle-status', toggleSupplierStatus);
 

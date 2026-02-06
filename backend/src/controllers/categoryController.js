@@ -408,3 +408,107 @@ export const reorderCategories = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Remove branch from category
+ * PUT /api/categories/:id/remove-branch
+ * 
+ * Requirements: 2.5, 2.6, 2.7, 6.1, 6.2, 6.3
+ */
+export const removeBranchFromCategory = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
+    const { id: categoryId } = req.params;
+    const { branchId, isSubcategory } = req.body;
+
+    // Determine user's accessible branches
+    const accessibleBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null
+      : userBranchIds;
+
+    // Verify user has access to the branch being removed
+    if (accessibleBranchIds && !accessibleBranchIds.includes(branchId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // The middleware has already validated that removal is safe
+    // (no dependencies exist), so we can proceed with the removal
+    
+    // Remove branch from category
+    const category = await categoryService.removeBranchFromCategory(
+      categoryId,
+      branchId,
+      companyId,
+      accessibleBranchIds
+    );
+
+    logger.info('Branch removed from category via API', {
+      categoryId,
+      branchId,
+      isSubcategory: isSubcategory || false,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: `Branch successfully removed from ${isSubcategory ? 'subcategory' : 'category'}`,
+      data: { category }
+    });
+
+  } catch (error) {
+    logger.error('Remove branch from category error', error);
+
+    if (error.message === 'Category not found' || error.message === 'You do not have access to this category') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Branch not found in category')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Get category-branch audit logs
+ * GET /api/categories/audit-logs/category-branch
+ * 
+ * Requirements: 8.4
+ */
+export const getCategoryBranchAuditLogs = async (req, res, next) => {
+  try {
+    const { companyId, role, branchIds: userBranchIds } = req.user;
+    const filters = req.query;
+
+    // Determine user's accessible branches
+    const accessibleBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null
+      : userBranchIds;
+
+    // Get audit logs
+    const result = await categoryService.getCategoryBranchAuditLogs(
+      companyId,
+      filters,
+      accessibleBranchIds
+    );
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    logger.error('Get category-branch audit logs error', error);
+    next(error);
+  }
+};

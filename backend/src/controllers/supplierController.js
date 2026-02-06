@@ -5,6 +5,7 @@
 
 import * as supplierService from '../services/supplierService.js';
 import { logger } from '../utils/logger.js';
+import { formatSuccessWithAssignments } from '../utils/errorResponses.js';
 
 /**
  * Create supplier
@@ -29,6 +30,20 @@ export const createSupplier = async (req, res, next) => {
       userId 
     });
 
+    // Check if auto-assignments were made by middleware
+    if (req.autoAssignments && Object.keys(req.autoAssignments).length > 0) {
+      // Return success response with auto-assignment details
+      const response = formatSuccessWithAssignments({
+        data: supplier,
+        autoAssignments: req.autoAssignments,
+        entityType: 'supplier',
+        operation: 'created'
+      });
+      
+      return res.status(201).json(response);
+    }
+
+    // Return standard success response
     res.status(201).json({
       success: true,
       message: 'Supplier created successfully',
@@ -51,6 +66,14 @@ export const createSupplier = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: error.message
+      });
+    }
+
+    // Handle transaction errors from middleware
+    if (error.code === 'TRANSACTION_FAILED') {
+      return res.status(500).json({
+        success: false,
+        error: error
       });
     }
 
@@ -144,6 +167,20 @@ export const updateSupplier = async (req, res, next) => {
       userId 
     });
 
+    // Check if auto-assignments were made by middleware
+    if (req.autoAssignments && Object.keys(req.autoAssignments).length > 0) {
+      // Return success response with auto-assignment details
+      const response = formatSuccessWithAssignments({
+        data: supplier,
+        autoAssignments: req.autoAssignments,
+        entityType: 'supplier',
+        operation: 'updated'
+      });
+      
+      return res.json(response);
+    }
+
+    // Return standard success response
     res.json({
       success: true,
       message: 'Supplier updated successfully',
@@ -173,6 +210,14 @@ export const updateSupplier = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: error.message
+      });
+    }
+
+    // Handle transaction errors from middleware
+    if (error.code === 'TRANSACTION_FAILED') {
+      return res.status(500).json({
+        success: false,
+        error: error
       });
     }
 

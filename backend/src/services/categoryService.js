@@ -521,3 +521,167 @@ export const reorderCategories = async (updates, companyId, userBranchIds = null
     throw error;
   }
 };
+
+/**
+ * Remove branch from category
+ * @param {string} categoryId - Category ID
+ * @param {string} branchId - Branch ID to remove
+ * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
+ * @returns {Promise<Object>} Updated category
+ */
+export const removeBranchFromCategory = async (categoryId, branchId, companyId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Category = getCategoryModel(companyDB);
+    // Ensure Branch model is registered for population
+    getBranchModel(companyDB);
+
+    // Get existing category
+    const category = await Category.findById(categoryId);
+    if (!category) {
+      throw new Error('Category not found');
+    }
+
+    // If user is company_admin, verify they have access to at least one branch
+    if (userBranchIds && userBranchIds.length > 0) {
+      const hasAccess = category.branchIds.some(id => 
+        userBranchIds.includes(id.toString())
+      );
+      
+      if (!hasAccess) {
+        throw new Error('You do not have access to this category');
+      }
+    }
+
+    // Check if branch exists in category
+    const branchIndex = category.branchIds.findIndex(
+      id => id.toString() === branchId.toString()
+    );
+
+    if (branchIndex === -1) {
+      throw new Error('Branch not found in category');
+    }
+
+    // Remove branch from category
+    category.branchIds.splice(branchIndex, 1);
+    await category.save();
+
+    // Populate for response
+    await category.populate('branchIds', 'name code');
+    await category.populate('parent', 'name');
+
+    logger.info(`Branch ${branchId} removed from category ${categoryId} for company: ${companyId}`);
+
+    return category;
+  } catch (error) {
+    logger.error('Error removing branch from category:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get category-branch audit logs with filtering and pagination
+ * @param {string} companyId - Company ID
+ * @param {Object} filters - Filter options
+ * @param {Array} userBranchIds - User's accessible branch IDs (for company_admin)
+ * @returns {Promise<Object>} Paginated audit logs
+ */
+export const getCategoryBranchAuditLogs = async (companyId, filters = {}, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const CategoryBranchAuditLog = companyDB.model('CategoryBranchAuditLog');
+    
+    // Ensure models are registered for population
+    getCategoryModel(companyDB);
+    getBranchModel(companyDB);
+    const CompanyUser = companyDB.model('CompanyUser');
+
+    const {
+      page = 1,
+      limit = 20,
+      startDate = '',
+      endDate = '',
+      branchId = '',
+      categoryId = '',
+      userId = '',
+      action = '',
+      entityType = ''
+    } = filters;
+
+    // Build query
+    const query = {};
+
+    // Date range filter
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.createdAt.$lte = new Date(endDate);
+      }
+    }
+
+    // Branch filter
+    if (branchId) {
+      query.branchIds = branchId;
+    } else if (userBranchIds && userBranchIds.length > 0) {
+      // For company_admin, only show logs for their accessible branches
+      query.branchIds = { $in: userBranchIds };
+    }
+
+    // Category filter
+    if (categoryId) {
+      query.$or = [
+        { categoryId: categoryId },
+        { subcategoryId: categoryId }
+      ];
+    }
+
+    // User filter
+    if (userId) {
+      query.userId = userId;
+    }
+
+    // Action filter
+    if (action) {
+      query.action = action;
+    }
+
+    // Entity type filter
+    if (entityType) {
+      query.entityType = entityType;
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+
+    // Execute query
+    const [logs, total] = await Promise.all([
+      CategoryBranchAuditLog.find(query)
+        .populate('userId', 'name email')
+        .populate('categoryId', 'name')
+        .populate('subcategoryId', 'name')
+        .populate('branchIds', 'name code')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      CategoryBranchAuditLog.countDocuments(query)
+    ]);
+
+    return {
+      logs,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / limit)
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting category-branch audit logs:', error);
+    throw error;
+  }
+};

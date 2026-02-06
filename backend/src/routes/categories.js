@@ -8,9 +8,12 @@ import {
   permanentlyDeleteCategory,
   toggleCategoryStatus,
   getCategoryTree,
-  reorderCategories
+  reorderCategories,
+  removeBranchFromCategory,
+  getCategoryBranchAuditLogs
 } from '../controllers/categoryController.js';
 import { authenticate } from '../middlewares/auth.js';
+import { validateCategoryBranchRemoval } from '../middlewares/categoryBranchValidation.js';
 
 const router = express.Router();
 
@@ -22,8 +25,10 @@ router.get('/', getCategories);
 router.post('/', createCategory);
 router.patch('/reorder', reorderCategories);
 router.get('/tree/:branchId?', getCategoryTree); // Optional branchId parameter
+router.get('/audit-logs/category-branch', getCategoryBranchAuditLogs);
 router.get('/:id', getCategoryById);
 router.put('/:id', updateCategory);
+router.put('/:id/remove-branch', validateCategoryBranchRemoval, removeBranchFromCategory);
 router.delete('/:id', deleteCategory);
 router.delete('/:id/permanent', permanentlyDeleteCategory);
 router.patch('/:id/toggle-status', toggleCategoryStatus);
