@@ -158,7 +158,7 @@ export default function InventoryItemsTab({
 
       setItems(response.data.data.items || []);
       setItemsTotalCount(response.data.data.pagination.total);
-      setItemsTotalPages(response.data.data.pagination.totalPages);
+      setItemsTotalPages(response.data.data.pagination.pages);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -200,8 +200,8 @@ export default function InventoryItemsTab({
       }
 
       setItemsTotalCount(pagination.total);
-      setItemsTotalPages(pagination.totalPages);
-      setHasMore(page < pagination.totalPages);
+      setItemsTotalPages(pagination.pages);
+      setHasMore(page < pagination.pages);
     } catch (error: any) {
       toast({
         title: 'Error',

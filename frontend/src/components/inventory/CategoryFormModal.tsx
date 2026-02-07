@@ -174,12 +174,57 @@ export default function CategoryFormModal({
 
       onSuccess();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description:
-          error.response?.data?.message || `Failed to ${category ? 'update' : 'create'} category`,
-        variant: 'destructive',
-      });
+      // Handle validation errors with dependency information
+      const errorData = error.response?.data;
+      
+      if (errorData?.error?.code === 'CATEGORY_BRANCH_MISMATCH' && errorData?.error?.details?.removedBranches) {
+        const details = errorData.error.details;
+        const removedBranches = details.removedBranches;
+        
+        // Build detailed dependency message
+        const dependencyMessages: string[] = [];
+        
+        removedBranches.forEach((branch: any) => {
+          const itemCount = branch.dependencies?.items?.count || 0;
+          const supplierCount = branch.dependencies?.suppliers?.count || 0;
+          
+          if (itemCount > 0 || supplierCount > 0) {
+            const parts: string[] = [];
+            if (itemCount > 0) parts.push(`${itemCount} item(s)`);
+            if (supplierCount > 0) parts.push(`${supplierCount} supplier(s)`);
+            dependencyMessages.push(`${branch.branchName}: ${parts.join(', ')}`);
+          }
+        });
+        
+        toast({
+          title: 'Cannot Update Category',
+          description: (
+            <div className="space-y-2">
+              <p>{errorData.error.message}</p>
+              {dependencyMessages.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <p className="font-semibold text-xs mb-1">Dependencies found:</p>
+                  {dependencyMessages.map((msg, idx) => (
+                    <p key={idx} className="text-xs">• {msg}</p>
+                  ))}
+                  <p className="text-xs mt-2 text-muted-foreground">
+                    Remove or reassign these items/suppliers before removing branch access.
+                  </p>
+                </div>
+              )}
+            </div>
+          ),
+          variant: 'destructive',
+          duration: 10000, // Show longer for detailed messages
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description:
+            errorData?.message || errorData?.error?.message || `Failed to ${category ? 'update' : 'create'} category`,
+          variant: 'destructive',
+        });
+      }
     } finally {
       setLoading(false);
     }

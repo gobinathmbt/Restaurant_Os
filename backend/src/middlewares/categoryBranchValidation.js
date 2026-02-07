@@ -373,3 +373,306 @@ export const validateCategoryBranchRemoval = async (req, res, next) => {
     });
   }
 };
+
+/**
+ * Middleware to validate category updates that might remove branches
+ * Prevents branch removal if items or suppliers depend on the category in those branches
+ * 
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 7.1, 7.2, 7.3
+ * 
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @param {NextFunction} next - Express next function
+ */
+export const validateCategoryUpdate = async (req, res, next) => {
+  // Check if branch removal validation feature is enabled
+  if (!isFeatureEnabled('VALIDATE_BRANCH_REMOVAL')) {
+    logFeatureDisabledWarning(
+      'VALIDATE_BRANCH_REMOVAL',
+      'validateCategoryUpdate middleware',
+      {
+        companyId: req.user?.companyId,
+        userId: req.user?.userId,
+        categoryId: req.params?.id,
+        operation: 'category_update_validation'
+      }
+    );
+    // Skip validation and continue to next middleware
+    return next();
+  }
+
+  try {
+    // Extract user and company info from authenticated request
+    const { companyId, userId } = req.user;
+    const { id: categoryId } = req.params;
+    const updateData = req.body;
+
+    // Only validate if branchIds are being updated
+    if (!updateData.branchIds || !Array.isArray(updateData.branchIds)) {
+      return next();
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid category ID format'
+      });
+    }
+
+    // Get company database connection
+    const companyDB = getCompanyDB(companyId);
+    const Category = companyDB.model('Category');
+    const validationService = new CategoryBranchValidationService(companyDB);
+
+    // Get existing category to compare branches
+    const existingCategory = await Category.findById(categoryId).select('branchIds parent').lean();
+    
+    if (!existingCategory) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+
+    // Determine which branches are being removed
+    const existingBranchIds = existingCategory.branchIds.map(id => id.toString());
+    const newBranchIds = updateData.branchIds.map(id => id.toString());
+    const removedBranchIds = existingBranchIds.filter(id => !newBranchIds.includes(id));
+
+    // If no branches are being removed, skip validation
+    if (removedBranchIds.length === 0) {
+      return next();
+    }
+
+    // Determine if this is a subcategory
+    const isSubcategory = !!existingCategory.parent;
+
+    // Validate each branch removal
+    const validationErrors = [];
+    
+    for (const branchId of removedBranchIds) {
+      const validationResult = await validationService.validateBranchRemoval(
+        categoryId,
+        branchId,
+        isSubcategory,
+        userId
+      );
+
+      if (!validationResult.canRemove) {
+        // Get branch name for error message
+        const Branch = companyDB.model('Branch');
+        const branch = await Branch.findById(branchId).select('name').lean();
+        const branchName = branch ? branch.name : 'Unknown';
+
+        validationErrors.push({
+          branchId,
+          branchName,
+          dependencies: validationResult.dependencies
+        });
+      }
+    }
+
+    // If any branch removal is blocked, return error
+    if (validationErrors.length > 0) {
+      // Get category name for error message
+      const category = await Category.findById(categoryId).select('name').lean();
+      const categoryName = category ? category.name : 'Unknown';
+
+      logger.warn('Category update blocked due to branch dependencies', {
+        companyId,
+        userId,
+        categoryId,
+        removedBranches: removedBranchIds,
+        validationErrors: validationErrors.length
+      });
+
+      // Build detailed error message
+      const branchMessages = validationErrors.map(err => {
+        const itemCount = err.dependencies.items.count;
+        const supplierCount = err.dependencies.suppliers.count;
+        return `Branch '${err.branchName}': ${itemCount} item(s), ${supplierCount} supplier(s)`;
+      }).join('; ');
+
+      // Return validation error with dependency details
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'CATEGORY_BRANCH_MISMATCH',
+          message: `Cannot remove branches from ${isSubcategory ? 'Subcategory' : 'Category'} '${categoryName}' due to dependencies`,
+          details: {
+            categoryId,
+            categoryName,
+            removedBranches: validationErrors,
+            summary: branchMessages
+          }
+        }
+      });
+    }
+
+    // All validations passed, continue to next middleware/controller
+    next();
+
+  } catch (error) {
+    logger.error('Error in validateCategoryUpdate middleware', {
+      error: error.message,
+      stack: error.stack,
+      companyId: req.user?.companyId,
+      userId: req.user?.userId
+    });
+
+    // Return error response
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'VALIDATION_FAILED',
+        message: 'Failed to validate category update',
+        details: {
+          operation: 'category_update_validation',
+          reason: error.message
+        }
+      }
+    });
+  }
+};
+
+/**
+ * Middleware to validate category deletion
+ * Prevents deletion if items or suppliers depend on the category in any branch
+ * 
+ * Requirements: 2.1, 2.2, 2.3, 2.4
+ * 
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @param {NextFunction} next - Express next function
+ */
+export const validateCategoryDeletion = async (req, res, next) => {
+  // Check if branch removal validation feature is enabled
+  if (!isFeatureEnabled('VALIDATE_BRANCH_REMOVAL')) {
+    logFeatureDisabledWarning(
+      'VALIDATE_BRANCH_REMOVAL',
+      'validateCategoryDeletion middleware',
+      {
+        companyId: req.user?.companyId,
+        userId: req.user?.userId,
+        categoryId: req.params?.id,
+        operation: 'category_deletion_validation'
+      }
+    );
+    // Skip validation and continue to next middleware
+    return next();
+  }
+
+  try {
+    // Extract user and company info from authenticated request
+    const { companyId, userId } = req.user;
+    const { id: categoryId } = req.params;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid category ID format'
+      });
+    }
+
+    // Get company database connection
+    const companyDB = getCompanyDB(companyId);
+    const Category = companyDB.model('Category');
+    const validationService = new CategoryBranchValidationService(companyDB);
+
+    // Get category to check its branches
+    const category = await Category.findById(categoryId).select('branchIds parent name').lean();
+    
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      });
+    }
+
+    // Determine if this is a subcategory
+    const isSubcategory = !!category.parent;
+
+    // Check dependencies in all branches
+    const branchDependencies = [];
+    
+    for (const branchId of category.branchIds) {
+      const validationResult = await validationService.validateBranchRemoval(
+        categoryId,
+        branchId.toString(),
+        isSubcategory,
+        userId
+      );
+
+      if (!validationResult.canRemove) {
+        // Get branch name for error message
+        const Branch = companyDB.model('Branch');
+        const branch = await Branch.findById(branchId).select('name').lean();
+        const branchName = branch ? branch.name : 'Unknown';
+
+        branchDependencies.push({
+          branchId: branchId.toString(),
+          branchName,
+          dependencies: validationResult.dependencies
+        });
+      }
+    }
+
+    // If any branch has dependencies, block deletion
+    if (branchDependencies.length > 0) {
+      logger.warn('Category deletion blocked due to dependencies', {
+        companyId,
+        userId,
+        categoryId,
+        branchesWithDependencies: branchDependencies.length
+      });
+
+      // Build detailed error message
+      const branchMessages = branchDependencies.map(dep => {
+        const itemCount = dep.dependencies.items.count;
+        const supplierCount = dep.dependencies.suppliers.count;
+        return `Branch '${dep.branchName}': ${itemCount} item(s), ${supplierCount} supplier(s)`;
+      }).join('; ');
+
+      // Return validation error with dependency details
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'CATEGORY_HAS_DEPENDENCIES',
+          message: `Cannot delete ${isSubcategory ? 'Subcategory' : 'Category'} '${category.name}' because it has dependencies`,
+          details: {
+            categoryId,
+            categoryName: category.name,
+            branchesWithDependencies: branchDependencies,
+            summary: branchMessages
+          }
+        }
+      });
+    }
+
+    // All validations passed, continue to next middleware/controller
+    next();
+
+  } catch (error) {
+    logger.error('Error in validateCategoryDeletion middleware', {
+      error: error.message,
+      stack: error.stack,
+      companyId: req.user?.companyId,
+      userId: req.user?.userId
+    });
+
+    // Return error response
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'VALIDATION_FAILED',
+        message: 'Failed to validate category deletion',
+        details: {
+          operation: 'category_deletion_validation',
+          reason: error.message
+        }
+      }
+    });
+  }
+};

@@ -335,29 +335,104 @@ export default function InventoryItemFormModal({
         submitData.initialStock = formData.currentStock;
       }
 
+      let response;
       if (item) {
-        await inventoryServices.updateInventoryItem(item._id, submitData);
+        response = await inventoryServices.updateInventoryItem(item._id, submitData);
+      } else {
+        response = await inventoryServices.createInventoryItem(branchId, submitData);
+      }
+
+      // Check for auto-assignment information in response
+      const autoAssignments = response.data?.data?.autoAssignments;
+      
+      if (autoAssignments && (autoAssignments.categories?.length > 0 || autoAssignments.subcategories?.length > 0)) {
+        // Build notification message for auto-assignments
+        const assignmentMessages: string[] = [];
+        
+        if (autoAssignments.categories?.length > 0) {
+          autoAssignments.categories.forEach((cat: any) => {
+            const branchList = cat.branchNames?.join(', ') || 'selected branches';
+            assignmentMessages.push(`Category "${cat.categoryName}" was automatically assigned to: ${branchList}`);
+          });
+        }
+        
+        if (autoAssignments.subcategories?.length > 0) {
+          autoAssignments.subcategories.forEach((subcat: any) => {
+            const branchList = subcat.branchNames?.join(', ') || 'selected branches';
+            assignmentMessages.push(`Subcategory "${subcat.subcategoryName}" was automatically assigned to: ${branchList}`);
+          });
+        }
+        
         toast({
           title: "Success",
-          description: "Inventory item updated successfully",
+          description: (
+            <div className="space-y-1">
+              <p>{item ? 'Inventory item updated successfully' : 'Inventory item created successfully'}</p>
+              {assignmentMessages.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <p className="font-semibold text-xs mb-1">Auto-assignments:</p>
+                  {assignmentMessages.map((msg, idx) => (
+                    <p key={idx} className="text-xs">{msg}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ),
           variant: "success",
         });
       } else {
-        await inventoryServices.createInventoryItem(branchId, submitData);
         toast({
           title: "Success",
-          description: "Inventory item created successfully",
+          description: item ? 'Inventory item updated successfully' : 'Inventory item created successfully',
           variant: "success",
         });
       }
       
       onSuccess();
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.response?.data?.message || `Failed to ${item ? 'update' : 'create'} inventory item`,
-        variant: "destructive",
-      });
+      // Handle validation errors with dependency information
+      const errorData = error.response?.data;
+      
+      if (errorData?.error?.code === 'CATEGORY_BRANCH_MISMATCH' && errorData?.error?.details?.dependencies) {
+        const details = errorData.error.details;
+        const dependencies = details.dependencies;
+        
+        const dependencyMessages: string[] = [];
+        
+        if (dependencies.items?.count > 0) {
+          const examples = dependencies.items.examples?.slice(0, 5).map((item: any) => item.name).join(', ') || '';
+          dependencyMessages.push(`${dependencies.items.count} item(s)${examples ? `: ${examples}` : ''}`);
+        }
+        
+        if (dependencies.suppliers?.count > 0) {
+          const examples = dependencies.suppliers.examples?.slice(0, 5).map((sup: any) => sup.name).join(', ') || '';
+          dependencyMessages.push(`${dependencies.suppliers.count} supplier(s)${examples ? `: ${examples}` : ''}`);
+        }
+        
+        toast({
+          title: "Validation Error",
+          description: (
+            <div className="space-y-1">
+              <p>{errorData.error.message}</p>
+              {dependencyMessages.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <p className="font-semibold text-xs mb-1">Dependencies found:</p>
+                  {dependencyMessages.map((msg, idx) => (
+                    <p key={idx} className="text-xs">{msg}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ),
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: errorData?.message || errorData?.error?.message || `Failed to ${item ? 'update' : 'create'} inventory item`,
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
     }

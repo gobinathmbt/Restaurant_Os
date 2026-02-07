@@ -325,18 +325,39 @@ export const updateSupplier = async (supplierId, updateData, companyId, userBran
         throw new Error('You do not have access to this supplier');
       }
 
-      // If updating branchIds, validate they can only assign branches they have access to
+      // If updating branchIds, handle branch updates more flexibly
       if (updateData.branchIds) {
         if (!Array.isArray(updateData.branchIds) || updateData.branchIds.length === 0) {
           throw new Error('At least one branch must be assigned to the supplier');
         }
 
-        const invalidBranches = updateData.branchIds.filter(
-          branchId => !userBranchIds.includes(branchId.toString())
+        // Get existing branches the user doesn't have access to
+        const existingInaccessibleBranches = existingSupplier.branchIds
+          .map(id => id.toString())
+          .filter(branchId => !userBranchIds.includes(branchId));
+        
+        // Get new branches the user wants to add/keep
+        const newAccessibleBranches = updateData.branchIds.filter(
+          branchId => userBranchIds.includes(branchId.toString())
         );
         
-        if (invalidBranches.length > 0) {
+        // Check if user is trying to add branches they don't have access to
+        const unauthorizedNewBranches = updateData.branchIds.filter(
+          branchId => !userBranchIds.includes(branchId.toString()) && 
+                     !existingInaccessibleBranches.includes(branchId.toString())
+        );
+        
+        if (unauthorizedNewBranches.length > 0) {
           throw new Error('You can only assign suppliers to branches you have access to');
+        }
+        
+        // Merge: keep inaccessible branches + user's selected accessible branches
+        // This allows branch managers to edit suppliers without affecting branches they don't manage
+        updateData.branchIds = [...existingInaccessibleBranches, ...newAccessibleBranches];
+        
+        // Ensure at least one branch remains
+        if (updateData.branchIds.length === 0) {
+          throw new Error('At least one branch must be assigned to the supplier');
         }
       }
     }

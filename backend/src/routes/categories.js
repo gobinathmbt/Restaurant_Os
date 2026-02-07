@@ -13,7 +13,7 @@ import {
   getCategoryBranchAuditLogs
 } from '../controllers/categoryController.js';
 import { authenticate } from '../middlewares/auth.js';
-import { validateCategoryBranchRemoval } from '../middlewares/categoryBranchValidation.js';
+import { validateCategoryBranchRemoval, validateCategoryUpdate, validateCategoryDeletion } from '../middlewares/categoryBranchValidation.js';
 
 const router = express.Router();
 
@@ -27,10 +27,10 @@ router.patch('/reorder', reorderCategories);
 router.get('/tree/:branchId?', getCategoryTree); // Optional branchId parameter
 router.get('/audit-logs/category-branch', getCategoryBranchAuditLogs);
 router.get('/:id', getCategoryById);
-router.put('/:id', updateCategory);
+router.put('/:id', validateCategoryUpdate, updateCategory);
 router.put('/:id/remove-branch', validateCategoryBranchRemoval, removeBranchFromCategory);
-router.delete('/:id', deleteCategory);
-router.delete('/:id/permanent', permanentlyDeleteCategory);
+router.delete('/:id', validateCategoryDeletion, deleteCategory);
+router.delete('/:id/permanent', validateCategoryDeletion, permanentlyDeleteCategory);
 router.patch('/:id/toggle-status', toggleCategoryStatus);
 
 export default router;
