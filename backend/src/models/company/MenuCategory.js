@@ -12,6 +12,11 @@ const menuCategorySchema = new mongoose.Schema({
     trim: true,
     maxlength: 500
   },
+  branchIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Branch',
+    required: true
+  }],
   displayOrder: {
     type: Number,
     default: 0
@@ -34,8 +39,11 @@ const menuCategorySchema = new mongoose.Schema({
 
 // Indexes
 menuCategorySchema.index({ name: 1 });
+menuCategorySchema.index({ branchIds: 1 });
 menuCategorySchema.index({ displayOrder: 1 });
 menuCategorySchema.index({ isActive: 1 });
+// Additional index for category-branch queries
+menuCategorySchema.index({ _id: 1, branchIds: 1 });
 
 export const getMenuCategoryModel = (companyDB) => {
   return companyDB.model('MenuCategory', menuCategorySchema);

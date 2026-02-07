@@ -20,11 +20,14 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { menuCategoryServices } from '@/api/services';
+import { useAuth } from '@/contexts/AuthContext';
+import BranchSearch from '@/components/common/BranchSearch';
 
 interface MenuCategory {
   _id: string;
   name: string;
   description?: string;
+  branchIds: string[] | any[];
   displayOrder: number;
   isActive: boolean;
   color: string;
@@ -44,8 +47,10 @@ export default function MenuCategoryFormModal({
   category,
   onSuccess,
 }: MenuCategoryFormModalProps) {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -53,6 +58,11 @@ export default function MenuCategoryFormModal({
     color: '#6366f1',
     icon: '',
   });
+
+  // Determine user's branch access
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
 
   useEffect(() => {
     if (category && isOpen) {
@@ -63,6 +73,16 @@ export default function MenuCategoryFormModal({
         color: category.color || '#6366f1',
         icon: category.icon || '',
       });
+
+      // Set selected branches
+      if (category.branchIds) {
+        const branchIdStrings = category.branchIds.map((b: any) =>
+          typeof b === 'string' ? b : b._id
+        );
+        setSelectedBranches(branchIdStrings);
+      } else {
+        setSelectedBranches([]);
+      }
     } else if (!category && isOpen) {
       resetForm();
     }
@@ -76,6 +96,11 @@ export default function MenuCategoryFormModal({
       color: '#6366f1',
       icon: '',
     });
+    setSelectedBranches([]);
+  };
+
+  const handleBranchesChange = (branchIds: string[]) => {
+    setSelectedBranches(branchIds);
   };
 
   const validateForm = () => {
@@ -106,6 +131,15 @@ export default function MenuCategoryFormModal({
       return false;
     }
 
+    if (selectedBranches.length === 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'At least one branch must be selected',
+        variant: 'destructive',
+      });
+      return false;
+    }
+
     return true;
   };
 
@@ -122,6 +156,7 @@ export default function MenuCategoryFormModal({
       const submitData = {
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
+        branchIds: selectedBranches,
         displayOrder: formData.displayOrder,
         color: formData.color,
         icon: formData.icon.trim() || undefined,
@@ -206,6 +241,19 @@ export default function MenuCategoryFormModal({
               />
               <p className="text-xs text-muted-foreground mt-1">
                 {formData.description.length}/500 characters
+              </p>
+            </div>
+
+            <div>
+              <Label>Branches *</Label>
+              <BranchSearch
+                selectedBranchIds={selectedBranches}
+                onBranchesChange={handleBranchesChange}
+                disabled={loading}
+                showSelectAll={isSuperAdmin}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Select branches where this category will be available
               </p>
             </div>
 

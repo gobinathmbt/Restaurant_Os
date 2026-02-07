@@ -12,11 +12,15 @@ import { logger } from '../utils/logger.js';
  */
 export const createMenuCategory = async (req, res, next) => {
   try {
-    const { companyId, userId } = req.user;
+    const { companyId, userId, branchIds } = req.user;
     const categoryData = req.body;
 
-    // Create menu category
-    const category = await menuCategoryService.createMenuCategory(categoryData, companyId);
+    // Create menu category with branch validation
+    const category = await menuCategoryService.createMenuCategory(
+      categoryData, 
+      companyId, 
+      branchIds
+    );
 
     logger.info('Menu category created via API', { 
       categoryId: category._id, 
@@ -34,7 +38,8 @@ export const createMenuCategory = async (req, res, next) => {
     
     // Handle validation errors (400)
     if (error.message.includes('required') ||
-        error.message.includes('already exists')) {
+        error.message.includes('already exists') ||
+        error.message.includes('do not have access')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -51,11 +56,15 @@ export const createMenuCategory = async (req, res, next) => {
  */
 export const getMenuCategories = async (req, res, next) => {
   try {
-    const { companyId } = req.user;
+    const { companyId, branchIds } = req.user;
     const filters = req.query;
 
-    // Get menu categories
-    const result = await menuCategoryService.getMenuCategories(companyId, filters);
+    // Get menu categories with branch filtering
+    const result = await menuCategoryService.getMenuCategories(
+      companyId, 
+      filters, 
+      branchIds
+    );
 
     res.json({
       success: true,
@@ -103,12 +112,17 @@ export const getMenuCategoryById = async (req, res, next) => {
  */
 export const updateMenuCategory = async (req, res, next) => {
   try {
-    const { companyId, userId } = req.user;
+    const { companyId, userId, branchIds } = req.user;
     const { id } = req.params;
     const updateData = req.body;
 
-    // Update menu category
-    const category = await menuCategoryService.updateMenuCategory(id, updateData, companyId);
+    // Update menu category with branch validation
+    const category = await menuCategoryService.updateMenuCategory(
+      id, 
+      updateData, 
+      companyId, 
+      branchIds
+    );
 
     logger.info('Menu category updated via API', { 
       categoryId: id, 
@@ -132,7 +146,8 @@ export const updateMenuCategory = async (req, res, next) => {
     }
 
     // Handle validation errors (400)
-    if (error.message.includes('already exists')) {
+    if (error.message.includes('already exists') ||
+        error.message.includes('do not have access')) {
       return res.status(400).json({
         success: false,
         message: error.message

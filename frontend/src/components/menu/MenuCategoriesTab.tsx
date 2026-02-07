@@ -28,6 +28,7 @@ interface MenuCategory {
   _id: string;
   name: string;
   description?: string;
+  branchIds: string[] | any[];
   displayOrder: number;
   isActive: boolean;
   color: string;

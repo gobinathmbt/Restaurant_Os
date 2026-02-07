@@ -12,9 +12,10 @@ import { logger } from '../utils/logger.js';
  * Create a new menu category
  * @param {Object} categoryData - Category data
  * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for validation)
  * @returns {Promise<Object>} Created category
  */
-export const createMenuCategory = async (categoryData, companyId) => {
+export const createMenuCategory = async (categoryData, companyId, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const MenuCategory = getMenuCategoryModel(companyDB);
@@ -24,14 +25,29 @@ export const createMenuCategory = async (categoryData, companyId) => {
       throw new Error('Category name is required');
     }
 
-    // Check for duplicate category name
+    if (!categoryData.branchIds || categoryData.branchIds.length === 0) {
+      throw new Error('At least one branch must be selected');
+    }
+
+    // Validate branch access if userBranchIds provided
+    if (userBranchIds && userBranchIds.length > 0) {
+      const invalidBranches = categoryData.branchIds.filter(
+        branchId => !userBranchIds.includes(branchId.toString())
+      );
+      if (invalidBranches.length > 0) {
+        throw new Error('You do not have access to one or more selected branches');
+      }
+    }
+
+    // Check for duplicate category name in the same branches
     const existingCategory = await MenuCategory.findOne({
       name: categoryData.name,
+      branchIds: { $in: categoryData.branchIds },
       isActive: true
     });
 
     if (existingCategory) {
-      throw new Error('A category with this name already exists');
+      throw new Error('A category with this name already exists in one or more selected branches');
     }
 
     // Create category
@@ -55,9 +71,10 @@ export const createMenuCategory = async (categoryData, companyId) => {
  * Get menu categories with filtering and pagination
  * @param {string} companyId - Company ID
  * @param {Object} filters - Filter options
+ * @param {Array} userBranchIds - User's accessible branch IDs (for filtering)
  * @returns {Promise<Object>} Paginated categories
  */
-export const getMenuCategories = async (companyId, filters = {}) => {
+export const getMenuCategories = async (companyId, filters = {}, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const MenuCategory = getMenuCategoryModel(companyDB);
@@ -67,11 +84,20 @@ export const getMenuCategories = async (companyId, filters = {}) => {
       page = 1,
       limit = 10,
       search = '',
-      isActive = ''
+      isActive = '',
+      branchId = ''
     } = filters;
 
     // Build query
     const query = {};
+
+    // Branch filter
+    if (branchId) {
+      query.branchIds = branchId;
+    } else if (userBranchIds && userBranchIds.length > 0) {
+      // Filter by user's accessible branches
+      query.branchIds = { $in: userBranchIds };
+    }
 
     // Active/Inactive filter
     if (isActive === 'true') {
@@ -95,6 +121,7 @@ export const getMenuCategories = async (companyId, filters = {}) => {
     // Execute query
     const [categories, total] = await Promise.all([
       MenuCategory.find(query)
+        .populate('branchIds', 'name code')
         .sort({ displayOrder: 1, name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -171,9 +198,10 @@ export const getMenuCategoryById = async (categoryId, companyId) => {
  * @param {string} categoryId - Category ID
  * @param {Object} updateData - Update data
  * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (for validation)
  * @returns {Promise<Object>} Updated category
  */
-export const updateMenuCategory = async (categoryId, updateData, companyId) => {
+export const updateMenuCategory = async (categoryId, updateData, companyId, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const MenuCategory = getMenuCategoryModel(companyDB);
@@ -184,16 +212,28 @@ export const updateMenuCategory = async (categoryId, updateData, companyId) => {
       throw new Error('Category not found');
     }
 
+    // Validate branch access if userBranchIds provided and branchIds are being updated
+    if (updateData.branchIds && userBranchIds && userBranchIds.length > 0) {
+      const invalidBranches = updateData.branchIds.filter(
+        branchId => !userBranchIds.includes(branchId.toString())
+      );
+      if (invalidBranches.length > 0) {
+        throw new Error('You do not have access to one or more selected branches');
+      }
+    }
+
     // Check for duplicate name if name is being updated
     if (updateData.name && updateData.name !== existingCategory.name) {
+      const branchesToCheck = updateData.branchIds || existingCategory.branchIds;
       const duplicate = await MenuCategory.findOne({
         name: updateData.name,
+        branchIds: { $in: branchesToCheck },
         isActive: true,
         _id: { $ne: categoryId }
       });
 
       if (duplicate) {
-        throw new Error('A category with this name already exists');
+        throw new Error('A category with this name already exists in one or more selected branches');
       }
     }
 
