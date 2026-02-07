@@ -208,6 +208,7 @@ export default function InventoryItemFormModal({
       return false;
     }
 
+    // Stock validations
     if (formData.currentStock < 0) {
       toast({
         title: "Validation Error",
@@ -228,6 +229,27 @@ export default function InventoryItemFormModal({
       return false;
     }
 
+    if (formData.maximumStock < 0) {
+      toast({
+        title: "Validation Error",
+        description: "Maximum stock cannot be negative",
+        variant: "destructive",
+      });
+      setActiveTab('basic');
+      return false;
+    }
+
+    if (formData.reorderPoint < 0) {
+      toast({
+        title: "Validation Error",
+        description: "Reorder point cannot be negative",
+        variant: "destructive",
+      });
+      setActiveTab('basic');
+      return false;
+    }
+
+    // Maximum stock must be greater than minimum stock
     if (formData.maximumStock > 0 && formData.maximumStock < formData.minimumStock) {
       toast({
         title: "Validation Error",
@@ -236,6 +258,57 @@ export default function InventoryItemFormModal({
       });
       setActiveTab('basic');
       return false;
+    }
+
+    // Reorder point should be between minimum and maximum stock
+    if (formData.reorderPoint > 0) {
+      if (formData.reorderPoint < formData.minimumStock) {
+        toast({
+          title: "Validation Error",
+          description: "Reorder point should be greater than or equal to minimum stock",
+          variant: "destructive",
+        });
+        setActiveTab('basic');
+        return false;
+      }
+      
+      if (formData.maximumStock > 0 && formData.reorderPoint > formData.maximumStock) {
+        toast({
+          title: "Validation Error",
+          description: "Reorder point should be less than or equal to maximum stock",
+          variant: "destructive",
+        });
+        setActiveTab('basic');
+        return false;
+      }
+    }
+
+    // Initial stock validation (for new items)
+    if (!item && formData.maximumStock > 0 && formData.currentStock > formData.maximumStock) {
+      toast({
+        title: "Validation Error",
+        description: "Initial stock cannot exceed maximum stock",
+        variant: "destructive",
+      });
+      setActiveTab('basic');
+      return false;
+    }
+
+    // Expiry date validation
+    if (formData.expiryDate) {
+      const expiryDate = new Date(formData.expiryDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (expiryDate < today) {
+        toast({
+          title: "Validation Error",
+          description: "Expiry date cannot be in the past",
+          variant: "destructive",
+        });
+        setActiveTab('details');
+        return false;
+      }
     }
 
     if (formData.costPrice < 0) {
@@ -529,6 +602,9 @@ export default function InventoryItemFormModal({
                           placeholder="0"
                           required
                         />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Starting quantity for this item
+                        </p>
                       </div>
                     )}
                     <div>
@@ -543,6 +619,9 @@ export default function InventoryItemFormModal({
                         placeholder="0"
                         required
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Alert when stock falls below this level
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="maximumStock">Maximum Stock</Label>
@@ -555,6 +634,9 @@ export default function InventoryItemFormModal({
                         onChange={(e) => setFormData({ ...formData, maximumStock: parseFloat(e.target.value) || 0 })}
                         placeholder="0"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Must be ≥ minimum stock
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="reorderPoint">Reorder Point</Label>
@@ -567,8 +649,21 @@ export default function InventoryItemFormModal({
                         onChange={(e) => setFormData({ ...formData, reorderPoint: parseFloat(e.target.value) || 0 })}
                         placeholder="0"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Should be between min and max stock
+                      </p>
                     </div>
                   </div>
+                  {formData.minimumStock > 0 && formData.maximumStock > 0 && formData.reorderPoint > 0 && (
+                    <div className="p-3 bg-muted rounded-md text-sm">
+                      <p className="font-medium mb-1">Stock Levels Summary:</p>
+                      <div className="space-y-1 text-xs">
+                        <p>• Minimum: {formData.minimumStock} {formData.unit}</p>
+                        <p>• Reorder at: {formData.reorderPoint} {formData.unit}</p>
+                        <p>• Maximum: {formData.maximumStock} {formData.unit}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 
@@ -659,9 +754,14 @@ export default function InventoryItemFormModal({
                       <Input
                         id="expiryDate"
                         type="date"
+                        min={new Date().toISOString().split('T')[0]}
                         value={formData.expiryDate}
                         onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                        className="cursor-pointer"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Must be a future date
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="batchNumber">Batch Number</Label>
@@ -680,6 +780,9 @@ export default function InventoryItemFormModal({
                         onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
                         placeholder="e.g., VEG-TOM-001"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Stock Keeping Unit (unique identifier)
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="barcode">Barcode</Label>
@@ -689,6 +792,9 @@ export default function InventoryItemFormModal({
                         onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
                         placeholder="e.g., 1234567890123"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Barcode number for scanning
+                      </p>
                     </div>
                   </div>
                 </div>

@@ -89,9 +89,41 @@ export const createInventoryItem = async (itemData, companyId, userBranchIds, us
       }
     }
 
-    // Validate stock ranges
-    if (itemData.maximumStock !== undefined && itemData.maximumStock < itemData.minimumStock) {
-      throw new Error('Maximum stock cannot be less than minimum stock');
+    // Validate stock ranges and logical relationships
+    const initialStock = itemData.initialStock !== undefined ? itemData.initialStock : itemData.currentStock;
+    const minStock = itemData.minimumStock;
+    const maxStock = itemData.maximumStock;
+    const reorderPoint = itemData.reorderPoint;
+
+    // Maximum stock must be greater than minimum stock
+    if (maxStock !== undefined && maxStock > 0 && maxStock < minStock) {
+      throw new Error('Maximum stock must be greater than or equal to minimum stock');
+    }
+
+    // Reorder point should be between minimum and maximum stock
+    if (reorderPoint !== undefined && reorderPoint > 0) {
+      if (reorderPoint < minStock) {
+        throw new Error('Reorder point should be greater than or equal to minimum stock');
+      }
+      if (maxStock !== undefined && maxStock > 0 && reorderPoint > maxStock) {
+        throw new Error('Reorder point should be less than or equal to maximum stock');
+      }
+    }
+
+    // Initial stock validation (for new items)
+    if (initialStock !== undefined && maxStock !== undefined && maxStock > 0 && initialStock > maxStock) {
+      throw new Error('Initial stock cannot exceed maximum stock');
+    }
+
+    // Validate expiry date is not in the past
+    if (itemData.expiryDate) {
+      const expiryDate = new Date(itemData.expiryDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (expiryDate < today) {
+        throw new Error('Expiry date cannot be in the past');
+      }
     }
 
     // Check unique SKU/barcode
@@ -387,12 +419,41 @@ export const updateInventoryItem = async (itemId, updateData, companyId, userBra
       }
     }
 
-    // Validate stock ranges
+    // Validate stock ranges and logical relationships
     const newMinStock = updateData.minimumStock !== undefined ? updateData.minimumStock : existingItem.minimumStock;
     const newMaxStock = updateData.maximumStock !== undefined ? updateData.maximumStock : existingItem.maximumStock;
+    const newReorderPoint = updateData.reorderPoint !== undefined ? updateData.reorderPoint : existingItem.reorderPoint;
+    const newCurrentStock = updateData.currentStock !== undefined ? updateData.currentStock : existingItem.currentStock;
     
-    if (newMaxStock !== undefined && newMaxStock < newMinStock) {
-      throw new Error('Maximum stock cannot be less than minimum stock');
+    // Maximum stock must be greater than minimum stock
+    if (newMaxStock !== undefined && newMaxStock > 0 && newMaxStock < newMinStock) {
+      throw new Error('Maximum stock must be greater than or equal to minimum stock');
+    }
+
+    // Reorder point should be between minimum and maximum stock
+    if (newReorderPoint !== undefined && newReorderPoint > 0) {
+      if (newReorderPoint < newMinStock) {
+        throw new Error('Reorder point should be greater than or equal to minimum stock');
+      }
+      if (newMaxStock !== undefined && newMaxStock > 0 && newReorderPoint > newMaxStock) {
+        throw new Error('Reorder point should be less than or equal to maximum stock');
+      }
+    }
+
+    // Current stock validation (if being updated)
+    if (updateData.currentStock !== undefined && newMaxStock !== undefined && newMaxStock > 0 && newCurrentStock > newMaxStock) {
+      throw new Error('Current stock cannot exceed maximum stock');
+    }
+
+    // Validate expiry date is not in the past
+    if (updateData.expiryDate) {
+      const expiryDate = new Date(updateData.expiryDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (expiryDate < today) {
+        throw new Error('Expiry date cannot be in the past');
+      }
     }
 
     // Check unique SKU/barcode if being updated

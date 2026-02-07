@@ -88,7 +88,11 @@ export const createInventoryItem = async (req, res, next) => {
     // Handle specific validation errors
     if (error.message.includes('Missing required fields') || 
         error.message.includes('cannot be negative') ||
-        error.message.includes('Maximum stock cannot be less') ||
+        error.message.includes('Maximum stock') ||
+        error.message.includes('Reorder point') ||
+        error.message.includes('Initial stock') ||
+        error.message.includes('Current stock') ||
+        error.message.includes('Expiry date') ||
         error.message.includes('already exists') ||
         error.message.includes('At least one branch must be selected') ||
         error.message.includes('You do not have access to one or more selected branches') ||
@@ -261,7 +265,11 @@ export const updateInventoryItem = async (req, res, next) => {
     }
 
     if (error.message.includes('cannot be negative') ||
-        error.message.includes('Maximum stock cannot be less') ||
+        error.message.includes('Maximum stock') ||
+        error.message.includes('Reorder point') ||
+        error.message.includes('Initial stock') ||
+        error.message.includes('Current stock') ||
+        error.message.includes('Expiry date') ||
         error.message.includes('already exists') ||
         error.message.includes('At least one branch must be selected') ||
         error.message.includes('You do not have access') ||
