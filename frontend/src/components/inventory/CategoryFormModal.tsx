@@ -75,9 +75,9 @@ export default function CategoryFormModal({
     selectedBranches: [] as string[],
   });
 
-  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(
-    user?.role || ''
-  );
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
 
   useEffect(() => {
     if (category && open) {

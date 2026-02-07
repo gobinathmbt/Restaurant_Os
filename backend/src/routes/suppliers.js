@@ -5,7 +5,8 @@ import {
   getSupplierById,
   updateSupplier,
   deleteSupplier,
-  toggleSupplierStatus
+  toggleSupplierStatus,
+  permanentDeleteSupplier
 } from '../controllers/supplierController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { validateAndAssignSupplierCategories } from '../middlewares/categoryBranchValidation.js';
@@ -21,6 +22,7 @@ router.post('/', validateAndAssignSupplierCategories, createSupplier);
 router.get('/:id', getSupplierById);
 router.put('/:id', validateAndAssignSupplierCategories, updateSupplier);
 router.delete('/:id', deleteSupplier);
+router.delete('/:id/permanent', permanentDeleteSupplier);
 router.patch('/:id/toggle-status', toggleSupplierStatus);
 
 export default router;

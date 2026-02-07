@@ -161,14 +161,17 @@ export const getSuppliers = async (companyId, filters = {}, userBranchIds = null
       search = '',
       category = '',
       subcategory = '',
-      isActive = true,
+      isActive = 'all',
       branchId = ''
     } = filters;
 
-    // Build query - return only active suppliers by default
-    const query = {
-      isActive: isActive === 'false' ? false : true
-    };
+    // Build query
+    const query = {};
+
+    // Status filter - support 'all', 'true', 'false'
+    if (isActive !== 'all') {
+      query.isActive = isActive === 'true' || isActive === true;
+    }
 
     // Branch filtering
     if (branchId && branchId !== 'all') {
@@ -492,6 +495,32 @@ export const deleteSupplier = async (supplierId, companyId) => {
     return supplier;
   } catch (error) {
     logger.error('Error deleting supplier:', error);
+    throw error;
+  }
+};
+
+/**
+ * Permanently delete supplier
+ * @param {string} supplierId - Supplier ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Deleted supplier
+ */
+export const permanentDeleteSupplier = async (supplierId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Supplier = getSupplierModel(companyDB);
+
+    const supplier = await Supplier.findByIdAndDelete(supplierId);
+
+    if (!supplier) {
+      throw new Error('Supplier not found');
+    }
+
+    logger.info(`Supplier permanently deleted: ${supplierId} for company: ${companyId}`);
+
+    return supplier;
+  } catch (error) {
+    logger.error('Error permanently deleting supplier:', error);
     throw error;
   }
 };

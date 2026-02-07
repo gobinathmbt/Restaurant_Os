@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { inventoryServices, supplierServices } from '@/api/services';
 import BranchSearch from '@/components/common/BranchSearch';
 import CategorySubcategorySearch from '@/components/common/CategorySubcategorySearch';
@@ -38,6 +39,8 @@ export default function InventoryItemFormModal({
   onSuccess 
 }: InventoryItemFormModalProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
+
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [activeTab, setActiveTab] = useState('basic');
@@ -62,6 +65,11 @@ export default function InventoryItemFormModal({
     sku: '',
     barcode: ''
   });
+
+
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
 
   useEffect(() => {
     if (open) {
@@ -578,7 +586,7 @@ export default function InventoryItemFormModal({
                     selectedBranchIds={selectedBranches}
                     onBranchesChange={handleBranchesChange}
                     placeholder="Select branches..."
-                    showSelectAll={false}
+                    showSelectAll={isSuperAdmin}
                   />
                 </div>
 

@@ -71,6 +71,7 @@ export default function Suppliers() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [suppliersLoading, setSuppliersLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [subcategoryFilter, setSubcategoryFilter] = useState('all');
   const [branchFilter, setBranchFilter] = useState('all');
@@ -81,9 +82,10 @@ export default function Suppliers() {
   const [totalPages, setTotalPages] = useState(0);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
-  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; supplier: Supplier | null }>({
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; supplier: Supplier | null; permanent: boolean }>({
     open: false,
-    supplier: null
+    supplier: null,
+    permanent: false
   });
 
   // Infinite scroll state
@@ -141,7 +143,7 @@ export default function Suppliers() {
       setHasMore(true);
       fetchSuppliersInfinite(1, true);
     }
-  }, [page, rowsPerPage, search, categoryFilter, subcategoryFilter, branchFilter, paginationEnabled]);
+  }, [page, rowsPerPage, search, statusFilter, categoryFilter, subcategoryFilter, branchFilter, paginationEnabled]);
 
   const fetchSuppliers = async () => {
     if (!paginationEnabled) return;
@@ -155,7 +157,7 @@ export default function Suppliers() {
         category: categoryFilter !== 'all' ? categoryFilter : undefined,
         subcategory: subcategoryFilter !== 'all' ? subcategoryFilter : undefined,
         branchId: branchFilter !== 'all' ? branchFilter : undefined,
-        isActive: true
+        isActive: statusFilter
       });
 
       const fetchedSuppliers = response.data.data.suppliers || [];
@@ -188,7 +190,7 @@ export default function Suppliers() {
         category: categoryFilter !== 'all' ? categoryFilter : undefined,
         subcategory: subcategoryFilter !== 'all' ? subcategoryFilter : undefined,
         branchId: branchFilter !== 'all' ? branchFilter : undefined,
-        isActive: true
+        isActive: statusFilter
       });
 
       const fetchedSuppliers = response.data.data.suppliers || [];
@@ -233,8 +235,8 @@ export default function Suppliers() {
     setIsFormOpen(true);
   };
 
-  const handleDelete = (supplier: Supplier) => {
-    setDeleteDialog({ open: true, supplier });
+  const handleDelete = (supplier: Supplier, permanent: boolean = false) => {
+    setDeleteDialog({ open: true, supplier, permanent });
   };
 
   const confirmDelete = async () => {
@@ -242,11 +244,17 @@ export default function Suppliers() {
 
     try {
       setLoading(true);
-      setLoadingMessage('Deleting supplier...');
-      await supplierServices.deleteSupplier(deleteDialog.supplier._id);
+      setLoadingMessage(deleteDialog.permanent ? 'Permanently deleting supplier...' : 'Deactivating supplier...');
+      
+      if (deleteDialog.permanent) {
+        await supplierServices.permanentDeleteSupplier(deleteDialog.supplier._id);
+      } else {
+        await supplierServices.deleteSupplier(deleteDialog.supplier._id);
+      }
+      
       toast({
         title: "Success",
-        description: "Supplier deleted successfully",
+        description: deleteDialog.permanent ? "Supplier permanently deleted successfully" : "Supplier deactivated successfully",
         variant: "success",
       });
       if (paginationEnabled) {
@@ -257,7 +265,7 @@ export default function Suppliers() {
         setHasMore(true);
         fetchSuppliersInfinite(1, true);
       }
-      setDeleteDialog({ open: false, supplier: null });
+      setDeleteDialog({ open: false, supplier: null, permanent: false });
     } catch (error: any) {
       toast({
         title: "Error",
@@ -360,6 +368,16 @@ export default function Suppliers() {
         filterConfig={{
           component: (
             <div className="flex items-center gap-2">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-36 h-9">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="true">Active</SelectItem>
+                  <SelectItem value="false">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
               {(isSuperAdmin || isMultiBranchAdmin) && branches.length > 0 && (
                 <Select value={branchFilter} onValueChange={setBranchFilter}>
                   <SelectTrigger className="w-48 h-9">
@@ -492,14 +510,25 @@ export default function Suppliers() {
                     >
                       <Power className={`h-4 w-4 ${supplier.isActive ? 'text-green-600' : 'text-gray-400'}`} />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(supplier)}
-                      title="Delete supplier"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {supplier.isActive ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(supplier, false)}
+                        title="Deactivate supplier"
+                      >
+                        <Trash2 className="h-4 w-4 text-orange-600" />
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(supplier, true)}
+                        title="Permanently delete supplier"
+                      >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -513,10 +542,10 @@ export default function Suppliers() {
             ? {
               icon: <Package className="h-12 w-12" />,
               title: 'No suppliers found',
-              description: search || categoryFilter !== 'all' || subcategoryFilter !== 'all' || branchFilter !== 'all'
+              description: search || statusFilter !== 'all' || categoryFilter !== 'all' || subcategoryFilter !== 'all' || branchFilter !== 'all'
                 ? 'Try adjusting your filters'
                 : 'Get started by adding your first supplier',
-              action: !search && categoryFilter === 'all' && subcategoryFilter === 'all' && branchFilter === 'all' ? (
+              action: !search && statusFilter === 'all' && categoryFilter === 'all' && subcategoryFilter === 'all' && branchFilter === 'all' ? (
                 <Button onClick={handleCreate}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Supplier
@@ -565,10 +594,14 @@ export default function Suppliers() {
       {/* Delete Confirmation Dialog */}
       <DeleteConfirmDialog
         open={deleteDialog.open}
-        onClose={() => setDeleteDialog({ open: false, supplier: null })}
+        onClose={() => setDeleteDialog({ open: false, supplier: null, permanent: false })}
         onConfirm={confirmDelete}
-        title="Delete Supplier"
-        description={`Are you sure you want to delete the supplier "${deleteDialog.supplier?.name}"? This action cannot be undone.`}
+        title={deleteDialog.permanent ? "Permanently Delete Supplier" : "Deactivate Supplier"}
+        description={
+          deleteDialog.permanent
+            ? `Are you sure you want to permanently delete the supplier "${deleteDialog.supplier?.name}"? This action cannot be undone and will remove all data associated with this supplier.`
+            : `Are you sure you want to deactivate the supplier "${deleteDialog.supplier?.name}"? You can reactivate it later if needed.`
+        }
       />
     </div>
   );

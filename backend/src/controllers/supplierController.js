@@ -312,3 +312,39 @@ export const toggleSupplierStatus = async (req, res, next) => {
   }
 };
 
+/**
+ * Permanently delete supplier
+ * DELETE /api/suppliers/:id/permanent
+ */
+export const permanentDeleteSupplier = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { id } = req.params;
+
+    // Permanently delete supplier
+    await supplierService.permanentDeleteSupplier(id, companyId);
+
+    logger.info('Supplier permanently deleted via API', { 
+      supplierId: id, 
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Supplier permanently deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Permanent delete supplier error', error);
+    
+    if (error.message === 'Supplier not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+

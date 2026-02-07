@@ -34,6 +34,10 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
     branchIds: [] as string[]
   });
 
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
+
   // Determine allowed roles based on current user's role
   const getAllowedRoles = () => {
     const roleMap: Record<string, { value: string; label: string }[]> = {
@@ -252,7 +256,7 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
                 selectedBranchIds={formData.branchIds}
                 onBranchesChange={handleBranchesChange}
                 placeholder="Select branches..."
-                showSelectAll={false}
+                showSelectAll={isSuperAdmin}
               />
             </div>
           )}

@@ -186,7 +186,7 @@ export const recipeServices = {
 // Supplier Services
 export const supplierServices = {
   // Get all suppliers
-  getSuppliers: (params?: { page?: number; limit?: number; search?: string; category?: string; subcategory?: string; isActive?: boolean; branchId?: string }) =>
+  getSuppliers: (params?: { page?: number; limit?: number; search?: string; category?: string; subcategory?: string; isActive?: string | boolean; branchId?: string }) =>
     apiClient.get("/api/suppliers", { params }),
 
   // Get single supplier
@@ -201,9 +201,13 @@ export const supplierServices = {
   updateSupplier: (id: string, data: any) =>
     apiClient.put(`/api/suppliers/${id}`, data),
 
-  // Delete supplier
+  // Delete supplier (soft delete)
   deleteSupplier: (id: string) =>
     apiClient.delete(`/api/suppliers/${id}`),
+
+  // Permanently delete supplier
+  permanentDeleteSupplier: (id: string) =>
+    apiClient.delete(`/api/suppliers/${id}/permanent`),
 
   // Toggle supplier status
   toggleSupplierStatus: (id: string) =>

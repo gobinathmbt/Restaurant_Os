@@ -600,7 +600,7 @@ export default function SupplierFormModal({
                     selectedBranchIds={selectedBranches}
                     onBranchesChange={handleBranchesChange}
                     placeholder="Select branches..."
-                    showSelectAll={false}
+                    showSelectAll={isSuperAdmin}
                   />
                 </div>
 
