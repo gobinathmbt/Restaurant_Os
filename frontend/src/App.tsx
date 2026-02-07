@@ -25,6 +25,7 @@ import { lazy, Suspense } from "react";
 const Inventory = lazy(() => import("@/pages/company/Inventory"));
 const Recipes = lazy(() => import("@/pages/company/Recipes"));
 const Suppliers = lazy(() => import("@/pages/company/Suppliers"));
+const Menu = lazy(() => import("@/pages/company/Menu"));
 
 const queryClient = new QueryClient();
 
@@ -93,7 +94,14 @@ const App = () => {
                   <Route path="dashboard" element={<CompanyDashboard />} />
                   <Route path="pos" element={<div className="p-8">POS Page Coming Soon</div>} />
                   <Route path="orders" element={<div className="p-8">Orders Page Coming Soon</div>} />
-                  <Route path="menu" element={<div className="p-8">Menu Page Coming Soon</div>} />
+                  <Route 
+                    path="menu" 
+                    element={
+                      <Suspense fallback={<div className="p-8">Loading...</div>}>
+                        <Menu />
+                      </Suspense>
+                    } 
+                  />
                   <Route 
                     path="inventory" 
                     element={

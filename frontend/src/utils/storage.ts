@@ -131,6 +131,10 @@ export const STORAGE_KEYS = {
   INVENTORY_ACTIVE_TAB: 'inventory_active_tab',
   INVENTORY_SELECTED_BRANCH: 'inventory_selected_branch',
   
+  // Menu - Global
+  MENU_ACTIVE_TAB: 'menu_active_tab',
+  MENU_SELECTED_BRANCH: 'menu_selected_branch',
+  
   // Inventory Items Tab
   INVENTORY_ITEMS_SEARCH: 'inventory_items_search',
   INVENTORY_ITEMS_TYPE_FILTER: 'inventory_items_type_filter',

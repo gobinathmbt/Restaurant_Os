@@ -270,6 +270,100 @@ export const categoryServices = {
 };
 
 
+// Menu Item Services
+export const menuItemServices = {
+  // Create menu item
+  createMenuItem: (data: any) =>
+    apiClient.post("/api/menu/items", data),
+
+  // Get menu items with filters
+  getMenuItems: (params?: { page?: number; limit?: number; search?: string; categoryId?: string; isActive?: boolean }) =>
+    apiClient.get("/api/menu/items", { params }),
+
+  // Get menu item by ID
+  getMenuItemById: (id: string) =>
+    apiClient.get(`/api/menu/items/${id}`),
+
+  // Update menu item
+  updateMenuItem: (id: string, data: any) =>
+    apiClient.put(`/api/menu/items/${id}`, data),
+
+  // Delete menu item
+  deleteMenuItem: (id: string) =>
+    apiClient.delete(`/api/menu/items/${id}`),
+
+  // Add image to menu item
+  addImage: (id: string, imageUrl: string) =>
+    apiClient.post(`/api/menu/items/${id}/images`, { imageUrl }),
+
+  // Remove image from menu item
+  removeImage: (id: string, imageUrl: string) =>
+    apiClient.delete(`/api/menu/items/${id}/images`, { data: { imageUrl } }),
+
+  // Reorder images
+  reorderImages: (id: string, imageOrder: Array<{ url: string; displayOrder: number }>) =>
+    apiClient.put(`/api/menu/items/${id}/images/reorder`, { imageOrder }),
+};
+
+// Menu Item Branch Services
+export const menuItemBranchServices = {
+  // Create branch configuration for menu item
+  createBranchConfig: (menuItemId: string, branchId: string, data: any) =>
+    apiClient.post(`/api/menu/items/${menuItemId}/branches/${branchId}`, data),
+
+  // Get branch configuration for menu item
+  getBranchConfig: (menuItemId: string, branchId: string) =>
+    apiClient.get(`/api/menu/items/${menuItemId}/branches/${branchId}`),
+
+  // Update branch configuration
+  updateBranchConfig: (menuItemId: string, branchId: string, data: any) =>
+    apiClient.put(`/api/menu/items/${menuItemId}/branches/${branchId}`, data),
+
+  // Delete branch configuration (remove item from branch)
+  deleteBranchConfig: (menuItemId: string, branchId: string) =>
+    apiClient.delete(`/api/menu/items/${menuItemId}/branches/${branchId}`),
+
+  // Get menu items for a specific branch (merged with global data)
+  getMenuItemsForBranch: (branchId: string, params?: { page?: number; limit?: number; search?: string; categoryId?: string; isActive?: boolean }) =>
+    apiClient.get(`/api/menu/branches/${branchId}/items`, { params }),
+
+  // Bulk assign menu item to multiple branches
+  bulkAssignToBranches: (menuItemId: string, branchConfigs: Array<{ branchId: string; price: number; [key: string]: any }>) =>
+    apiClient.post(`/api/menu/items/${menuItemId}/branches/bulk`, { branchConfigs }),
+};
+
+// Menu Category Services
+export const menuCategoryServices = {
+  // Create menu category
+  createMenuCategory: (data: any) =>
+    apiClient.post("/api/menu/categories", data),
+
+  // Get menu categories with filters
+  getMenuCategories: (params?: { page?: number; limit?: number; search?: string; isActive?: boolean }) =>
+    apiClient.get("/api/menu/categories", { params }),
+
+  // Get menu category by ID
+  getMenuCategoryById: (id: string) =>
+    apiClient.get(`/api/menu/categories/${id}`),
+
+  // Update menu category
+  updateMenuCategory: (id: string, data: any) =>
+    apiClient.put(`/api/menu/categories/${id}`, data),
+
+  // Delete menu category
+  deleteMenuCategory: (id: string) =>
+    apiClient.delete(`/api/menu/categories/${id}`),
+};
+
+// Image Upload Services
+export const imageUploadServices = {
+  // Upload image to S3
+  uploadImage: (formData: FormData) =>
+    apiClient.post("/api/menu/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+};
+
 export default {
   auth: authServices,
   notifications: notificationServices,
@@ -280,4 +374,8 @@ export default {
   recipes: recipeServices,
   suppliers: supplierServices,
   categories: categoryServices,
+  menuItems: menuItemServices,
+  menuItemBranches: menuItemBranchServices,
+  menuCategories: menuCategoryServices,
+  imageUpload: imageUploadServices,
 };
