@@ -91,17 +91,21 @@ export default function MenuCategoriesTab({
 
   // Fetch categories when dependencies change
   useEffect(() => {
-    if (paginationEnabled) {
-      fetchCategories();
-    } else {
-      setCategories([]);
-      setInfiniteScrollPage(1);
-      setHasMore(true);
-      fetchCategoriesInfinite(1, true);
+    if (selectedBranch) {
+      if (paginationEnabled) {
+        fetchCategories();
+      } else {
+        setCategories([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchCategoriesInfinite(1, true);
+      }
     }
-  }, [currentPage, rowsPerPage, searchValue, paginationEnabled]);
+  }, [selectedBranch, currentPage, rowsPerPage, searchValue, paginationEnabled]);
 
   const fetchCategories = async () => {
+    if (!selectedBranch) return;
+
     try {
       setIsLoadingCategories(true);
 
@@ -136,6 +140,8 @@ export default function MenuCategoriesTab({
   };
 
   const fetchCategoriesInfinite = async (page: number, reset: boolean = false) => {
+    if (!selectedBranch) return;
+
     try {
       if (reset) {
         setIsLoadingCategories(true);
