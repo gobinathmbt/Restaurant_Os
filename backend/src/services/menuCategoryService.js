@@ -93,7 +93,8 @@ export const getMenuCategories = async (companyId, filters = {}, userBranchIds =
 
     // Branch filter
     if (branchId) {
-      query.branchIds = branchId;
+      // Check if branchIds array contains the specified branchId
+      query.branchIds = { $in: [branchId] };
     } else if (userBranchIds && userBranchIds.length > 0) {
       // Filter by user's accessible branches
       query.branchIds = { $in: userBranchIds };

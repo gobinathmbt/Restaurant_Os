@@ -4,6 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -102,6 +109,7 @@ export default function MenuCategoriesTab({
         page: currentPage,
         limit: rowsPerPage,
         search: searchValue || undefined,
+        branchId: selectedBranch !== 'all' ? selectedBranch : undefined,
       };
 
       const response = await menuCategoryServices.getMenuCategories(params);
@@ -139,6 +147,7 @@ export default function MenuCategoriesTab({
         page: page,
         limit: 20,
         search: searchValue || undefined,
+        branchId: selectedBranch !== 'all' ? selectedBranch : undefined,
       };
 
       const response = await menuCategoryServices.getMenuCategories(params);
@@ -259,6 +268,27 @@ export default function MenuCategoriesTab({
         searchValue={searchValue}
         searchPlaceholder="Search categories..."
         onSearchChange={setSearchValue}
+        filterConfig={{
+          component: (
+            <div className="flex items-center gap-2">
+              {(isSuperAdmin || isMultiBranchAdmin) && branches.length > 0 && (
+                <Select value={selectedBranch} onValueChange={onBranchChange}>
+                  <SelectTrigger className="w-48 h-9">
+                    <SelectValue placeholder="All branches" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All branches</SelectItem>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch._id} value={branch._id}>
+                        {branch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ),
+        }}
         tableHeaders={
           <>
             <TableHead className="w-16">S.No</TableHead>

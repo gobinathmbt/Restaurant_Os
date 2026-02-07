@@ -419,9 +419,10 @@ export default function MenuItemsTab({
               {(isSuperAdmin || isMultiBranchAdmin) && branches.length > 0 && (
                 <Select value={selectedBranch} onValueChange={onBranchChange}>
                   <SelectTrigger className="w-48 h-9">
-                    <SelectValue placeholder="Select branch" />
+                    <SelectValue placeholder="All branches" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="all">All branches</SelectItem>
                     {branches.map((branch) => (
                       <SelectItem key={branch._id} value={branch._id}>
                         {branch.name}
