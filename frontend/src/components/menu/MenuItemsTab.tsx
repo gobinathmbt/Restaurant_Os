@@ -28,6 +28,7 @@ import DataTableLayout from '@/components/common/DataTableLayout';
 import MenuItemFormModal from '@/components/menu/MenuItemFormModal';
 import MenuItemBranchConfigModal from '@/components/menu/MenuItemBranchConfigModal';
 import ImageGalleryModal from '@/components/menu/ImageGalleryModal';
+import { ProxiedImage } from '@/components/common/ProxiedImage';
 
 interface Branch {
   _id: string;
@@ -579,10 +580,11 @@ export default function MenuItemsTab({
                     <TableCell>
                       <div className="flex items-center gap-2">
                         {item.images && item.images.length > 0 ? (
-                          <img
-                            src={item.images[0].url}
+                          <ProxiedImage
+                            src={item.images[0]?.url}
                             alt={item.name}
                             className="w-10 h-10 rounded object-cover"
+                            fallback="/placeholder.svg"
                           />
                         ) : (
                           <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">

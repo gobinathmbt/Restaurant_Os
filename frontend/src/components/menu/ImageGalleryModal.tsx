@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { imageUploadServices, menuItemServices } from '@/api/services';
+import { ProxiedImage } from '@/components/common/ProxiedImage';
 
 interface MenuItemImage {
   url: string;
@@ -319,14 +320,11 @@ export default function ImageGalleryModal({
                     >
                       {/* Image */}
                       <div className="aspect-square">
-                        <img
+                        <ProxiedImage
                           src={image.url}
                           alt={`Menu item image ${index + 1}`}
                           className="w-full h-full object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.src = '/placeholder.svg';
-                          }}
+                          fallback="/placeholder.svg"
                         />
                       </div>
 
