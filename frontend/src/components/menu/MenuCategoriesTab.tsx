@@ -360,7 +360,6 @@ export default function MenuCategoriesTab({
                         size="sm"
                         onClick={() => handleDeleteCategory(category)}
                         title="Delete category"
-                        disabled={category.itemCount && category.itemCount > 0}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
