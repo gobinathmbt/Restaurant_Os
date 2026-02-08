@@ -116,7 +116,6 @@ export const uploadImageToS3 = async (fileBuffer, fileName, mimeType, companyId)
       Key: uniqueFileName,
       Body: fileBuffer,
       ContentType: mimeType,
-      ACL: 'public-read', // Make images publicly accessible
       CacheControl: 'max-age=31536000' // Cache for 1 year
     });
 

@@ -335,7 +335,9 @@ class CategoryBranchValidationService {
         const validCategoryIds = categoryIds.filter(id => mongoose.Types.ObjectId.isValid(id));
         
         for (const categoryId of validCategoryIds) {
-          const category = await this.Category.findById(categoryId).session(session);
+          const categoryQuery = this.Category.findById(categoryId);
+          if (session) categoryQuery.session(session);
+          const category = await categoryQuery;
           
           if (!category) {
             logger.warn(`Category not found: ${categoryId}`);
@@ -349,6 +351,12 @@ class CategoryBranchValidationService {
 
           if (newBranches.length > 0) {
             // Use findOneAndUpdate with version checking for optimistic locking
+            const updateOptions = { 
+              new: true,
+              runValidators: true
+            };
+            if (session) updateOptions.session = session;
+            
             const updatedCategory = await this.Category.findOneAndUpdate(
               { 
                 _id: categoryId,
@@ -358,11 +366,7 @@ class CategoryBranchValidationService {
                 $addToSet: { branchIds: { $each: newBranches } },
                 $inc: { __v: 1 }  // Increment version
               },
-              { 
-                new: true,
-                session,
-                runValidators: true
-              }
+              updateOptions
             );
 
             if (!updatedCategory) {
@@ -416,7 +420,9 @@ class CategoryBranchValidationService {
         const validSubcategoryIds = subcategoryIds.filter(id => mongoose.Types.ObjectId.isValid(id));
         
         for (const subcategoryId of validSubcategoryIds) {
-          const subcategory = await this.Category.findById(subcategoryId).session(session);
+          const subcategoryQuery = this.Category.findById(subcategoryId);
+          if (session) subcategoryQuery.session(session);
+          const subcategory = await subcategoryQuery;
           
           if (!subcategory) {
             logger.warn(`Subcategory not found: ${subcategoryId}`);
@@ -430,6 +436,12 @@ class CategoryBranchValidationService {
 
           if (newBranches.length > 0) {
             // Use findOneAndUpdate with version checking for optimistic locking
+            const updateOptions = { 
+              new: true,
+              runValidators: true
+            };
+            if (session) updateOptions.session = session;
+            
             const updatedSubcategory = await this.Category.findOneAndUpdate(
               { 
                 _id: subcategoryId,
@@ -439,11 +451,7 @@ class CategoryBranchValidationService {
                 $addToSet: { branchIds: { $each: newBranches } },
                 $inc: { __v: 1 }  // Increment version
               },
-              { 
-                new: true,
-                session,
-                runValidators: true
-              }
+              updateOptions
             );
 
             if (!updatedSubcategory) {

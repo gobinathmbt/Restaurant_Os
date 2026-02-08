@@ -3,9 +3,12 @@
  * Business logic for menu item management operations
  */
 
+import mongoose from 'mongoose';
 import { getCompanyDB } from '../config/database.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getMenuCategoryModel } from '../models/company/MenuCategory.js';
+import { getMenuItemBranchModel } from '../models/company/MenuItemBranch.js';
+import CategoryBranchValidationService from './categoryBranchValidationService.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -416,5 +419,186 @@ export const reorderMenuItemImages = async (menuItemId, imageOrder, companyId) =
   } catch (error) {
     logger.error('Error reordering menu item images:', error);
     throw error;
+  }
+};
+
+/**
+ * Validate if user has access to a specific branch
+ * @param {string} branchId - Branch ID to check
+ * @param {Array|null} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {boolean} True if user has access, false otherwise
+ */
+export const validateBranchAccess = (branchId, userBranchIds) => {
+  // Super admins (null or undefined userBranchIds) have access to all branches
+  if (userBranchIds === null || userBranchIds === undefined) {
+    return true;
+  }
+
+  // Check if branch is in user's accessible branches
+  return userBranchIds.includes(branchId.toString());
+};
+
+/**
+ * Create menu item with branch assignments
+ * @param {Object} menuItemData - Menu item data
+ * @param {Array} branchConfigs - Array of { branchId, ...config }
+ * @param {string} companyId - Company ID
+ * @param {string} userId - User ID for audit logging
+ * @param {Array|null} userBranchIds - User's accessible branches (null for super admin)
+ * @returns {Promise<Object>} Created menu item with branch configs
+ */
+export const createMenuItemWithBranches = async (
+  menuItemData,
+  branchConfigs,
+  companyId,
+  userId,
+  userBranchIds = null
+) => {
+  // Get company database connection first
+  const companyDB = getCompanyDB(companyId);
+  
+  // Check if transactions are supported (replica set or mongos)
+  const supportsTransactions = companyDB.client?.topology?.description?.type !== 'Single';
+  
+  let session = null;
+  if (supportsTransactions) {
+    session = await companyDB.startSession();
+    session.startTransaction();
+  }
+
+  try {
+    const MenuItem = getMenuItemModel(companyDB);
+    const MenuCategory = getMenuCategoryModel(companyDB);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+
+    // Validate required fields
+    if (!menuItemData.name || !menuItemData.category || menuItemData.basePrice === undefined) {
+      throw new Error('Menu item name, category, and base price are required');
+    }
+
+    if (!branchConfigs || !Array.isArray(branchConfigs) || branchConfigs.length === 0) {
+      throw new Error('At least one branch configuration is required');
+    }
+
+    // Validate name length (max 200 characters)
+    if (menuItemData.name.length > 200) {
+      throw new Error('Menu item name cannot exceed 200 characters');
+    }
+
+    // Validate price format (non-negative, max 2 decimals)
+    if (menuItemData.basePrice < 0) {
+      throw new Error('Base price cannot be negative');
+    }
+
+    // Check for max 2 decimal places
+    const priceStr = menuItemData.basePrice.toString();
+    if (priceStr.includes('.')) {
+      const decimalPlaces = priceStr.split('.')[1].length;
+      if (decimalPlaces > 2) {
+        throw new Error('Base price cannot have more than 2 decimal places');
+      }
+    }
+
+    // Validate category reference existence
+    const categoryQuery = MenuCategory.findById(menuItemData.category);
+    if (session) categoryQuery.session(session);
+    const category = await categoryQuery;
+    
+    if (!category) {
+      throw new Error('Selected category does not exist');
+    }
+
+    // Validate spice level range
+    const validSpiceLevels = ['none', 'mild', 'medium', 'hot', 'extra_hot'];
+    if (menuItemData.spiceLevel && !validSpiceLevels.includes(menuItemData.spiceLevel)) {
+      throw new Error('Invalid spice level. Must be one of: none, mild, medium, hot, extra_hot');
+    }
+
+    // 1. Validate branch access for all branches
+    for (const config of branchConfigs) {
+      if (!config.branchId) {
+        throw new Error('Branch ID is required in branch configuration');
+      }
+
+      if (!validateBranchAccess(config.branchId, userBranchIds)) {
+        throw new Error(`No access to branch: ${config.branchId}`);
+      }
+    }
+
+    // 2. Create menu item
+    let menuItem;
+    if (session) {
+      menuItem = await MenuItem.create(
+        [{
+          ...menuItemData,
+          isActive: true
+        }],
+        { session }
+      );
+    } else {
+      menuItem = [await MenuItem.create({
+        ...menuItemData,
+        isActive: true
+      })];
+    }
+
+    // 3. Auto-assign category to branches if needed
+    const categoryId = menuItemData.category;
+    const branchIds = branchConfigs.map(c => c.branchId);
+
+    const validationService = new CategoryBranchValidationService(companyDB);
+    await validationService.assignCategoriesToBranches(
+      branchIds,
+      [categoryId],
+      [],
+      userId,
+      'menu_item_assignment',
+      session
+    );
+
+    // 4. Create branch configurations
+    const branchConfigDocs = branchConfigs.map(config => ({
+      menuItem: menuItem[0]._id,
+      branch: config.branchId,
+      price: config.price !== undefined ? config.price : menuItemData.basePrice,
+      isAvailable: config.isAvailable !== undefined ? config.isAvailable : true,
+      preparationTime: config.preparationTime !== undefined ? config.preparationTime : 15,
+      requiresKitchen: config.requiresKitchen !== undefined ? config.requiresKitchen : true,
+      outOfStock: config.outOfStock !== undefined ? config.outOfStock : false,
+      lowStockThreshold: config.lowStockThreshold,
+      taxRateOverride: config.taxRateOverride,
+      displayOrder: config.displayOrder !== undefined ? config.displayOrder : 0,
+      channels: config.channels || ['dine_in', 'takeaway', 'online'],
+      timeBasedPricing: config.timeBasedPricing || [],
+      availability: config.availability || { schedule: [] },
+      isActive: true
+    }));
+
+    if (session) {
+      await MenuItemBranch.insertMany(branchConfigDocs, { session });
+    } else {
+      await MenuItemBranch.insertMany(branchConfigDocs);
+    }
+
+    if (session) {
+      await session.commitTransaction();
+    }
+
+    logger.info(`Menu item created with branches: ${menuItem[0]._id} for company: ${companyId}`);
+
+    return {
+      menuItem: menuItem[0],
+      branchConfigs: branchConfigDocs
+    };
+  } catch (error) {
+    if (session) {
+      await session.abortTransaction();
+    }
+    logger.error('Error creating menu item with branches:', error);
+    throw error;
+  } finally {
+    if (session) {
+      session.endSession();
+    }
   }
 };

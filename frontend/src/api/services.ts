@@ -272,6 +272,10 @@ export const categoryServices = {
 
 // Menu Item Services
 export const menuItemServices = {
+  // Create menu item with branch assignments
+  createMenuItemWithBranches: (data: { menuItemData: any; branchConfigs: any[] }) =>
+    apiClient.post("/api/menu/items/with-branches", data),
+
   // Create menu item
   createMenuItem: (data: any) =>
     apiClient.post("/api/menu/items", data),
@@ -353,6 +357,10 @@ export const menuCategoryServices = {
   // Delete menu category
   deleteMenuCategory: (id: string) =>
     apiClient.delete(`/api/menu/categories/${id}`),
+
+  // Validate branch removal from category
+  validateBranchRemoval: (categoryId: string, branchId: string) =>
+    apiClient.put(`/api/menu/categories/${categoryId}/validate-branch-removal`, { branchId }),
 };
 
 // Image Upload Services

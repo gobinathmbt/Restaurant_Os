@@ -6,6 +6,8 @@
 import { getCompanyDB } from '../config/database.js';
 import { getMenuCategoryModel } from '../models/company/MenuCategory.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
+import { getMenuItemBranchModel } from '../models/company/MenuItemBranch.js';
+import { getBranchModel } from '../models/company/Branch.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -79,6 +81,8 @@ export const getMenuCategories = async (companyId, filters = {}, userBranchIds =
     const companyDB = getCompanyDB(companyId);
     const MenuCategory = getMenuCategoryModel(companyDB);
     const MenuItem = getMenuItemModel(companyDB);
+    // Register Branch model on this connection before populate
+    const Branch = getBranchModel(companyDB);
 
     const {
       page = 1,
@@ -195,6 +199,53 @@ export const getMenuCategoryById = async (categoryId, companyId) => {
 };
 
 /**
+ * Validate if a branch can be removed from a category
+ * @param {string} categoryId - Category ID
+ * @param {string} branchId - Branch ID to remove
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Validation result with canRemove flag, count, and message
+ */
+export const validateBranchRemovalForCategory = async (categoryId, branchId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+    const MenuItem = getMenuItemModel(companyDB);
+    const MenuCategory = getMenuCategoryModel(companyDB);
+    const Branch = getBranchModel(companyDB);
+
+    // Find all menu items using this category
+    const menuItems = await MenuItem.find({ category: categoryId }).select('_id');
+    const menuItemIds = menuItems.map(item => item._id);
+
+    // Count menu item branch configs in this branch
+    const count = await MenuItemBranch.countDocuments({
+      menuItem: { $in: menuItemIds },
+      branch: branchId,
+      isActive: true
+    });
+
+    if (count > 0) {
+      const category = await MenuCategory.findById(categoryId).select('name');
+      const branch = await Branch.findById(branchId).select('name');
+
+      return {
+        canRemove: false,
+        count,
+        message: `Cannot remove branch ${branch.name} from category ${category.name}. ${count} menu items are using this category in this branch`
+      };
+    }
+
+    return {
+      canRemove: true,
+      count: 0
+    };
+  } catch (error) {
+    logger.error('Error validating branch removal for category:', error);
+    throw error;
+  }
+};
+
+/**
  * Update menu category
  * @param {string} categoryId - Category ID
  * @param {Object} updateData - Update data
@@ -211,6 +262,26 @@ export const updateMenuCategory = async (categoryId, updateData, companyId, user
     const existingCategory = await MenuCategory.findById(categoryId);
     if (!existingCategory) {
       throw new Error('Category not found');
+    }
+
+    // NEW: Validate branch removal if branchIds are being updated
+    if (updateData.branchIds) {
+      const removedBranches = existingCategory.branchIds.filter(
+        branchId => !updateData.branchIds.includes(branchId.toString())
+      );
+
+      // Validate each removed branch
+      for (const branchId of removedBranches) {
+        const validation = await validateBranchRemovalForCategory(
+          categoryId,
+          branchId,
+          companyId
+        );
+
+        if (!validation.canRemove) {
+          throw new Error(validation.message);
+        }
+      }
     }
 
     // Validate branch access if userBranchIds provided and branchIds are being updated

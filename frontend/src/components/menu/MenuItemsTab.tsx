@@ -23,6 +23,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { menuItemBranchServices, menuCategoryServices, menuItemServices } from '@/api/services';
 import { useLoading } from '@/contexts/LoadingContext';
+import { useAuth } from '@/contexts/AuthContext';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import MenuItemFormModal from '@/components/menu/MenuItemFormModal';
 import MenuItemBranchConfigModal from '@/components/menu/MenuItemBranchConfigModal';
@@ -122,6 +123,7 @@ export default function MenuItemsTab({
 }: MenuItemsTabProps) {
   const { setLoading, setLoadingMessage } = useLoading();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // State
   const [menuItems, setMenuItems] = useState<MergedMenuItem[]>([]);
@@ -157,7 +159,7 @@ export default function MenuItemsTab({
 
   // Fetch menu items when dependencies change
   useEffect(() => {
-    if (selectedBranch && selectedBranch !== 'all') {
+    if (selectedBranch) {
       if (paginationEnabled) {
         fetchMenuItems();
       } else {
@@ -183,7 +185,7 @@ export default function MenuItemsTab({
   }, []);
 
   const fetchMenuItems = async () => {
-    if (!selectedBranch || selectedBranch === 'all' || !paginationEnabled) return;
+    if (!selectedBranch || !paginationEnabled) return;
 
     try {
       setIsLoadingItems(true);
@@ -195,23 +197,57 @@ export default function MenuItemsTab({
         categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
       };
 
-      const response = await menuItemBranchServices.getMenuItemsForBranch(
-        selectedBranch,
-        params
-      );
+      let response;
+      if (selectedBranch === 'all') {
+        // Fetch all menu items (global view without branch-specific data)
+        response = await menuItemServices.getMenuItems(params);
+        const items = response.data.data.menuItems || [];
+        
+        // Transform items to match MergedMenuItem structure with default branch config
+        const transformedItems = items.map((item: any) => ({
+          ...item,
+          branchConfig: {
+            price: item.basePrice,
+            effectivePrice: item.basePrice,
+            timeBasedPricing: [],
+            isAvailable: true,
+            availability: { schedule: [] },
+            outOfStock: false,
+            preparationTime: 15,
+            requiresKitchen: true,
+            displayOrder: 0,
+            channels: ['dine_in', 'takeaway', 'online'],
+          },
+        }));
+        
+        setMenuItems(transformedItems);
+        setTotalCount(response.data.data.pagination.total);
+        setTotalPages(response.data.data.pagination.pages);
+        
+        // Calculate stats
+        const active = transformedItems.filter((item: MergedMenuItem) => item.isActive).length;
+        setActiveCount(active);
+        setUnavailableCount(0); // No branch-specific availability in "all" view
+      } else {
+        // Fetch branch-specific menu items
+        response = await menuItemBranchServices.getMenuItemsForBranch(
+          selectedBranch,
+          params
+        );
 
-      const items = response.data.data.menuItems || [];
-      setMenuItems(items);
-      setTotalCount(response.data.data.pagination.total);
-      setTotalPages(response.data.data.pagination.pages);
+        const items = response.data.data.menuItems || [];
+        setMenuItems(items);
+        setTotalCount(response.data.data.pagination.total);
+        setTotalPages(response.data.data.pagination.pages);
 
-      // Calculate stats
-      const active = items.filter((item: MergedMenuItem) => item.isActive).length;
-      const unavailable = items.filter(
-        (item: MergedMenuItem) => !item.branchConfig.isAvailable || item.branchConfig.outOfStock
-      ).length;
-      setActiveCount(active);
-      setUnavailableCount(unavailable);
+        // Calculate stats
+        const active = items.filter((item: MergedMenuItem) => item.isActive).length;
+        const unavailable = items.filter(
+          (item: MergedMenuItem) => !item.branchConfig.isAvailable || item.branchConfig.outOfStock
+        ).length;
+        setActiveCount(active);
+        setUnavailableCount(unavailable);
+      }
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -224,7 +260,7 @@ export default function MenuItemsTab({
   };
 
   const fetchMenuItemsInfinite = async (page: number, reset: boolean = false) => {
-    if (!selectedBranch || selectedBranch === 'all') return;
+    if (!selectedBranch) return;
 
     try {
       if (reset) {
@@ -240,12 +276,39 @@ export default function MenuItemsTab({
         categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
       };
 
-      const response = await menuItemBranchServices.getMenuItemsForBranch(
-        selectedBranch,
-        params
-      );
+      let response;
+      let fetchedItems;
+      
+      if (selectedBranch === 'all') {
+        // Fetch all menu items (global view without branch-specific data)
+        response = await menuItemServices.getMenuItems(params);
+        const items = response.data.data.menuItems || [];
+        
+        // Transform items to match MergedMenuItem structure with default branch config
+        fetchedItems = items.map((item: any) => ({
+          ...item,
+          branchConfig: {
+            price: item.basePrice,
+            effectivePrice: item.basePrice,
+            timeBasedPricing: [],
+            isAvailable: true,
+            availability: { schedule: [] },
+            outOfStock: false,
+            preparationTime: 15,
+            requiresKitchen: true,
+            displayOrder: 0,
+            channels: ['dine_in', 'takeaway', 'online'],
+          },
+        }));
+      } else {
+        // Fetch branch-specific menu items
+        response = await menuItemBranchServices.getMenuItemsForBranch(
+          selectedBranch,
+          params
+        );
+        fetchedItems = response.data.data.menuItems || [];
+      }
 
-      const fetchedItems = response.data.data.menuItems || [];
       const pagination = response.data.data.pagination;
 
       if (reset) {
@@ -261,11 +324,17 @@ export default function MenuItemsTab({
       // Calculate stats
       const allItems = reset ? fetchedItems : [...menuItems, ...fetchedItems];
       const active = allItems.filter((item: MergedMenuItem) => item.isActive).length;
-      const unavailable = allItems.filter(
-        (item: MergedMenuItem) => !item.branchConfig.isAvailable || item.branchConfig.outOfStock
-      ).length;
-      setActiveCount(active);
-      setUnavailableCount(unavailable);
+      
+      if (selectedBranch === 'all') {
+        setActiveCount(active);
+        setUnavailableCount(0); // No branch-specific availability in "all" view
+      } else {
+        const unavailable = allItems.filter(
+          (item: MergedMenuItem) => !item.branchConfig.isAvailable || item.branchConfig.outOfStock
+        ).length;
+        setActiveCount(active);
+        setUnavailableCount(unavailable);
+      }
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -633,10 +702,10 @@ export default function MenuItemsTab({
                 icon: <UtensilsCrossed className="h-12 w-12" />,
                 title: 'No menu items found',
                 description:
-                  selectedBranch === 'all'
-                    ? 'Please select a branch to view menu items'
-                    : searchValue || categoryFilter !== 'all' || availabilityFilter !== 'all'
+                  searchValue || categoryFilter !== 'all' || availabilityFilter !== 'all'
                     ? 'Try adjusting your filters'
+                    : selectedBranch === 'all'
+                    ? 'No menu items have been created yet'
                     : 'Get started by adding your first menu item',
                 action:
                   selectedBranch !== 'all' &&
@@ -692,6 +761,8 @@ export default function MenuItemsTab({
         } : null}
         onSuccess={handleFormSuccess}
         categories={categories}
+        branches={branches}
+        userBranchIds={isSuperAdmin ? null : (user?.branchIds || [])}
       />
 
       {/* Branch Configuration Modal */}

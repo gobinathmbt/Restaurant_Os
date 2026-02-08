@@ -112,7 +112,7 @@ export default function ImageGalleryModal({
       formData.append('image', file);
 
       const uploadResponse = await imageUploadServices.uploadImage(formData);
-      const imageUrl = uploadResponse.data.url;
+      const imageUrl = uploadResponse.data.data.url;
 
       clearInterval(progressInterval);
       setUploadProgress(100);

@@ -19,14 +19,16 @@ import {
   getBranchConfig,
   updateBranchConfig,
   deleteBranchConfig,
-  getMenuItemsForBranch
+  getMenuItemsForBranch,
+  createMenuItemWithBranches
 } from '../controllers/menuItemBranchController.js';
 import {
   createMenuCategory,
   getMenuCategories,
   getMenuCategoryById,
   updateMenuCategory,
-  deleteMenuCategory
+  deleteMenuCategory,
+  validateBranchRemoval
 } from '../controllers/menuCategoryController.js';
 import {
   uploadImage,
@@ -50,6 +52,9 @@ router.get('/items', getMenuItems);
 router.get('/items/:id', getMenuItemById);
 router.put('/items/:id', updateMenuItem);
 router.delete('/items/:id', deleteMenuItem);
+
+// Create menu item with branch assignments
+router.post('/items/with-branches', createMenuItemWithBranches);
 
 // Menu item image management
 router.post('/items/:id/images', addImage);
@@ -79,6 +84,9 @@ router.get('/categories', getMenuCategories);
 router.get('/categories/:id', getMenuCategoryById);
 router.put('/categories/:id', updateMenuCategory);
 router.delete('/categories/:id', deleteMenuCategory);
+
+// Validate branch removal from category
+router.post('/categories/:id/validate-branch-removal', validateBranchRemoval);
 
 // ============================================
 // IMAGE UPLOAD ROUTE

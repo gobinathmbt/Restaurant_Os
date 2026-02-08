@@ -201,3 +201,46 @@ export const deleteMenuCategory = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Validate branch removal from category
+ * POST /api/menu/categories/:id/validate-branch-removal
+ */
+export const validateBranchRemoval = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const { id: categoryId } = req.params;
+    const { branchId } = req.body;
+
+    // Validate required fields
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID is required'
+      });
+    }
+
+    // Validate branch removal
+    const validation = await menuCategoryService.validateBranchRemovalForCategory(
+      categoryId,
+      branchId,
+      companyId
+    );
+
+    res.json({
+      success: true,
+      data: validation
+    });
+  } catch (error) {
+    logger.error('Validate branch removal error', error);
+    
+    if (error.message === 'Category not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};

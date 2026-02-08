@@ -181,6 +181,22 @@ export default function MenuCategoryFormModal({
       onSuccess();
       onClose();
     } catch (error: any) {
+      // Handle branch removal validation errors (400 Bad Request)
+      if (error.response?.status === 400) {
+        const errorMessage = error.response?.data?.message || '';
+        
+        // Check if this is a branch removal validation error
+        if (errorMessage.includes('Cannot remove branch') && errorMessage.includes('menu items are using this category')) {
+          toast({
+            title: 'Cannot Remove Branch',
+            description: errorMessage,
+            variant: 'destructive',
+          });
+          return; // Prevent form submission
+        }
+      }
+
+      // Handle other errors
       toast({
         title: 'Error',
         description:

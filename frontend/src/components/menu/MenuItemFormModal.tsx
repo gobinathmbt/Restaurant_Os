@@ -14,12 +14,52 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useLoading } from '@/contexts/LoadingContext';
 import { menuItemServices } from '@/api/services';
+import BranchSelectionComponent from './BranchSelectionComponent';
+import BranchConfigurationAccordion from './BranchConfigurationAccordion';
 
 interface MenuCategory {
   _id: string;
   name: string;
   color?: string;
+}
+
+interface Branch {
+  _id: string;
+  name: string;
+  code: string;
+}
+
+interface TimeBasedPricing {
+  name: string;
+  startTime: string;
+  endTime: string;
+  days: string[];
+  price: number;
+  isActive: boolean;
+}
+
+interface AvailabilitySchedule {
+  startTime: string;
+  endTime: string;
+  days: string[];
+}
+
+interface BranchConfig {
+  price: number;
+  isAvailable: boolean;
+  preparationTime: number;
+  requiresKitchen: boolean;
+  outOfStock: boolean;
+  lowStockThreshold?: number;
+  taxRateOverride?: number;
+  displayOrder: number;
+  channels: string[];
+  timeBasedPricing: TimeBasedPricing[];
+  availability: {
+    schedule: AvailabilitySchedule[];
+  };
 }
 
 interface ModifierOption {
@@ -57,6 +97,8 @@ interface MenuItemFormModalProps {
   menuItem?: MenuItem | null;
   onSuccess: () => void;
   categories: MenuCategory[];
+  branches: Branch[];
+  userBranchIds: string[] | null;
 }
 
 export default function MenuItemFormModal({
@@ -65,8 +107,11 @@ export default function MenuItemFormModal({
   menuItem,
   onSuccess,
   categories,
+  branches,
+  userBranchIds,
 }: MenuItemFormModalProps) {
   const { toast } = useToast();
+  const { setLoading: setGlobalLoading, setLoadingMessage } = useLoading();
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -83,6 +128,82 @@ export default function MenuItemFormModal({
   });
 
   const [tagInput, setTagInput] = useState('');
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
+  const [branchConfigs, setBranchConfigs] = useState<Map<string, BranchConfig>>(new Map());
+
+  // Helper function to create default branch config
+  const createDefaultBranchConfig = (basePrice: number): BranchConfig => ({
+    price: basePrice,
+    isAvailable: true,
+    preparationTime: 15,
+    requiresKitchen: true,
+    outOfStock: false,
+    lowStockThreshold: undefined,
+    taxRateOverride: undefined,
+    displayOrder: 0,
+    channels: ['dine_in', 'takeaway', 'online'],
+    timeBasedPricing: [],
+    availability: {
+      schedule: [],
+    },
+  });
+
+  // Handle branch selection changes
+  const handleBranchSelectionChange = (newSelectedBranches: string[]) => {
+    setSelectedBranches(newSelectedBranches);
+    
+    // Initialize configs for newly selected branches
+    const newConfigs = new Map(branchConfigs);
+    newSelectedBranches.forEach((branchId) => {
+      if (!newConfigs.has(branchId)) {
+        newConfigs.set(branchId, createDefaultBranchConfig(formData.basePrice));
+      }
+    });
+    
+    // Remove configs for deselected branches
+    Array.from(newConfigs.keys()).forEach((branchId) => {
+      if (!newSelectedBranches.includes(branchId)) {
+        newConfigs.delete(branchId);
+      }
+    });
+    
+    setBranchConfigs(newConfigs);
+  };
+
+  // Handle branch config changes
+  const handleBranchConfigChange = (branchId: string, config: BranchConfig) => {
+    const newConfigs = new Map(branchConfigs);
+    newConfigs.set(branchId, config);
+    setBranchConfigs(newConfigs);
+  };
+
+  // Handle copy to all branches
+  const handleCopyToAllBranches = (sourceBranchId: string) => {
+    const sourceConfig = branchConfigs.get(sourceBranchId);
+    if (!sourceConfig) return;
+    
+    const newConfigs = new Map(branchConfigs);
+    selectedBranches.forEach((branchId) => {
+      if (branchId !== sourceBranchId) {
+        newConfigs.set(branchId, { ...sourceConfig });
+      }
+    });
+    setBranchConfigs(newConfigs);
+    
+    toast({
+      title: 'Success',
+      description: 'Configuration copied to all other branches',
+      variant: 'success',
+    });
+  };
+
+  // Check if user can edit a specific branch
+  const canEditBranch = (branchId: string): boolean => {
+    // Super admin (null userBranchIds) can edit all branches
+    if (userBranchIds === null) return true;
+    // Branch managers can only edit their assigned branches
+    return userBranchIds.includes(branchId);
+  };
 
   useEffect(() => {
     if (menuItem) {
@@ -112,6 +233,8 @@ export default function MenuItemFormModal({
         tags: [],
         hsnCode: '',
       });
+      setSelectedBranches([]);
+      setBranchConfigs(new Map());
     }
     setTagInput('');
   }, [menuItem, isOpen]);
@@ -138,10 +261,27 @@ export default function MenuItemFormModal({
       return;
     }
 
+    // Validate at least one branch is selected for new menu items
+    if (!menuItem && selectedBranches.length === 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please select at least one branch',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       setLoading(true);
+      setGlobalLoading(true);
+      setLoadingMessage(
+        menuItem 
+          ? 'Updating menu item...' 
+          : 'Creating menu item with branch configurations...'
+      );
 
       if (menuItem) {
+        // Update existing menu item
         await menuItemServices.updateMenuItem(menuItem._id, formData);
         toast({
           title: 'Success',
@@ -149,10 +289,20 @@ export default function MenuItemFormModal({
           variant: 'success',
         });
       } else {
-        await menuItemServices.createMenuItem(formData);
+        // Create new menu item with branch assignments
+        const branchConfigsArray = selectedBranches.map((branchId) => ({
+          branchId,
+          ...branchConfigs.get(branchId),
+        }));
+
+        await menuItemServices.createMenuItemWithBranches({
+          menuItemData: formData,
+          branchConfigs: branchConfigsArray,
+        });
+        
         toast({
           title: 'Success',
-          description: 'Menu item created successfully',
+          description: 'Menu item created successfully with branch configurations',
           variant: 'success',
         });
       }
@@ -160,15 +310,50 @@ export default function MenuItemFormModal({
       onSuccess();
       onClose();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description:
-          error.response?.data?.message ||
-          `Failed to ${menuItem ? 'update' : 'create'} menu item`,
-        variant: 'destructive',
-      });
+      // Extract error message from response
+      const errorMessage = error.message || 
+        error.response?.data?.message || 
+        error.data?.message ||
+        `Failed to ${menuItem ? 'update' : 'create'} menu item`;
+      
+      // Handle specific error types based on HTTP status codes
+      const status = error.status || error.response?.status;
+      
+      if (status === 403) {
+        // Authorization error - user lacks permission
+        toast({
+          title: 'Access Denied',
+          description: errorMessage || 'You do not have permission to access one or more selected branches',
+          variant: 'destructive',
+        });
+      } else if (status === 400) {
+        // Validation error - invalid input or constraint violation
+        toast({
+          title: 'Validation Error',
+          description: errorMessage,
+          variant: 'destructive',
+        });
+      } else if (status === 404) {
+        // Not found error - resource doesn't exist
+        toast({
+          title: 'Not Found',
+          description: errorMessage || 'The requested resource was not found',
+          variant: 'destructive',
+        });
+      } else {
+        // Generic error for other status codes
+        toast({
+          title: 'Error',
+          description: errorMessage,
+          variant: 'destructive',
+        });
+      }
+      
+      console.error('Menu item operation error:', error);
     } finally {
       setLoading(false);
+      setGlobalLoading(false);
+      setLoadingMessage(undefined);
     }
   };
 
@@ -288,6 +473,7 @@ export default function MenuItemFormModal({
                     }
                     placeholder="Chicken Tikka Masala"
                     maxLength={200}
+                    disabled={loading}
                     required
                   />
                 </div>
@@ -302,6 +488,7 @@ export default function MenuItemFormModal({
                     placeholder="Tender chicken in creamy tomato sauce"
                     rows={3}
                     maxLength={1000}
+                    disabled={loading}
                   />
                 </div>
                 <div>
@@ -311,6 +498,7 @@ export default function MenuItemFormModal({
                     onValueChange={(value) =>
                       setFormData({ ...formData, category: value })
                     }
+                    disabled={loading}
                   >
                     <SelectTrigger id="category">
                       <SelectValue placeholder="Select category" />
@@ -332,13 +520,24 @@ export default function MenuItemFormModal({
                     step="0.01"
                     min="0"
                     value={formData.basePrice}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const newBasePrice = parseFloat(e.target.value) || 0;
                       setFormData({
                         ...formData,
-                        basePrice: parseFloat(e.target.value) || 0,
-                      })
-                    }
+                        basePrice: newBasePrice,
+                      });
+                      // Update all branch configs with new base price if they haven't been customized
+                      const newConfigs = new Map(branchConfigs);
+                      selectedBranches.forEach((branchId) => {
+                        const config = newConfigs.get(branchId);
+                        if (config && config.price === formData.basePrice) {
+                          newConfigs.set(branchId, { ...config, price: newBasePrice });
+                        }
+                      });
+                      setBranchConfigs(newConfigs);
+                    }}
                     placeholder="12.99"
+                    disabled={loading}
                     required
                   />
                 </div>
@@ -356,6 +555,7 @@ export default function MenuItemFormModal({
                     onCheckedChange={(checked) =>
                       setFormData({ ...formData, isVeg: checked as boolean })
                     }
+                    disabled={loading}
                   />
                   <Label htmlFor="isVeg" className="cursor-pointer">
                     Vegetarian
@@ -368,6 +568,7 @@ export default function MenuItemFormModal({
                     onValueChange={(value) =>
                       setFormData({ ...formData, spiceLevel: value })
                     }
+                    disabled={loading}
                   >
                     <SelectTrigger id="spiceLevel">
                       <SelectValue placeholder="Select spice level" />
@@ -384,6 +585,44 @@ export default function MenuItemFormModal({
               </div>
             </div>
 
+            {/* Branch Selection - Only for new menu items */}
+            {!menuItem && (
+              <div className="space-y-4">
+                <h3 className="font-semibold">Branch Assignment *</h3>
+                <BranchSelectionComponent
+                  branches={branches}
+                  selectedBranches={selectedBranches}
+                  onChange={handleBranchSelectionChange}
+                  userBranchIds={userBranchIds}
+                />
+              </div>
+            )}
+
+            {/* Branch Configuration - Only for new menu items with selected branches */}
+            {!menuItem && selectedBranches.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="font-semibold">Branch Configuration</h3>
+                <div className="space-y-2">
+                  {selectedBranches.map((branchId) => {
+                    const branch = branches.find((b) => b._id === branchId);
+                    const config = branchConfigs.get(branchId);
+                    if (!branch || !config) return null;
+                    
+                    return (
+                      <BranchConfigurationAccordion
+                        key={branchId}
+                        branch={branch}
+                        config={config}
+                        isEditable={canEditBranch(branchId)}
+                        onChange={(newConfig) => handleBranchConfigChange(branchId, newConfig)}
+                        onCopyToOthers={() => handleCopyToAllBranches(branchId)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Modifiers */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -393,6 +632,7 @@ export default function MenuItemFormModal({
                   variant="outline"
                   size="sm"
                   onClick={addModifier}
+                  disabled={loading}
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Add Modifier
@@ -410,12 +650,14 @@ export default function MenuItemFormModal({
                         updateModifier(modifierIndex, 'name', e.target.value)
                       }
                       placeholder="Modifier name (e.g., Spice Level)"
+                      disabled={loading}
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       onClick={() => removeModifier(modifierIndex)}
+                      disabled={loading}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -435,6 +677,7 @@ export default function MenuItemFormModal({
                           }
                           placeholder="Option name"
                           className="flex-1"
+                          disabled={loading}
                         />
                         <Input
                           type="number"
@@ -451,6 +694,7 @@ export default function MenuItemFormModal({
                           }
                           placeholder="Price"
                           className="w-32"
+                          disabled={loading}
                         />
                         <Button
                           type="button"
@@ -459,6 +703,7 @@ export default function MenuItemFormModal({
                           onClick={() =>
                             removeModifierOption(modifierIndex, optionIndex)
                           }
+                          disabled={loading}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -469,6 +714,7 @@ export default function MenuItemFormModal({
                       variant="outline"
                       size="sm"
                       onClick={() => addModifierOption(modifierIndex)}
+                      disabled={loading}
                     >
                       <Plus className="h-4 w-4 mr-2" />
                       Add Option
@@ -487,6 +733,7 @@ export default function MenuItemFormModal({
                   variant="outline"
                   size="sm"
                   onClick={addAddOn}
+                  disabled={loading}
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Add Add-on
@@ -499,6 +746,7 @@ export default function MenuItemFormModal({
                     onChange={(e) => updateAddOn(index, 'name', e.target.value)}
                     placeholder="Add-on name (e.g., Extra Rice)"
                     className="flex-1"
+                    disabled={loading}
                   />
                   <Input
                     type="number"
@@ -510,12 +758,14 @@ export default function MenuItemFormModal({
                     }
                     placeholder="Price"
                     className="w-32"
+                    disabled={loading}
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     onClick={() => removeAddOn(index)}
+                    disabled={loading}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -532,8 +782,9 @@ export default function MenuItemFormModal({
                   onChange={(e) => setTagInput(e.target.value)}
                   onKeyDown={handleTagInputKeyDown}
                   placeholder="Add tag (press Enter)"
+                  disabled={loading}
                 />
-                <Button type="button" variant="outline" onClick={addTag}>
+                <Button type="button" variant="outline" onClick={addTag} disabled={loading}>
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
@@ -549,6 +800,7 @@ export default function MenuItemFormModal({
                         type="button"
                         onClick={() => removeTag(tag)}
                         className="ml-1 hover:text-destructive"
+                        disabled={loading}
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -570,6 +822,7 @@ export default function MenuItemFormModal({
                     setFormData({ ...formData, hsnCode: e.target.value })
                   }
                   placeholder="10061010"
+                  disabled={loading}
                 />
               </div>
             </div>
