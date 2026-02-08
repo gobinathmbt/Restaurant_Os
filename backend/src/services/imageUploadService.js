@@ -3,7 +3,7 @@
  * Handles image uploads to AWS S3 with validation and error handling
  */
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { ENV } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import crypto from 'crypto';
@@ -161,6 +161,100 @@ export const uploadImageToS3 = async (fileBuffer, fileName, mimeType, companyId)
 };
 
 /**
+ * Extract S3 key from image URL
+ * @param {string} imageUrl - S3 image URL
+ * @returns {string|null} S3 key or null if invalid
+ */
+const extractS3KeyFromUrl = (imageUrl) => {
+  if (!imageUrl) {
+    return null;
+  }
+
+  // Try standard S3 URL format
+  if (imageUrl.includes(ENV.AWS_S3_BUCKET)) {
+    const urlParts = imageUrl.split(`${ENV.AWS_S3_BUCKET}.s3.${ENV.AWS_S3_REGION}.amazonaws.com/`);
+    return urlParts[1] || null;
+  }
+
+  // Try custom S3 URL (CloudFront)
+  if (ENV.AWS_S3_URL && imageUrl.includes(ENV.AWS_S3_URL)) {
+    const urlParts = imageUrl.split(`${ENV.AWS_S3_URL}/`);
+    return urlParts[1] || null;
+  }
+
+  // Try to extract key from path (if URL contains menu-images/)
+  if (imageUrl.includes('menu-images/')) {
+    const match = imageUrl.match(/menu-images\/.+/);
+    return match ? match[0] : null;
+  }
+
+  return null;
+};
+
+/**
+ * Get image from S3 as buffer
+ * @param {string} imageUrl - S3 image URL or key
+ * @returns {Promise<{buffer: Buffer, contentType: string}>} Image buffer and content type
+ */
+export const getImageFromS3 = async (imageUrl) => {
+  try {
+    if (!imageUrl) {
+      throw new Error('Image URL is required');
+    }
+
+    // Extract key from URL
+    const key = extractS3KeyFromUrl(imageUrl);
+
+    if (!key) {
+      throw new Error('Invalid S3 URL format');
+    }
+
+    // Get S3 client
+    const s3Client = getS3Client();
+
+    // Prepare get command
+    const getCommand = new GetObjectCommand({
+      Bucket: ENV.AWS_S3_BUCKET,
+      Key: key
+    });
+
+    // Get from S3
+    const response = await s3Client.send(getCommand);
+
+    // Convert stream to buffer
+    const chunks = [];
+    for await (const chunk of response.Body) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+
+    logger.info(`Image retrieved successfully from S3: ${key}`);
+
+    return {
+      buffer,
+      contentType: response.ContentType || 'image/jpeg'
+    };
+
+  } catch (error) {
+    logger.error('S3 retrieval failed:', error);
+
+    if (error.name === 'NoSuchKey') {
+      throw new Error('Image not found in S3');
+    }
+
+    if (error.name === 'NoSuchBucket') {
+      throw new Error(`S3 bucket '${ENV.AWS_S3_BUCKET}' does not exist`);
+    }
+
+    if (error.name === 'InvalidAccessKeyId' || error.name === 'SignatureDoesNotMatch') {
+      throw new Error('Invalid AWS credentials');
+    }
+
+    throw new Error(`Failed to retrieve image from S3: ${error.message}`);
+  }
+};
+
+/**
  * Delete image from S3
  * @param {string} imageUrl - S3 image URL
  * @returns {Promise<void>}
@@ -172,22 +266,10 @@ export const deleteImageFromS3 = async (imageUrl) => {
     }
 
     // Extract key from URL
-    let key;
-    if (imageUrl.includes(ENV.AWS_S3_BUCKET)) {
-      // Standard S3 URL format
-      const urlParts = imageUrl.split(`${ENV.AWS_S3_BUCKET}.s3.${ENV.AWS_S3_REGION}.amazonaws.com/`);
-      key = urlParts[1];
-    } else if (ENV.AWS_S3_URL && imageUrl.includes(ENV.AWS_S3_URL)) {
-      // Custom S3 URL (CloudFront)
-      const urlParts = imageUrl.split(`${ENV.AWS_S3_URL}/`);
-      key = urlParts[1];
-    } else {
-      logger.warn(`Unable to extract S3 key from URL: ${imageUrl}`);
-      return; // Skip deletion if URL format is unrecognized
-    }
+    const key = extractS3KeyFromUrl(imageUrl);
 
     if (!key) {
-      logger.warn(`Invalid S3 URL format: ${imageUrl}`);
+      logger.warn(`Unable to extract S3 key from URL: ${imageUrl}`);
       return;
     }
 

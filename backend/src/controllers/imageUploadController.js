@@ -119,6 +119,70 @@ export const uploadImage = async (req, res, next) => {
 };
 
 /**
+ * Get image from S3 (proxy endpoint for private bucket)
+ * GET /api/menu/images/proxy?url=<encoded-s3-url>
+ */
+export const getImage = async (req, res, next) => {
+  try {
+    const { url } = req.query;
+
+    if (!url) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image URL parameter is required'
+      });
+    }
+
+    // Decode URL if it's encoded
+    const decodedUrl = decodeURIComponent(url);
+
+    // Get image from S3
+    const { buffer, contentType } = await imageUploadService.getImageFromS3(decodedUrl);
+
+    // Set cache headers for better performance
+    res.set({
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
+      'Content-Length': buffer.length
+    });
+
+    // Send image buffer
+    res.send(buffer);
+
+  } catch (error) {
+    logger.error('Get image error', error);
+
+    // Handle not found errors (404)
+    if (error.message.includes('Image not found')) {
+      return res.status(404).json({
+        success: false,
+        message: 'Image not found'
+      });
+    }
+
+    // Handle invalid URL errors (400)
+    if (error.message.includes('Invalid S3 URL format') ||
+        error.message.includes('Image URL is required')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle S3 configuration errors (500)
+    if (error.message.includes('AWS credentials') ||
+        error.message.includes('S3 bucket')) {
+      return res.status(500).json({
+        success: false,
+        message: 'Image service is not properly configured'
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
  * Multer error handler middleware
  * Handles errors from multer file upload
  */

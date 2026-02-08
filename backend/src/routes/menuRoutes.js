@@ -33,13 +33,21 @@ import {
 import {
   uploadImage,
   uploadMiddleware,
-  handleMulterError
+  handleMulterError,
+  getImage
 } from '../controllers/imageUploadController.js';
 import { authenticate } from '../middlewares/auth.js';
 
 const router = express.Router();
 
-// All routes require authentication
+// ============================================
+// PUBLIC IMAGE PROXY ROUTE (No Auth Required)
+// ============================================
+
+// Image proxy for private S3 bucket - must be before authenticate middleware
+router.get('/images/proxy', getImage);
+
+// All other routes require authentication
 router.use(authenticate);
 
 // ============================================
