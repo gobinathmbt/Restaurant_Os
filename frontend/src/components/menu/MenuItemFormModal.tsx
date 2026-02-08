@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, Settings, Copy, ClipboardPaste } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -16,8 +17,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useLoading } from '@/contexts/LoadingContext';
 import { menuItemServices } from '@/api/services';
-import BranchSelectionComponent from './BranchSelectionComponent';
-import BranchConfigurationAccordion from './BranchConfigurationAccordion';
+import BranchSearch from '@/components/common/BranchSearch';
+import BranchConfigModal from './BranchConfigModal';
 
 interface MenuCategory {
   _id: string;
@@ -130,6 +131,13 @@ export default function MenuItemFormModal({
   const [tagInput, setTagInput] = useState('');
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [branchConfigs, setBranchConfigs] = useState<Map<string, BranchConfig>>(new Map());
+  
+  // Branch config modal state
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [selectedBranchForConfig, setSelectedBranchForConfig] = useState<string | null>(null);
+  
+  // Copy/paste state
+  const [copiedConfig, setCopiedConfig] = useState<BranchConfig | null>(null);
 
   // Helper function to create default branch config
   const createDefaultBranchConfig = (basePrice: number): BranchConfig => ({
@@ -177,22 +185,52 @@ export default function MenuItemFormModal({
     setBranchConfigs(newConfigs);
   };
 
-  // Handle copy to all branches
-  const handleCopyToAllBranches = (sourceBranchId: string) => {
-    const sourceConfig = branchConfigs.get(sourceBranchId);
-    if (!sourceConfig) return;
+  // Open config modal for a branch
+  const handleOpenConfigModal = (branchId: string) => {
+    setSelectedBranchForConfig(branchId);
+    setConfigModalOpen(true);
+  };
+
+  // Handle copy configuration
+  const handleCopyConfig = (branchId: string) => {
+    const config = branchConfigs.get(branchId);
+    if (config) {
+      setCopiedConfig({ ...config });
+      toast({
+        title: 'Configuration Copied',
+        description: 'You can now paste this configuration to other branches',
+        variant: 'success',
+      });
+    }
+  };
+
+  // Handle paste configuration
+  const handlePasteConfig = (branchId: string) => {
+    if (copiedConfig) {
+      const newConfigs = new Map(branchConfigs);
+      newConfigs.set(branchId, { ...copiedConfig });
+      setBranchConfigs(newConfigs);
+      toast({
+        title: 'Configuration Pasted',
+        description: 'Configuration has been applied to this branch',
+        variant: 'success',
+      });
+    }
+  };
+
+  // Handle paste to all branches
+  const handlePasteToAll = () => {
+    if (!copiedConfig) return;
     
     const newConfigs = new Map(branchConfigs);
     selectedBranches.forEach((branchId) => {
-      if (branchId !== sourceBranchId) {
-        newConfigs.set(branchId, { ...sourceConfig });
-      }
+      newConfigs.set(branchId, { ...copiedConfig });
     });
     setBranchConfigs(newConfigs);
     
     toast({
-      title: 'Success',
-      description: 'Configuration copied to all other branches',
+      title: 'Configuration Pasted to All',
+      description: `Configuration applied to ${selectedBranches.length} branches`,
       variant: 'success',
     });
   };
@@ -589,11 +627,12 @@ export default function MenuItemFormModal({
             {!menuItem && (
               <div className="space-y-4">
                 <h3 className="font-semibold">Branch Assignment *</h3>
-                <BranchSelectionComponent
-                  branches={branches}
-                  selectedBranches={selectedBranches}
-                  onChange={handleBranchSelectionChange}
-                  userBranchIds={userBranchIds}
+                <BranchSearch
+                  selectedBranchIds={selectedBranches}
+                  onBranchesChange={handleBranchSelectionChange}
+                  disabled={loading}
+                  placeholder="Select branches for this menu item..."
+                  showSelectAll={true}
                 />
               </div>
             )}
@@ -601,25 +640,91 @@ export default function MenuItemFormModal({
             {/* Branch Configuration - Only for new menu items with selected branches */}
             {!menuItem && selectedBranches.length > 0 && (
               <div className="space-y-4">
-                <h3 className="font-semibold">Branch Configuration</h3>
-                <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">Branch Configuration</h3>
+                  {copiedConfig && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePasteToAll}
+                      disabled={loading}
+                    >
+                      <ClipboardPaste className="h-4 w-4 mr-2" />
+                      Paste to All Branches
+                    </Button>
+                  )}
+                </div>
+                <div className="border rounded-lg divide-y">
                   {selectedBranches.map((branchId) => {
                     const branch = branches.find((b) => b._id === branchId);
                     const config = branchConfigs.get(branchId);
                     if (!branch || !config) return null;
                     
+                    const isEditable = canEditBranch(branchId);
+                    
                     return (
-                      <BranchConfigurationAccordion
+                      <div
                         key={branchId}
-                        branch={branch}
-                        config={config}
-                        isEditable={canEditBranch(branchId)}
-                        onChange={(newConfig) => handleBranchConfigChange(branchId, newConfig)}
-                        onCopyToOthers={() => handleCopyToAllBranches(branchId)}
-                      />
+                        className="flex items-center justify-between p-3 hover:bg-muted/50"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{branch.name}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {branch.code}
+                            </Badge>
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1">
+                            Price: ₹{config.price.toFixed(2)} • 
+                            {config.isAvailable ? ' Available' : ' Unavailable'} • 
+                            {config.channels.length} channels
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenConfigModal(branchId)}
+                            disabled={!isEditable || loading}
+                            title="Configure branch settings"
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleCopyConfig(branchId)}
+                            disabled={!isEditable || loading}
+                            title="Copy configuration"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          {copiedConfig && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handlePasteConfig(branchId)}
+                              disabled={!isEditable || loading}
+                              title="Paste configuration"
+                            >
+                              <ClipboardPaste className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
+                {copiedConfig && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <ClipboardPaste className="h-4 w-4" />
+                    <span>Configuration copied. Click paste icon to apply to branches.</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -847,6 +952,21 @@ export default function MenuItemFormModal({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Branch Configuration Modal */}
+      {selectedBranchForConfig && (
+        <BranchConfigModal
+          isOpen={configModalOpen}
+          onClose={() => {
+            setConfigModalOpen(false);
+            setSelectedBranchForConfig(null);
+          }}
+          branch={branches.find((b) => b._id === selectedBranchForConfig)!}
+          config={branchConfigs.get(selectedBranchForConfig)!}
+          onChange={(config) => handleBranchConfigChange(selectedBranchForConfig, config)}
+          isEditable={canEditBranch(selectedBranchForConfig)}
+        />
+      )}
     </Dialog>
   );
 }
