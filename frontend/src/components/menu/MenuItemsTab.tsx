@@ -666,14 +666,16 @@ export default function MenuItemsTab({
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleConfigureBranch(item)}
-                          title="Configure branch settings"
-                        >
-                          <Settings className="h-4 w-4" />
-                        </Button>
+                        {selectedBranch !== 'all' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleConfigureBranch(item)}
+                            title="Configure branch settings"
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -780,7 +782,7 @@ export default function MenuItemsTab({
             name: selectedMenuItem.name,
             basePrice: selectedMenuItem.basePrice,
           }}
-          branch={branches.find((b) => b._id === selectedBranch) || { _id: selectedBranch, name: 'Unknown' }}
+          branch={branches.find((b) => b._id === selectedBranch) || { _id: selectedBranch, name: 'Unknown', code: '' }}
           branchConfig={selectedMenuItem.branchConfig}
           onSuccess={handleBranchConfigSuccess}
         />
