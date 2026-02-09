@@ -327,6 +327,10 @@ export const menuItemBranchServices = {
   deleteBranchConfig: (menuItemId: string, branchId: string) =>
     apiClient.delete(`/api/menu/items/${menuItemId}/branches/${branchId}`),
 
+  // Update menu item branch configurations
+  updateMenuItemBranches: (menuItemId: string, branchConfigs: any[]) =>
+    apiClient.put(`/api/menu/items/${menuItemId}/branches`, { branchConfigs }),
+
   // Get menu items for a specific branch (merged with global data)
   getMenuItemsForBranch: (branchId: string, params?: { page?: number; limit?: number; search?: string; categoryId?: string; isActive?: boolean }) =>
     apiClient.get(`/api/menu/branches/${branchId}/items`, { params }),

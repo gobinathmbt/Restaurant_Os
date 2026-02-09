@@ -12,14 +12,19 @@ import { logger } from '../utils/logger.js';
  */
 export const createMenuCategory = async (req, res, next) => {
   try {
-    const { companyId, userId, branchIds } = req.user;
+    const { companyId, userId, branchIds, role } = req.user;
     const categoryData = req.body;
+
+    // Determine user's accessible branches based on role
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
 
     // Create menu category with branch validation
     const category = await menuCategoryService.createMenuCategory(
       categoryData, 
       companyId, 
-      branchIds
+      userBranchIds
     );
 
     logger.info('Menu category created via API', { 
@@ -56,14 +61,20 @@ export const createMenuCategory = async (req, res, next) => {
  */
 export const getMenuCategories = async (req, res, next) => {
   try {
-    const { companyId, branchIds } = req.user;
+    const { companyId, branchIds, role } = req.user;
     const filters = req.query;
+
+    // Determine user's accessible branches based on role
+    // Super admins see all branches, company admins see only their assigned branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
 
     // Get menu categories with branch filtering
     const result = await menuCategoryService.getMenuCategories(
       companyId, 
       filters, 
-      branchIds
+      userBranchIds
     );
 
     res.json({
@@ -112,16 +123,21 @@ export const getMenuCategoryById = async (req, res, next) => {
  */
 export const updateMenuCategory = async (req, res, next) => {
   try {
-    const { companyId, userId, branchIds } = req.user;
+    const { companyId, userId, branchIds, role } = req.user;
     const { id } = req.params;
     const updateData = req.body;
+
+    // Determine user's accessible branches based on role
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
 
     // Update menu category with branch validation
     const category = await menuCategoryService.updateMenuCategory(
       id, 
       updateData, 
       companyId, 
-      branchIds
+      userBranchIds
     );
 
     logger.info('Menu category updated via API', { 

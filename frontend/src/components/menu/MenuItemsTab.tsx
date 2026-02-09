@@ -104,6 +104,27 @@ interface MergedMenuItem {
     displayOrder: number;
     channels: string[];
   };
+  branches?: Array<{
+    _id: string;
+    branch: {
+      _id: string;
+      name: string;
+      code: string;
+    };
+    price: number;
+    isAvailable: boolean;
+    preparationTime: number;
+    requiresKitchen: boolean;
+    outOfStock: boolean;
+    lowStockThreshold?: number;
+    taxRateOverride?: number;
+    displayOrder: number;
+    channels: string[];
+    timeBasedPricing: TimeBasedPricing[];
+    availability: {
+      schedule: AvailabilitySchedule[];
+    };
+  }>;
   isActive: boolean;
 }
 
@@ -373,9 +394,30 @@ export default function MenuItemsTab({
     setIsFormModalOpen(true);
   };
 
-  const handleEditMenuItem = (item: MergedMenuItem) => {
-    setSelectedMenuItem(item);
-    setIsFormModalOpen(true);
+  const handleEditMenuItem = async (item: MergedMenuItem) => {
+    try {
+      setLoading(true);
+      setLoadingMessage('Loading menu item details...');
+      
+      // Fetch full menu item details with branch configurations
+      const response = await menuItemServices.getMenuItemById(item._id);
+      const menuItemWithBranches = response.data.data.menuItem;
+      
+      setSelectedMenuItem({
+        ...item,
+        branches: menuItemWithBranches.branches || []
+      });
+      setIsFormModalOpen(true);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to load menu item details',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
   };
 
   const handleConfigureBranch = (item: MergedMenuItem) => {
@@ -762,6 +804,7 @@ export default function MenuItemsTab({
           addOns: selectedMenuItem.addOns || [],
           tags: selectedMenuItem.tags || [],
           hsnCode: selectedMenuItem.hsnCode,
+          branches: selectedMenuItem.branches || [],
         } : null}
         onSuccess={handleFormSuccess}
         categories={categories}

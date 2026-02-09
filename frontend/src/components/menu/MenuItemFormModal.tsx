@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useLoading } from '@/contexts/LoadingContext';
-import { menuItemServices } from '@/api/services';
+import { menuItemServices, menuItemBranchServices } from '@/api/services';
 import BranchSearch from '@/components/common/BranchSearch';
 import BranchConfigModal from './BranchConfigModal';
 
@@ -90,6 +90,27 @@ interface MenuItem {
   addOns: AddOn[];
   tags: string[];
   hsnCode?: string;
+  branches?: Array<{
+    _id: string;
+    branch: {
+      _id: string;
+      name: string;
+      code: string;
+    };
+    price: number;
+    isAvailable: boolean;
+    preparationTime: number;
+    requiresKitchen: boolean;
+    outOfStock: boolean;
+    lowStockThreshold?: number;
+    taxRateOverride?: number;
+    displayOrder: number;
+    channels: string[];
+    timeBasedPricing: TimeBasedPricing[];
+    availability: {
+      schedule: AvailabilitySchedule[];
+    };
+  }>;
 }
 
 interface MenuItemFormModalProps {
@@ -257,6 +278,30 @@ export default function MenuItemFormModal({
         tags: menuItem.tags || [],
         hsnCode: menuItem.hsnCode || '',
       });
+      
+      // Populate branch configurations if editing
+      if (menuItem.branches && menuItem.branches.length > 0) {
+        const branchIds = menuItem.branches.map(b => b.branch._id);
+        setSelectedBranches(branchIds);
+        
+        const configs = new Map<string, BranchConfig>();
+        menuItem.branches.forEach(branchConfig => {
+          configs.set(branchConfig.branch._id, {
+            price: branchConfig.price,
+            isAvailable: branchConfig.isAvailable,
+            preparationTime: branchConfig.preparationTime,
+            requiresKitchen: branchConfig.requiresKitchen,
+            outOfStock: branchConfig.outOfStock,
+            lowStockThreshold: branchConfig.lowStockThreshold,
+            taxRateOverride: branchConfig.taxRateOverride,
+            displayOrder: branchConfig.displayOrder,
+            channels: branchConfig.channels,
+            timeBasedPricing: branchConfig.timeBasedPricing,
+            availability: branchConfig.availability,
+          });
+        });
+        setBranchConfigs(configs);
+      }
     } else {
       // Reset form for new menu item
       setFormData({
@@ -321,6 +366,17 @@ export default function MenuItemFormModal({
       if (menuItem) {
         // Update existing menu item
         await menuItemServices.updateMenuItem(menuItem._id, formData);
+        
+        // Update branch configurations if they exist
+        if (selectedBranches.length > 0) {
+          const branchConfigsArray = selectedBranches.map((branchId) => ({
+            branchId,
+            ...branchConfigs.get(branchId),
+          }));
+          
+          await menuItemBranchServices.updateMenuItemBranches(menuItem._id, branchConfigsArray);
+        }
+        
         toast({
           title: 'Success',
           description: 'Menu item updated successfully',
@@ -637,11 +693,13 @@ export default function MenuItemFormModal({
               </div>
             )}
 
-            {/* Branch Configuration - Only for new menu items with selected branches */}
-            {!menuItem && selectedBranches.length > 0 && (
+            {/* Branch Configuration - Show for both new and edit */}
+            {((menuItem && selectedBranches.length > 0) || (!menuItem && selectedBranches.length > 0)) && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">Branch Configuration</h3>
+                  <h3 className="font-semibold">
+                    {menuItem ? 'Branch Configuration (View/Edit)' : 'Branch Configuration'}
+                  </h3>
                   {copiedConfig && (
                     <Button
                       type="button"

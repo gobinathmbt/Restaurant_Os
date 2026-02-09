@@ -357,3 +357,80 @@ export const createMenuItemWithBranches = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Bulk update branch configurations for a menu item
+ * PUT /api/menu/items/:menuItemId/branches
+ */
+export const bulkUpdateBranchConfigs = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { menuItemId } = req.params;
+    const { branchConfigs } = req.body;
+
+    // Validate request body
+    if (!branchConfigs || !Array.isArray(branchConfigs) || branchConfigs.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch configurations array is required'
+      });
+    }
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Bulk update branch configurations
+    const updatedConfigs = await menuItemBranchService.bulkUpdateBranchConfigs(
+      menuItemId,
+      branchConfigs,
+      companyId,
+      userBranchIds
+    );
+
+    logger.info('Branch configs bulk updated via API', {
+      menuItemId,
+      branchCount: updatedConfigs.length,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Branch configurations updated successfully',
+      data: { branchConfigs: updatedConfigs }
+    });
+  } catch (error) {
+    logger.error('Bulk update branch configs error', error);
+
+    // Handle authorization errors (403)
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle not found errors (404)
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle validation errors (400)
+    if (error.message.includes('cannot be negative') ||
+        error.message.includes('cannot have more than') ||
+        error.message.includes('must be a positive integer') ||
+        error.message.includes('must be between')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};

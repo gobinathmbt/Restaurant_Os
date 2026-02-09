@@ -581,3 +581,107 @@ export const bulkAssignToBranches = async (menuItemId, branchConfigs, companyId,
     throw error;
   }
 };
+
+/**
+ * Bulk update branch configurations for a menu item
+ * @param {string} menuItemId - Menu item ID
+ * @param {Array} branchConfigs - Array of { branchId, ...config }
+ * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Array>} Updated branch configs
+ */
+export const bulkUpdateBranchConfigs = async (menuItemId, branchConfigs, companyId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItem = getMenuItemModel(companyDB);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+    const Branch = getBranchModel(companyDB);
+
+    // Validate menu item exists
+    const menuItem = await MenuItem.findById(menuItemId);
+    if (!menuItem) {
+      throw new Error('Menu item not found');
+    }
+
+    const updatedConfigs = [];
+
+    // Process each branch config
+    for (const config of branchConfigs) {
+      const { branchId, ...updateData } = config;
+
+      // Validate branch access
+      if (!validateBranchAccess(branchId, userBranchIds)) {
+        throw new Error(`You do not have access to branch: ${branchId}`);
+      }
+
+      // Validate branch exists
+      const branch = await Branch.findById(branchId);
+      if (!branch) {
+        throw new Error(`Branch not found: ${branchId}`);
+      }
+
+      // Validate price if provided
+      if (updateData.price !== undefined) {
+        validatePrice(updateData.price);
+      }
+
+      // Validate preparation time if provided
+      if (updateData.preparationTime !== undefined) {
+        validatePreparationTime(updateData.preparationTime);
+      }
+
+      // Validate tax rate if provided
+      if (updateData.taxRateOverride !== undefined) {
+        validateTaxRate(updateData.taxRateOverride);
+      }
+
+      // Find existing config or create new one
+      let branchConfig = await MenuItemBranch.findOne({
+        menuItem: menuItemId,
+        branch: branchId
+      });
+
+      if (branchConfig) {
+        // Update existing config
+        Object.assign(branchConfig, updateData);
+        await branchConfig.save();
+      } else {
+        // Create new config
+        branchConfig = new MenuItemBranch({
+          menuItem: menuItemId,
+          branch: branchId,
+          price: updateData.price !== undefined ? updateData.price : menuItem.basePrice,
+          isAvailable: updateData.isAvailable !== undefined ? updateData.isAvailable : true,
+          preparationTime: updateData.preparationTime !== undefined ? updateData.preparationTime : 15,
+          requiresKitchen: updateData.requiresKitchen !== undefined ? updateData.requiresKitchen : true,
+          outOfStock: updateData.outOfStock !== undefined ? updateData.outOfStock : false,
+          lowStockThreshold: updateData.lowStockThreshold,
+          taxRateOverride: updateData.taxRateOverride,
+          displayOrder: updateData.displayOrder !== undefined ? updateData.displayOrder : 0,
+          channels: updateData.channels || ['dine_in', 'takeaway', 'online'],
+          timeBasedPricing: updateData.timeBasedPricing || [],
+          availability: updateData.availability || { schedule: [] },
+          isActive: true
+        });
+        await branchConfig.save();
+      }
+
+      updatedConfigs.push(branchConfig);
+    }
+
+    logger.info(`Bulk updated ${updatedConfigs.length} branch configs for menu item ${menuItemId} in company: ${companyId}`);
+
+    // Populate and return
+    const populatedConfigs = await MenuItemBranch.find({
+      _id: { $in: updatedConfigs.map(c => c._id) }
+    })
+      .populate('menuItem')
+      .populate('branch')
+      .lean();
+
+    return populatedConfigs;
+  } catch (error) {
+    logger.error('Error bulk updating branch configs:', error);
+    throw error;
+  }
+};

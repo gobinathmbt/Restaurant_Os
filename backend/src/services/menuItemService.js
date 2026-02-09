@@ -150,17 +150,19 @@ export const getMenuItems = async (companyId, filters = {}) => {
 };
 
 /**
- * Get menu item by ID
+ * Get menu item by ID with branch configurations
  * @param {string} menuItemId - Menu item ID
  * @param {string} companyId - Company ID
- * @returns {Promise<Object>} Menu item
+ * @param {string|null} branchId - Optional branch ID to filter (null returns all branches)
+ * @param {Array|null} userBranchIds - User's accessible branches (null for super admin)
+ * @returns {Promise<Object>} Menu item with branch configurations
  */
-export const getMenuItemById = async (menuItemId, companyId) => {
+export const getMenuItemById = async (menuItemId, companyId, branchId = null, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const MenuItem = getMenuItemModel(companyDB);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
     const MenuCategory = getMenuCategoryModel(companyDB);
-
     const menuItem = await MenuItem.findById(menuItemId)
       .populate('category', 'name description color icon')
       .lean();
@@ -169,7 +171,29 @@ export const getMenuItemById = async (menuItemId, companyId) => {
       throw new Error('Menu item not found');
     }
 
-    return menuItem;
+    // Build query for branch configurations
+    const branchQuery = { menuItem: menuItemId, isActive: true };
+    
+    // If specific branch is requested, filter by that branch
+    if (branchId) {
+      branchQuery.branch = branchId;
+    }
+    
+    // If user has limited branch access, filter by accessible branches
+    if (userBranchIds !== null && Array.isArray(userBranchIds)) {
+      branchQuery.branch = { $in: userBranchIds };
+    }
+
+    // Fetch branch configurations
+    const branchConfigs = await MenuItemBranch.find(branchQuery)
+      .populate('branch', 'name code address')
+      .lean();
+
+    // Return menu item with branch configurations
+    return {
+      ...menuItem,
+      branches: branchConfigs
+    };
   } catch (error) {
     logger.error('Error getting menu item by ID:', error);
     throw error;

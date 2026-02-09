@@ -31,8 +31,8 @@ export const createMenuCategory = async (categoryData, companyId, userBranchIds 
       throw new Error('At least one branch must be selected');
     }
 
-    // Validate branch access if userBranchIds provided
-    if (userBranchIds && userBranchIds.length > 0) {
+    // Validate branch access if userBranchIds provided (not super admin)
+    if (userBranchIds !== null && userBranchIds !== undefined && userBranchIds.length > 0) {
       const invalidBranches = categoryData.branchIds.filter(
         branchId => !userBranchIds.includes(branchId.toString())
       );
@@ -40,6 +40,7 @@ export const createMenuCategory = async (categoryData, companyId, userBranchIds 
         throw new Error('You do not have access to one or more selected branches');
       }
     }
+    // Super admins (userBranchIds === null) can access all branches
 
     // Check for duplicate category name in the same branches
     const existingCategory = await MenuCategory.findOne({
@@ -99,18 +100,22 @@ export const getMenuCategories = async (companyId, filters = {}, userBranchIds =
     if (branchId) {
       // Check if branchIds array contains the specified branchId
       query.branchIds = { $in: [branchId] };
-    } else if (userBranchIds && userBranchIds.length > 0) {
-      // Filter by user's accessible branches
+    } else if (userBranchIds !== null && userBranchIds !== undefined && userBranchIds.length > 0) {
+      // Filter by user's accessible branches (only for non-super admins)
       query.branchIds = { $in: userBranchIds };
     }
+    // If userBranchIds is null (super admin) and no branchId filter, show all categories
 
     // Active/Inactive filter
-    if (isActive === 'true') {
+    if (isActive === 'true' || isActive === true) {
       query.isActive = true;
-    } else if (isActive === 'false') {
+    } else if (isActive === 'false' || isActive === false) {
       query.isActive = false;
     }
     // If isActive is empty string or not provided, show all
+
+    // Log query for debugging
+    logger.info('Menu categories query:', { query, userBranchIds, filters });
 
     // Search filter
     if (search) {
@@ -285,7 +290,8 @@ export const updateMenuCategory = async (categoryId, updateData, companyId, user
     }
 
     // Validate branch access if userBranchIds provided and branchIds are being updated
-    if (updateData.branchIds && userBranchIds && userBranchIds.length > 0) {
+    // Super admins (userBranchIds === null) can access all branches
+    if (updateData.branchIds && userBranchIds !== null && userBranchIds !== undefined && userBranchIds.length > 0) {
       const invalidBranches = updateData.branchIds.filter(
         branchId => !userBranchIds.includes(branchId.toString())
       );

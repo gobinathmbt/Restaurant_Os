@@ -72,16 +72,23 @@ export const getMenuItems = async (req, res, next) => {
 };
 
 /**
- * Get menu item by ID
+ * Get menu item by ID with branch configurations
  * GET /api/menu/items/:id
+ * Query params: branchId (optional) - filter by specific branch
  */
 export const getMenuItemById = async (req, res, next) => {
   try {
-    const { companyId } = req.user;
+    const { companyId, role, branchIds } = req.user;
     const { id } = req.params;
+    const { branchId } = req.query;
 
-    // Get menu item
-    const menuItem = await menuItemService.getMenuItemById(id, companyId);
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Get menu item with branch configurations
+    const menuItem = await menuItemService.getMenuItemById(id, companyId, branchId, userBranchIds);
 
     res.json({
       success: true,

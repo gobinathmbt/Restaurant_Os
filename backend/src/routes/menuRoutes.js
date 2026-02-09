@@ -20,7 +20,8 @@ import {
   updateBranchConfig,
   deleteBranchConfig,
   getMenuItemsForBranch,
-  createMenuItemWithBranches
+  createMenuItemWithBranches,
+  bulkUpdateBranchConfigs
 } from '../controllers/menuItemBranchController.js';
 import {
   createMenuCategory,
@@ -72,6 +73,9 @@ router.put('/items/:id/images/reorder', reorderImages);
 // ============================================
 // BRANCH CONFIGURATION ROUTES
 // ============================================
+
+// Bulk update branch configurations for a menu item
+router.put('/items/:menuItemId/branches', bulkUpdateBranchConfigs);
 
 // Branch-specific menu item configuration
 router.post('/items/:menuItemId/branches/:branchId', createBranchConfig);
