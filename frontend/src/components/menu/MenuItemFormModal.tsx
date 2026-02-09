@@ -189,9 +189,9 @@ export default function MenuItemFormModal({
       }
     });
     
-    // Remove configs for deselected branches
+    // Remove configs for deselected branches (only editable ones)
     Array.from(newConfigs.keys()).forEach((branchId) => {
-      if (!newSelectedBranches.includes(branchId)) {
+      if (!newSelectedBranches.includes(branchId) && canEditBranch(branchId)) {
         newConfigs.delete(branchId);
       }
     });
@@ -244,14 +244,18 @@ export default function MenuItemFormModal({
     if (!copiedConfig) return;
     
     const newConfigs = new Map(branchConfigs);
-    selectedBranches.forEach((branchId) => {
-      newConfigs.set(branchId, { ...copiedConfig });
+    // Only paste to editable branches
+    Array.from(branchConfigs.keys()).forEach((branchId) => {
+      if (canEditBranch(branchId)) {
+        newConfigs.set(branchId, { ...copiedConfig });
+      }
     });
     setBranchConfigs(newConfigs);
     
+    const editableCount = Array.from(branchConfigs.keys()).filter(id => canEditBranch(id)).length;
     toast({
-      title: 'Configuration Pasted to All',
-      description: `Configuration applied to ${selectedBranches.length} branches`,
+      title: 'Configuration Pasted to All Editable Branches',
+      description: `Configuration applied to ${editableCount} editable branch${editableCount !== 1 ? 'es' : ''}`,
       variant: 'success',
     });
   };
@@ -279,11 +283,15 @@ export default function MenuItemFormModal({
         hsnCode: menuItem.hsnCode || '',
       });
       
-      // Populate branch configurations if editing
+      // Populate ALL branch configurations (including non-accessible ones)
       if (menuItem.branches && menuItem.branches.length > 0) {
-        const branchIds = menuItem.branches.map(b => b.branch._id);
-        setSelectedBranches(branchIds);
+        const allBranchIds = menuItem.branches.map(b => b.branch._id);
         
+        // For BranchSearch, only show accessible branches
+        const accessibleBranchIds = allBranchIds.filter(id => canEditBranch(id));
+        setSelectedBranches(accessibleBranchIds);
+        
+        // But store configs for ALL branches (for display purposes)
         const configs = new Map<string, BranchConfig>();
         menuItem.branches.forEach(branchConfig => {
           configs.set(branchConfig.branch._id, {
@@ -344,8 +352,8 @@ export default function MenuItemFormModal({
       return;
     }
 
-    // Validate at least one branch is selected for new menu items
-    if (!menuItem && selectedBranches.length === 0) {
+    // Validate at least one branch is selected
+    if (selectedBranches.length === 0) {
       toast({
         title: 'Validation Error',
         description: 'Please select at least one branch',
@@ -359,7 +367,7 @@ export default function MenuItemFormModal({
       setGlobalLoading(true);
       setLoadingMessage(
         menuItem 
-          ? 'Updating menu item...' 
+          ? 'Updating menu item and branch configurations...' 
           : 'Creating menu item with branch configurations...'
       );
 
@@ -367,9 +375,30 @@ export default function MenuItemFormModal({
         // Update existing menu item
         await menuItemServices.updateMenuItem(menuItem._id, formData);
         
-        // Update branch configurations if they exist
-        if (selectedBranches.length > 0) {
-          const branchConfigsArray = selectedBranches.map((branchId) => ({
+        // Handle branch updates
+        const originalBranchIds = menuItem.branches?.map(b => b.branch._id) || [];
+        const currentBranchIds = selectedBranches;
+        
+        // Find branches to remove (in original but not in current)
+        const branchesToRemove = originalBranchIds.filter(
+          id => !currentBranchIds.includes(id) && canEditBranch(id)
+        );
+        
+        // Find branches to add or update (in current selection)
+        const branchesToUpdate = currentBranchIds.filter(id => canEditBranch(id));
+        
+        // Delete removed branches
+        for (const branchId of branchesToRemove) {
+          try {
+            await menuItemBranchServices.deleteBranchConfig(menuItem._id, branchId);
+          } catch (error) {
+            console.error(`Failed to remove branch ${branchId}:`, error);
+          }
+        }
+        
+        // Update or create branch configurations
+        if (branchesToUpdate.length > 0) {
+          const branchConfigsArray = branchesToUpdate.map((branchId) => ({
             branchId,
             ...branchConfigs.get(branchId),
           }));
@@ -379,7 +408,7 @@ export default function MenuItemFormModal({
         
         toast({
           title: 'Success',
-          description: 'Menu item updated successfully',
+          description: 'Menu item and branch configurations updated successfully',
           variant: 'success',
         });
       } else {
@@ -690,17 +719,29 @@ export default function MenuItemFormModal({
                 showSelectAll={true}
               />
               {menuItem && (
-                <p className="text-sm text-muted-foreground">
-                  You can add or remove branches. Removing a branch will delete its configuration.
-                </p>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>Select branches you have access to. You can add or remove them.</p>
+                  {menuItem.branches && menuItem.branches.length > selectedBranches.length && (
+                    <p className="text-amber-600">
+                      Note: This item is also available in {menuItem.branches.length - selectedBranches.length} other branch{menuItem.branches.length - selectedBranches.length !== 1 ? 'es' : ''} (shown below as read-only).
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 
-            {/* Branch Configuration - Show for both new and edit */}
-            {selectedBranches.length > 0 && (
+            {/* Branch Configuration - Show ALL branches including non-accessible ones */}
+            {branchConfigs.size > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">Branch Configuration</h3>
+                  <h3 className="font-semibold">
+                    Branch Configuration
+                    {menuItem && branchConfigs.size > selectedBranches.length && (
+                      <span className="text-sm font-normal text-muted-foreground ml-2">
+                        (Showing all {branchConfigs.size} branches)
+                      </span>
+                    )}
+                  </h3>
                   {copiedConfig && (
                     <Button
                       type="button"
@@ -710,13 +751,14 @@ export default function MenuItemFormModal({
                       disabled={loading}
                     >
                       <ClipboardPaste className="h-4 w-4 mr-2" />
-                      Paste to All Branches
+                      Paste to All Editable Branches
                     </Button>
                   )}
                 </div>
                 <div className="border rounded-lg divide-y">
-                  {selectedBranches.map((branchId) => {
-                    const branch = branches.find((b) => b._id === branchId);
+                  {Array.from(branchConfigs.keys()).map((branchId) => {
+                    const branch = branches.find((b) => b._id === branchId) || 
+                                   menuItem?.branches?.find(b => b.branch._id === branchId)?.branch;
                     const config = branchConfigs.get(branchId);
                     if (!branch || !config) return null;
                     
@@ -725,7 +767,7 @@ export default function MenuItemFormModal({
                     return (
                       <div
                         key={branchId}
-                        className="flex items-center justify-between p-3 hover:bg-muted/50"
+                        className={`flex items-center justify-between p-3 hover:bg-muted/50 ${!isEditable ? 'bg-muted/30' : ''}`}
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -733,11 +775,17 @@ export default function MenuItemFormModal({
                             <Badge variant="outline" className="text-xs">
                               {branch.code}
                             </Badge>
+                            {!isEditable && (
+                              <Badge variant="secondary" className="text-xs">
+                                Read Only
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-sm text-muted-foreground mt-1">
                             Price: ₹{config.price.toFixed(2)} • 
                             {config.isAvailable ? ' Available' : ' Unavailable'} • 
                             {config.channels.length} channels
+                            {!isEditable && ' • No edit permission'}
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
@@ -746,32 +794,36 @@ export default function MenuItemFormModal({
                             variant="ghost"
                             size="sm"
                             onClick={() => handleOpenConfigModal(branchId)}
-                            disabled={!isEditable || loading}
-                            title="Configure branch settings"
+                            disabled={loading}
+                            title={isEditable ? "Configure branch settings" : "View branch settings (read-only)"}
                           >
                             <Settings className="h-4 w-4" />
                           </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleCopyConfig(branchId)}
-                            disabled={!isEditable || loading}
-                            title="Copy configuration"
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                          {copiedConfig && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handlePasteConfig(branchId)}
-                              disabled={!isEditable || loading}
-                              title="Paste configuration"
-                            >
-                              <ClipboardPaste className="h-4 w-4" />
-                            </Button>
+                          {isEditable && (
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleCopyConfig(branchId)}
+                                disabled={loading}
+                                title="Copy configuration"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                              {copiedConfig && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handlePasteConfig(branchId)}
+                                  disabled={loading}
+                                  title="Paste configuration"
+                                >
+                                  <ClipboardPaste className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -781,7 +833,7 @@ export default function MenuItemFormModal({
                 {copiedConfig && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <ClipboardPaste className="h-4 w-4" />
-                    <span>Configuration copied. Click paste icon to apply to branches.</span>
+                    <span>Configuration copied. Click paste icon to apply to editable branches.</span>
                   </div>
                 )}
               </div>
@@ -1013,19 +1065,28 @@ export default function MenuItemFormModal({
       </DialogContent>
 
       {/* Branch Configuration Modal */}
-      {selectedBranchForConfig && (
-        <BranchConfigModal
-          isOpen={configModalOpen}
-          onClose={() => {
-            setConfigModalOpen(false);
-            setSelectedBranchForConfig(null);
-          }}
-          branch={branches.find((b) => b._id === selectedBranchForConfig)!}
-          config={branchConfigs.get(selectedBranchForConfig)!}
-          onChange={(config) => handleBranchConfigChange(selectedBranchForConfig, config)}
-          isEditable={canEditBranch(selectedBranchForConfig)}
-        />
-      )}
+      {selectedBranchForConfig && (() => {
+        const branch = branches.find((b) => b._id === selectedBranchForConfig) ||
+                       menuItem?.branches?.find((b) => b.branch._id === selectedBranchForConfig)?.branch;
+        const config = branchConfigs.get(selectedBranchForConfig);
+        
+        // Only render if we have both branch and config
+        if (!branch || !config) return null;
+        
+        return (
+          <BranchConfigModal
+            isOpen={configModalOpen}
+            onClose={() => {
+              setConfigModalOpen(false);
+              setSelectedBranchForConfig(null);
+            }}
+            branch={branch}
+            config={config}
+            onChange={(config) => handleBranchConfigChange(selectedBranchForConfig, config)}
+            isEditable={canEditBranch(selectedBranchForConfig)}
+          />
+        );
+      })()}
     </Dialog>
   );
 }

@@ -183,10 +183,10 @@ export const getMenuItemById = async (menuItemId, companyId, branchId = null, us
       branchQuery.branch = branchId;
     }
     
-    // If user has limited branch access, filter by accessible branches
-    if (userBranchIds !== null && Array.isArray(userBranchIds)) {
-      branchQuery.branch = { $in: userBranchIds };
-    }
+    // NOTE: We don't filter by userBranchIds here because we want users to see
+    // ALL branches where the menu item exists (for visibility), even if they
+    // can only edit their own branches. The edit permission is enforced at the
+    // update/delete endpoints, not at the read endpoint.
 
     // Fetch branch configurations
     const branchConfigs = await MenuItemBranch.find(branchQuery)
