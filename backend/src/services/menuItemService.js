@@ -256,14 +256,25 @@ export const deleteMenuItem = async (menuItemId, companyId) => {
     const companyDB = getCompanyDB(companyId);
     const MenuItem = getMenuItemModel(companyDB);
 
-    const menuItem = await MenuItem.findByIdAndUpdate(
-      menuItemId,
-      { isActive: false },
-      { new: true }
-    );
-
+    // Get menu item first to access images
+    const menuItem = await MenuItem.findById(menuItemId);
     if (!menuItem) {
       throw new Error('Menu item not found');
+    }
+
+    // Soft delete the menu item
+    menuItem.isActive = false;
+    await menuItem.save();
+
+    // Delete all images from S3 (async, don't wait for it)
+    if (menuItem.images && menuItem.images.length > 0) {
+      import('./imageUploadService.js').then(({ deleteImageFromS3 }) => {
+        menuItem.images.forEach(image => {
+          deleteImageFromS3(image.url).catch(err => {
+            logger.warn(`Failed to delete image from S3: ${image.url}`, err);
+          });
+        });
+      });
     }
 
     logger.info(`Menu item soft deleted: ${menuItemId} for company: ${companyId}`);
@@ -354,6 +365,14 @@ export const removeImageFromMenuItem = async (menuItemId, imageUrl, companyId) =
     });
 
     await menuItem.save();
+
+    // Delete image from S3 (async, don't wait for it)
+    // Import dynamically to avoid circular dependencies
+    import('./imageUploadService.js').then(({ deleteImageFromS3 }) => {
+      deleteImageFromS3(imageUrl).catch(err => {
+        logger.warn(`Failed to delete image from S3: ${imageUrl}`, err);
+      });
+    });
 
     logger.info(`Image removed from menu item: ${menuItemId} for company: ${companyId}`);
 
