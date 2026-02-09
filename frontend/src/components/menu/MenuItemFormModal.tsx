@@ -679,27 +679,28 @@ export default function MenuItemFormModal({
               </div>
             </div>
 
-            {/* Branch Selection - Only for new menu items */}
-            {!menuItem && (
-              <div className="space-y-4">
-                <h3 className="font-semibold">Branch Assignment *</h3>
-                <BranchSearch
-                  selectedBranchIds={selectedBranches}
-                  onBranchesChange={handleBranchSelectionChange}
-                  disabled={loading}
-                  placeholder="Select branches for this menu item..."
-                  showSelectAll={true}
-                />
-              </div>
-            )}
+            {/* Branch Selection - For both new and edit menu items */}
+            <div className="space-y-4">
+              <h3 className="font-semibold">Branch Assignment *</h3>
+              <BranchSearch
+                selectedBranchIds={selectedBranches}
+                onBranchesChange={handleBranchSelectionChange}
+                disabled={loading}
+                placeholder="Select branches for this menu item..."
+                showSelectAll={true}
+              />
+              {menuItem && (
+                <p className="text-sm text-muted-foreground">
+                  You can add or remove branches. Removing a branch will delete its configuration.
+                </p>
+              )}
+            </div>
 
             {/* Branch Configuration - Show for both new and edit */}
-            {((menuItem && selectedBranches.length > 0) || (!menuItem && selectedBranches.length > 0)) && (
+            {selectedBranches.length > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">
-                    {menuItem ? 'Branch Configuration (View/Edit)' : 'Branch Configuration'}
-                  </h3>
+                  <h3 className="font-semibold">Branch Configuration</h3>
                   {copiedConfig && (
                     <Button
                       type="button"

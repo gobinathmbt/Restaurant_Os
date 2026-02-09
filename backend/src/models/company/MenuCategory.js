@@ -34,7 +34,8 @@ const menuCategorySchema = new mongoose.Schema({
     default: null
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  versionKey: '__v' // Explicitly enable versioning
 });
 
 // Indexes

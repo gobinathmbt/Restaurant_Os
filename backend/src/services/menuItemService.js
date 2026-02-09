@@ -8,7 +8,8 @@ import { getCompanyDB } from '../config/database.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getMenuCategoryModel } from '../models/company/MenuCategory.js';
 import { getMenuItemBranchModel } from '../models/company/MenuItemBranch.js';
-import CategoryBranchValidationService from './categoryBranchValidationService.js';
+import { getBranchModel } from '../models/company/Branch.js';
+import MenuCategoryBranchValidationService from './menuCategoryBranchValidationService.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -163,6 +164,9 @@ export const getMenuItemById = async (menuItemId, companyId, branchId = null, us
     const MenuItem = getMenuItemModel(companyDB);
     const MenuItemBranch = getMenuItemBranchModel(companyDB);
     const MenuCategory = getMenuCategoryModel(companyDB);
+    // Register Branch model on this connection before populate
+    const Branch = getBranchModel(companyDB);
+    
     const menuItem = await MenuItem.findById(menuItemId)
       .populate('category', 'name description color icon')
       .lean();
@@ -245,6 +249,41 @@ export const updateMenuItem = async (menuItemId, updateData, companyId) => {
       const category = await MenuCategory.findById(updateData.category);
       if (!category) {
         throw new Error('Selected category does not exist');
+      }
+      
+      logger.info(`Validated category for menu item update: ${category._id} (${category.name})`);
+      
+      // If category is changing, auto-assign new category to all branches where this menu item exists
+      if (updateData.category !== existingMenuItem.category.toString()) {
+        logger.info(`Menu item ${menuItemId} category changing from ${existingMenuItem.category} to ${updateData.category}`);
+        
+        // Get all branches where this menu item is assigned
+        const MenuItemBranch = getMenuItemBranchModel(companyDB);
+        const branchAssignments = await MenuItemBranch.find({
+          menuItem: menuItemId,
+          isActive: true
+        }).select('branch').lean();
+        
+        logger.info(`Menu item has ${branchAssignments.length} branch assignment(s)`);
+        
+        if (branchAssignments.length > 0) {
+          const branchIds = branchAssignments.map(a => a.branch.toString());
+          logger.info(`Auto-assigning new category ${updateData.category} to branches: ${branchIds.join(', ')}`);
+          
+          // Auto-assign new category to these branches
+          const validationService = new MenuCategoryBranchValidationService(companyDB);
+          const assignmentResult = await validationService.assignCategoryToBranches(
+            branchIds,
+            updateData.category,
+            'system', // userId - using 'system' for automatic updates
+            'menu_item_category_update',
+            null // no session for simple updates
+          );
+          
+          logger.info(`Category assignment result:`, assignmentResult);
+        } else {
+          logger.info(`⚠️  Menu item ${menuItemId} has no branch assignments yet. Category will be auto-assigned when branches are added via bulkUpdateBranchConfigs.`);
+        }
       }
     }
 
@@ -589,15 +628,19 @@ export const createMenuItemWithBranches = async (
     const categoryId = menuItemData.category;
     const branchIds = branchConfigs.map(c => c.branchId);
 
-    const validationService = new CategoryBranchValidationService(companyDB);
-    await validationService.assignCategoriesToBranches(
+    logger.info(`Auto-assigning menu category ${categoryId} to branches: ${branchIds.join(', ')}`);
+
+    const validationService = new MenuCategoryBranchValidationService(companyDB);
+    
+    const assignmentResult = await validationService.assignCategoryToBranches(
       branchIds,
-      [categoryId],
-      [],
+      categoryId,
       userId,
       'menu_item_assignment',
       session
     );
+
+    logger.info(`Category assignment result:`, assignmentResult);
 
     // 4. Create branch configurations
     const branchConfigDocs = branchConfigs.map(config => ({

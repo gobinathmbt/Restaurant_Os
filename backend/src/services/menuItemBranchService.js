@@ -598,12 +598,13 @@ export const bulkUpdateBranchConfigs = async (menuItemId, branchConfigs, company
     const Branch = getBranchModel(companyDB);
 
     // Validate menu item exists
-    const menuItem = await MenuItem.findById(menuItemId);
+    const menuItem = await MenuItem.findById(menuItemId).populate('category');
     if (!menuItem) {
       throw new Error('Menu item not found');
     }
 
     const updatedConfigs = [];
+    const newBranchIds = []; // Track newly added branches
 
     // Process each branch config
     for (const config of branchConfigs) {
@@ -646,7 +647,9 @@ export const bulkUpdateBranchConfigs = async (menuItemId, branchConfigs, company
         Object.assign(branchConfig, updateData);
         await branchConfig.save();
       } else {
-        // Create new config
+        // Create new config - track this as a new branch assignment
+        newBranchIds.push(branchId);
+        
         branchConfig = new MenuItemBranch({
           menuItem: menuItemId,
           branch: branchId,
@@ -667,6 +670,24 @@ export const bulkUpdateBranchConfigs = async (menuItemId, branchConfigs, company
       }
 
       updatedConfigs.push(branchConfig);
+    }
+
+    // Auto-assign category to newly added branches
+    if (newBranchIds.length > 0 && menuItem.category) {
+      logger.info(`Auto-assigning category ${menuItem.category._id} to new branches: ${newBranchIds.join(', ')}`);
+      
+      const MenuCategoryBranchValidationService = (await import('./menuCategoryBranchValidationService.js')).default;
+      const validationService = new MenuCategoryBranchValidationService(companyDB);
+      
+      const assignmentResult = await validationService.assignCategoryToBranches(
+        newBranchIds,
+        menuItem.category._id.toString(),
+        'system', // userId - using 'system' for automatic updates
+        'menu_item_branch_update',
+        null // no session
+      );
+      
+      logger.info(`Category assignment result:`, assignmentResult);
     }
 
     logger.info(`Bulk updated ${updatedConfigs.length} branch configs for menu item ${menuItemId} in company: ${companyId}`);

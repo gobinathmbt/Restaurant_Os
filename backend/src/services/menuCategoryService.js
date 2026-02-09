@@ -8,6 +8,7 @@ import { getMenuCategoryModel } from '../models/company/MenuCategory.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getMenuItemBranchModel } from '../models/company/MenuItemBranch.js';
 import { getBranchModel } from '../models/company/Branch.js';
+import MenuCategoryBranchValidationService from './menuCategoryBranchValidationService.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -213,30 +214,29 @@ export const getMenuCategoryById = async (categoryId, companyId) => {
 export const validateBranchRemovalForCategory = async (categoryId, branchId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
-    const MenuItemBranch = getMenuItemBranchModel(companyDB);
-    const MenuItem = getMenuItemModel(companyDB);
-    const MenuCategory = getMenuCategoryModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    
+    // Use validation service
+    const validationService = new MenuCategoryBranchValidationService(companyDB);
 
-    // Find all menu items using this category
-    const menuItems = await MenuItem.find({ category: categoryId }).select('_id');
-    const menuItemIds = menuItems.map(item => item._id);
+    // Use the validation service
+    const validation = await validationService.validateBranchRemoval(categoryId, branchId);
 
-    // Count menu item branch configs in this branch
-    const count = await MenuItemBranch.countDocuments({
-      menuItem: { $in: menuItemIds },
-      branch: branchId,
-      isActive: true
-    });
-
-    if (count > 0) {
-      const category = await MenuCategory.findById(categoryId).select('name');
-      const branch = await Branch.findById(branchId).select('name');
-
+    if (!validation.canRemove) {
+      // Get menu item names for better error message
+      const menuItemNames = validation.dependencies.items
+        .slice(0, 5)
+        .map(item => item.name)
+        .join(', ');
+      
+      const moreItems = validation.dependencies.items.length > 5 
+        ? ` and ${validation.dependencies.items.length - 5} more` 
+        : '';
+      
       return {
         canRemove: false,
-        count,
-        message: `Cannot remove branch ${branch.name} from category ${category.name}. ${count} menu items are using this category in this branch`
+        count: validation.dependencies.count,
+        message: validation.message + ` Menu items: ${menuItemNames}${moreItems}.`,
+        menuItems: validation.dependencies.items
       };
     }
 
@@ -338,21 +338,33 @@ export const deleteMenuCategory = async (categoryId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const MenuCategory = getMenuCategoryModel(companyDB);
-    const MenuItem = getMenuItemModel(companyDB);
+    
+    // Use validation service
+    const validationService = new MenuCategoryBranchValidationService(companyDB);
 
     const category = await MenuCategory.findById(categoryId);
     if (!category) {
       throw new Error('Category not found');
     }
 
-    // Check if category has associated menu items
-    const itemCount = await MenuItem.countDocuments({
-      category: categoryId,
-      isActive: true
-    });
+    // Validate category deletion using the validation service
+    const validation = await validationService.validateCategoryDeletion(categoryId);
 
-    if (itemCount > 0) {
-      throw new Error('Cannot delete category with associated menu items');
+    if (!validation.canDelete) {
+      // Get menu item names for better error message
+      const menuItemNames = validation.dependencies.items
+        .slice(0, 5)
+        .map(item => item.name)
+        .join(', ');
+      
+      const moreItems = validation.dependencies.items.length > 5 
+        ? ` and ${validation.dependencies.items.length - 5} more` 
+        : '';
+      
+      throw new Error(
+        `Cannot delete category "${category.name}". It is being used by the following menu items: ${menuItemNames}${moreItems}. ` +
+        `Total: ${validation.dependencies.items.length} menu item(s) across ${validation.dependencies.count} branch assignment(s).`
+      );
     }
 
     // Soft delete
