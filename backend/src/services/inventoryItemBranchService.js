@@ -7,7 +7,9 @@ import { getCompanyDB } from '../config/database.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
 import { getBranchModel } from '../models/company/Branch.js';
+import { getSupplierModel } from '../models/company/Supplier.js';
 import { logger } from '../utils/logger.js';
+import CategoryBranchValidationService from './categoryBranchValidationService.js';
 
 /**
  * Validate branch access based on user role
@@ -26,351 +28,90 @@ const validateBranchAccess = (branchId, userBranchIds) => {
 };
 
 /**
- * Validate stock values
- * @param {number} value - Stock value to validate
- * @throws {Error} If value is invalid
- */
-const validateStockValue = (value) => {
-  if (value !== undefined && value !== null) {
-    if (value < 0) {
-      throw new Error('Stock value cannot be negative');
-    }
-  }
-};
-
-/**
- * Validate price
+ * Validate price format
  * @param {number} price - Price to validate
  * @throws {Error} If price is invalid
  */
 const validatePrice = (price) => {
-  if (price !== undefined && price !== null) {
-    if (price < 0) {
-      throw new Error('Price cannot be negative');
+  if (price < 0) {
+    throw new Error('Price cannot be negative');
+  }
+
+  // Check for max 2 decimal places
+  const priceStr = price.toString();
+  if (priceStr.includes('.')) {
+    const decimalPlaces = priceStr.split('.')[1].length;
+    if (decimalPlaces > 2) {
+      throw new Error('Price cannot have more than 2 decimal places');
     }
+  }
+};
+
+/**
+ * Validate stock values
+ * @param {Object} stockData - Stock data to validate
+ * @throws {Error} If stock values are invalid
+ */
+const validateStockValues = (stockData) => {
+  const { currentStock, minimumStock, maximumStock, reorderPoint } = stockData;
+
+  // All stock values must be non-negative
+  if (currentStock !== undefined && currentStock < 0) {
+    throw new Error('Current stock cannot be negative');
+  }
+  if (minimumStock !== undefined && minimumStock < 0) {
+    throw new Error('Minimum stock cannot be negative');
+  }
+  if (maximumStock !== undefined && maximumStock < 0) {
+    throw new Error('Maximum stock cannot be negative');
+  }
+  if (reorderPoint !== undefined && reorderPoint < 0) {
+    throw new Error('Reorder point cannot be negative');
+  }
+
+  // maximumStock must be >= minimumStock
+  if (maximumStock !== undefined && minimumStock !== undefined && maximumStock < minimumStock) {
+    throw new Error('Maximum stock must be greater than or equal to minimum stock');
+  }
+
+  // currentStock should be <= maximumStock
+  if (currentStock !== undefined && maximumStock !== undefined && currentStock > maximumStock) {
+    throw new Error('Current stock cannot exceed maximum stock');
+  }
+
+  // reorderPoint should be between minimumStock and maximumStock
+  if (reorderPoint !== undefined && minimumStock !== undefined && reorderPoint < minimumStock) {
+    throw new Error('Reorder point must be greater than or equal to minimum stock');
+  }
+  if (reorderPoint !== undefined && maximumStock !== undefined && reorderPoint > maximumStock) {
+    throw new Error('Reorder point cannot exceed maximum stock');
+  }
+};
+
+/**
+ * Validate expiry date
+ * @param {Date} expiryDate - Expiry date to validate
+ * @throws {Error} If expiry date is invalid
+ */
+const validateExpiryDate = (expiryDate) => {
+  if (expiryDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
-    // Check for max 2 decimal places
-    const priceStr = price.toString();
-    if (priceStr.includes('.')) {
-      const decimalPlaces = priceStr.split('.')[1].length;
-      if (decimalPlaces > 2) {
-        throw new Error('Price cannot have more than 2 decimal places');
-      }
+    const expiry = new Date(expiryDate);
+    expiry.setHours(0, 0, 0, 0);
+    
+    if (expiry < today) {
+      throw new Error('Expiry date cannot be in the past');
     }
   }
 };
 
 /**
- * Create branch configuration for inventory item
- * @param {string} inventoryItemId - Inventory item ID
- * @param {string} branchId - Branch ID
- * @param {Object} configData - Branch configuration data
- * @param {string} companyId - Company ID
- * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
- * @returns {Promise<Object>} Created branch config
- */
-export const createBranchConfig = async (inventoryItemId, branchId, configData, companyId, userBranchIds = null) => {
-  try {
-    const companyDB = getCompanyDB(companyId);
-    const InventoryItem = getInventoryItemModel(companyDB);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
-
-    // Validate branch access
-    if (!validateBranchAccess(branchId, userBranchIds)) {
-      throw new Error('You do not have access to this branch');
-    }
-
-    // Validate inventory item exists
-    const inventoryItem = await InventoryItem.findById(inventoryItemId);
-    if (!inventoryItem) {
-      throw new Error('Inventory item not found');
-    }
-
-    // Validate branch exists
-    const branch = await Branch.findById(branchId);
-    if (!branch) {
-      throw new Error('Branch not found');
-    }
-
-    // Validate stock values
-    validateStockValue(configData.currentStock);
-    validateStockValue(configData.minimumStock);
-    validateStockValue(configData.maximumStock);
-    validateStockValue(configData.reorderPoint);
-
-    // Validate prices
-    validatePrice(configData.costPrice);
-    validatePrice(configData.lastPurchasePrice);
-
-    // Check if branch config already exists
-    const existingConfig = await InventoryItemBranch.findOne({
-      inventoryItem: inventoryItemId,
-      branch: branchId
-    });
-
-    if (existingConfig) {
-      throw new Error('Branch configuration already exists for this inventory item');
-    }
-
-    // Create branch configuration
-    const branchConfig = new InventoryItemBranch({
-      inventoryItem: inventoryItemId,
-      branch: branchId,
-      ...configData
-    });
-
-    await branchConfig.save();
-
-    logger.info(`Inventory branch config created: ${inventoryItemId}, branch: ${branchId}, company: ${companyId}`);
-
-    // Populate and return
-    await branchConfig.populate('inventoryItem');
-    await branchConfig.populate('branch');
-    await branchConfig.populate('supplier');
-
-    return branchConfig;
-  } catch (error) {
-    logger.error('Error creating inventory branch config:', error);
-    throw error;
-  }
-};
-
-/**
- * Get branch configuration for inventory item
- * @param {string} inventoryItemId - Inventory item ID
+ * Get inventory items for a specific branch (merged with global data)
  * @param {string} branchId - Branch ID
  * @param {string} companyId - Company ID
- * @returns {Promise<Object>} Branch configuration
- */
-export const getBranchConfig = async (inventoryItemId, branchId, companyId) => {
-  try {
-    const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
-
-    const branchConfig = await InventoryItemBranch.findOne({
-      inventoryItem: inventoryItemId,
-      branch: branchId
-    })
-      .populate('inventoryItem')
-      .populate('branch')
-      .populate('supplier')
-      .lean();
-
-    if (!branchConfig) {
-      throw new Error('Branch configuration not found');
-    }
-
-    return branchConfig;
-  } catch (error) {
-    logger.error('Error getting inventory branch config:', error);
-    throw error;
-  }
-};
-
-/**
- * Update branch configuration
- * @param {string} inventoryItemId - Inventory item ID
- * @param {string} branchId - Branch ID
- * @param {Object} updateData - Update data
- * @param {string} companyId - Company ID
- * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
- * @returns {Promise<Object>} Updated branch config
- */
-export const updateBranchConfig = async (inventoryItemId, branchId, updateData, companyId, userBranchIds = null) => {
-  try {
-    const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
-
-    // Validate branch access
-    if (!validateBranchAccess(branchId, userBranchIds)) {
-      throw new Error('You do not have access to this branch');
-    }
-
-    // Get existing branch config
-    const branchConfig = await InventoryItemBranch.findOne({
-      inventoryItem: inventoryItemId,
-      branch: branchId
-    });
-
-    if (!branchConfig) {
-      throw new Error('Branch configuration not found');
-    }
-
-    // Validate stock values if being updated
-    validateStockValue(updateData.currentStock);
-    validateStockValue(updateData.minimumStock);
-    validateStockValue(updateData.maximumStock);
-    validateStockValue(updateData.reorderPoint);
-
-    // Validate prices if being updated
-    validatePrice(updateData.costPrice);
-    validatePrice(updateData.lastPurchasePrice);
-
-    // Update branch config
-    Object.assign(branchConfig, updateData);
-    await branchConfig.save();
-
-    logger.info(`Inventory branch config updated: ${inventoryItemId}, branch: ${branchId}, company: ${companyId}`);
-
-    // Populate and return
-    await branchConfig.populate('inventoryItem');
-    await branchConfig.populate('branch');
-    await branchConfig.populate('supplier');
-
-    return branchConfig;
-  } catch (error) {
-    logger.error('Error updating inventory branch config:', error);
-    throw error;
-  }
-};
-
-/**
- * Delete branch configuration (remove item from branch)
- * @param {string} inventoryItemId - Inventory item ID
- * @param {string} branchId - Branch ID
- * @param {string} companyId - Company ID
- * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
- * @returns {Promise<Object>} Deleted branch config
- */
-export const deleteBranchConfig = async (inventoryItemId, branchId, companyId, userBranchIds = null) => {
-  try {
-    const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
-
-    // Validate branch access
-    if (!validateBranchAccess(branchId, userBranchIds)) {
-      throw new Error('You do not have access to this branch');
-    }
-
-    // Find and delete branch config
-    const branchConfig = await InventoryItemBranch.findOneAndDelete({
-      inventoryItem: inventoryItemId,
-      branch: branchId
-    });
-
-    if (!branchConfig) {
-      throw new Error('Branch configuration not found');
-    }
-
-    logger.info(`Inventory branch config deleted: ${inventoryItemId}, branch: ${branchId}, company: ${companyId}`);
-
-    return branchConfig;
-  } catch (error) {
-    logger.error('Error deleting inventory branch config:', error);
-    throw error;
-  }
-};
-
-/**
- * Bulk update branch configurations for an inventory item
- * @param {string} inventoryItemId - Inventory item ID
- * @param {Array} branchConfigs - Array of { branchId, ...config }
- * @param {string} companyId - Company ID
- * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
- * @returns {Promise<Array>} Updated branch configs
- */
-export const bulkUpdateBranchConfigs = async (inventoryItemId, branchConfigs, companyId, userBranchIds = null) => {
-  try {
-    const companyDB = getCompanyDB(companyId);
-    const InventoryItem = getInventoryItemModel(companyDB);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
-
-    // Validate inventory item exists
-    const inventoryItem = await InventoryItem.findById(inventoryItemId);
-    if (!inventoryItem) {
-      throw new Error('Inventory item not found');
-    }
-
-    const updatedConfigs = [];
-
-    // Process each branch config
-    for (const config of branchConfigs) {
-      const { branchId, ...updateData } = config;
-
-      // Validate branch access
-      if (!validateBranchAccess(branchId, userBranchIds)) {
-        throw new Error(`You do not have access to branch: ${branchId}`);
-      }
-
-      // Validate branch exists
-      const branch = await Branch.findById(branchId);
-      if (!branch) {
-        throw new Error(`Branch not found: ${branchId}`);
-      }
-
-      // Validate stock values
-      validateStockValue(updateData.currentStock);
-      validateStockValue(updateData.minimumStock);
-      validateStockValue(updateData.maximumStock);
-      validateStockValue(updateData.reorderPoint);
-
-      // Validate prices
-      validatePrice(updateData.costPrice);
-      validatePrice(updateData.lastPurchasePrice);
-
-      // Find existing config or create new one
-      let branchConfig = await InventoryItemBranch.findOne({
-        inventoryItem: inventoryItemId,
-        branch: branchId
-      });
-
-      if (branchConfig) {
-        // Update existing config
-        Object.assign(branchConfig, updateData);
-        await branchConfig.save();
-      } else {
-        // Create new config
-        branchConfig = new InventoryItemBranch({
-          inventoryItem: inventoryItemId,
-          branch: branchId,
-          currentStock: updateData.currentStock !== undefined ? updateData.currentStock : 0,
-          minimumStock: updateData.minimumStock !== undefined ? updateData.minimumStock : 0,
-          maximumStock: updateData.maximumStock,
-          reorderPoint: updateData.reorderPoint,
-          costPrice: updateData.costPrice,
-          lastPurchasePrice: updateData.lastPurchasePrice,
-          lastPurchaseDate: updateData.lastPurchaseDate,
-          supplier: updateData.supplier,
-          storageLocation: updateData.storageLocation,
-          batchNumber: updateData.batchNumber,
-          expiryDate: updateData.expiryDate,
-          branchSKU: updateData.branchSKU,
-          branchBarcode: updateData.branchBarcode,
-          isActive: true,
-          isAvailable: updateData.isAvailable !== undefined ? updateData.isAvailable : true,
-          notes: updateData.notes
-        });
-        await branchConfig.save();
-      }
-
-      updatedConfigs.push(branchConfig);
-    }
-
-    logger.info(`Bulk updated ${updatedConfigs.length} inventory branch configs for item ${inventoryItemId}`);
-
-    // Populate and return
-    const populatedConfigs = await InventoryItemBranch.find({
-      _id: { $in: updatedConfigs.map(c => c._id) }
-    })
-      .populate('inventoryItem')
-      .populate('branch')
-      .populate('supplier')
-      .lean();
-
-    return populatedConfigs;
-  } catch (error) {
-    logger.error('Error bulk updating inventory branch configs:', error);
-    throw error;
-  }
-};
-
-/**
- * Get inventory items for a specific branch
- * @param {string} branchId - Branch ID
- * @param {string} companyId - Company ID
- * @param {Object} filters - Filter options
+ * @param {Object} filters - Filter options (page, limit, search, type, category, subcategory, isActive, isAvailable)
  * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
  * @returns {Promise<Object>} Paginated inventory items with branch config
  */
@@ -389,69 +130,124 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
       limit = 10,
       search = '',
       type = '',
-      isActive = ''
+      category = '',
+      subcategory = '',
+      isActive = '',
+      isAvailable = ''
     } = filters;
 
-    // Build query
+    // Build query for InventoryItemBranch
     const branchQuery = {
       branch: branchId
     };
 
-    // Active/Inactive filter
+    // Active/Inactive filter for branch config
     if (isActive === 'true') {
       branchQuery.isActive = true;
     } else if (isActive === 'false') {
       branchQuery.isActive = false;
     }
 
+    // Availability filter
+    if (isAvailable === 'true') {
+      branchQuery.isAvailable = true;
+    } else if (isAvailable === 'false') {
+      branchQuery.isAvailable = false;
+    }
+
     // Calculate pagination
     const skip = (page - 1) * limit;
 
     // Query InventoryItemBranch and populate InventoryItem
-    const branchConfigs = await InventoryItemBranch.find(branchQuery)
+    let query = InventoryItemBranch.find(branchQuery)
       .populate({
         path: 'inventoryItem',
-        populate: {
-          path: 'category subcategory',
-          select: 'name description color'
-        }
+        populate: [
+          {
+            path: 'category',
+            select: 'name description color icon'
+          },
+          {
+            path: 'subcategory',
+            select: 'name description color icon'
+          }
+        ]
       })
-      .populate('branch', 'name code')
-      .populate('supplier', 'name contactPerson phone')
+      .populate({
+        path: 'supplier',
+        select: 'name contactPerson phone email'
+      })
       .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
+      .limit(parseInt(limit));
 
-    // Filter by search and type
+    // Execute query
+    const branchConfigs = await query.lean();
+
+    // Filter by inventory item properties (search, type, category, subcategory)
     let filteredConfigs = branchConfigs;
 
+    // Apply search filter on inventory item properties
     if (search) {
       const searchLower = search.toLowerCase();
       filteredConfigs = filteredConfigs.filter(config => {
         if (!config.inventoryItem) return false;
-        return config.inventoryItem.name?.toLowerCase().includes(searchLower);
+        
+        const nameMatch = config.inventoryItem.name?.toLowerCase().includes(searchLower);
+        const skuMatch = config.inventoryItem.sku?.toLowerCase().includes(searchLower);
+        const barcodeMatch = config.inventoryItem.barcode?.toLowerCase().includes(searchLower);
+        const branchSkuMatch = config.branchSKU?.toLowerCase().includes(searchLower);
+        const branchBarcodeMatch = config.branchBarcode?.toLowerCase().includes(searchLower);
+        
+        return nameMatch || skuMatch || barcodeMatch || branchSkuMatch || branchBarcodeMatch;
       });
     }
 
+    // Apply type filter
     if (type) {
       filteredConfigs = filteredConfigs.filter(config => {
         return config.inventoryItem?.type === type;
       });
     }
 
-    // Merge data
-    const mergedItems = filteredConfigs.map(config => {
+    // Apply category filter
+    if (category) {
+      filteredConfigs = filteredConfigs.filter(config => {
+        return config.inventoryItem?.category?._id?.toString() === category;
+      });
+    }
+
+    // Apply subcategory filter
+    if (subcategory) {
+      filteredConfigs = filteredConfigs.filter(config => {
+        return config.inventoryItem?.subcategory?._id?.toString() === subcategory;
+      });
+    }
+
+    // Apply active filter on inventory item
+    if (isActive !== '') {
+      const activeValue = isActive === 'true';
+      filteredConfigs = filteredConfigs.filter(config => {
+        return config.inventoryItem?.isActive === activeValue;
+      });
+    }
+
+    // Merge global properties with branch-specific config
+    const mergedInventoryItems = filteredConfigs.map(config => {
       if (!config.inventoryItem) return null;
 
       return {
+        // Global properties from InventoryItem
         _id: config.inventoryItem._id,
         name: config.inventoryItem.name,
         type: config.inventoryItem.type,
         category: config.inventoryItem.category,
         subcategory: config.inventoryItem.subcategory,
         unit: config.inventoryItem.unit,
+        sku: config.inventoryItem.sku,
+        barcode: config.inventoryItem.barcode,
+        description: config.inventoryItem.description,
         
-        // Branch-specific data
+        // Branch-specific properties from InventoryItemBranch
         branchConfig: {
           _id: config._id,
           currentStock: config.currentStock,
@@ -467,11 +263,12 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
           expiryDate: config.expiryDate,
           branchSKU: config.branchSKU,
           branchBarcode: config.branchBarcode,
-          isActive: config.isActive,
           isAvailable: config.isAvailable,
-          isLowStock: config.isLowStock,
-          isExpiringSoon: config.isExpiringSoon,
-          notes: config.notes
+          notes: config.notes,
+          isActive: config.isActive,
+          isLowStock: config.currentStock <= config.minimumStock,
+          isExpiringSoon: config.expiryDate ? isExpiringSoon(config.expiryDate) : false,
+          stockPercentage: config.maximumStock ? (config.currentStock / config.maximumStock) * 100 : null
         },
         
         isActive: config.inventoryItem.isActive && config.isActive,
@@ -480,10 +277,14 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
       };
     }).filter(item => item !== null);
 
+    // Sort by name
+    mergedInventoryItems.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Get total count for pagination
     const total = await InventoryItemBranch.countDocuments(branchQuery);
 
     return {
-      inventoryItems: mergedItems,
+      inventoryItems: mergedInventoryItems,
       pagination: {
         total,
         page: parseInt(page),
@@ -496,3 +297,258 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
     throw error;
   }
 };
+
+/**
+ * Check if expiry date is within 7 days
+ * @param {Date} expiryDate - Expiry date to check
+ * @returns {boolean} Whether expiring soon
+ */
+const isExpiringSoon = (expiryDate) => {
+  if (!expiryDate) return false;
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const sevenDaysFromNow = new Date(today);
+  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+  
+  const expiry = new Date(expiryDate);
+  expiry.setHours(0, 0, 0, 0);
+  
+  return expiry >= today && expiry <= sevenDaysFromNow;
+};
+
+/**
+ * Bulk update branch configurations for an inventory item
+ * @param {string} itemId - Inventory item ID
+ * @param {Array} branchConfigs - Array of { branchId, ...config }
+ * @param {string} companyId - Company ID
+ * @param {string} userId - User ID for audit
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} Updated branch configs with auto-assignment results
+ */
+export const bulkUpdateBranchConfigs = async (itemId, branchConfigs, companyId, userId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItem = getInventoryItemModel(companyDB);
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const Branch = getBranchModel(companyDB);
+
+    // Validate inventory item exists
+    const inventoryItem = await InventoryItem.findById(itemId)
+      .populate('category')
+      .populate('subcategory');
+    
+    if (!inventoryItem) {
+      throw new Error('Inventory item not found');
+    }
+
+    const updatedConfigs = [];
+    const newBranchIds = []; // Track newly added branches
+
+    // Process each branch config
+    for (const config of branchConfigs) {
+      const { branchId, ...updateData } = config;
+
+      // Validate branch access
+      if (!validateBranchAccess(branchId, userBranchIds)) {
+        throw new Error(`You do not have access to branch: ${branchId}`);
+      }
+
+      // Validate branch exists
+      const branch = await Branch.findById(branchId);
+      if (!branch) {
+        throw new Error(`Branch not found: ${branchId}`);
+      }
+
+      // Validate prices if provided
+      if (updateData.costPrice !== undefined) {
+        validatePrice(updateData.costPrice);
+      }
+      if (updateData.lastPurchasePrice !== undefined) {
+        validatePrice(updateData.lastPurchasePrice);
+      }
+
+      // Validate stock values
+      validateStockValues(updateData);
+
+      // Validate expiry date
+      if (updateData.expiryDate !== undefined) {
+        validateExpiryDate(updateData.expiryDate);
+      }
+
+      // Find existing config or create new one
+      let branchConfig = await InventoryItemBranch.findOne({
+        inventoryItem: itemId,
+        branch: branchId
+      });
+
+      if (branchConfig) {
+        // Update existing config
+        Object.assign(branchConfig, updateData);
+        await branchConfig.save();
+      } else {
+        // Create new config - track this as a new branch assignment
+        newBranchIds.push(branchId);
+        
+        branchConfig = new InventoryItemBranch({
+          inventoryItem: itemId,
+          branch: branchId,
+          currentStock: updateData.currentStock !== undefined ? updateData.currentStock : 0,
+          minimumStock: updateData.minimumStock !== undefined ? updateData.minimumStock : 0,
+          maximumStock: updateData.maximumStock,
+          reorderPoint: updateData.reorderPoint,
+          costPrice: updateData.costPrice,
+          lastPurchasePrice: updateData.lastPurchasePrice,
+          lastPurchaseDate: updateData.lastPurchaseDate,
+          supplier: updateData.supplier,
+          storageLocation: updateData.storageLocation,
+          batchNumber: updateData.batchNumber,
+          expiryDate: updateData.expiryDate,
+          branchSKU: updateData.branchSKU,
+          branchBarcode: updateData.branchBarcode,
+          isAvailable: updateData.isAvailable !== undefined ? updateData.isAvailable : true,
+          notes: updateData.notes,
+          isActive: true
+        });
+        await branchConfig.save();
+      }
+
+      updatedConfigs.push(branchConfig);
+    }
+
+    // Auto-assignment results
+    const autoAssignments = {
+      assigned: {
+        categories: [],
+        subcategories: [],
+        suppliers: []
+      },
+      alreadyAssigned: {
+        categories: [],
+        subcategories: [],
+        suppliers: []
+      }
+    };
+
+    // Auto-assign category and subcategory to newly added branches
+    if (newBranchIds.length > 0) {
+      const categoryIds = inventoryItem.category ? [inventoryItem.category._id.toString()] : [];
+      const subcategoryIds = inventoryItem.subcategory ? [inventoryItem.subcategory._id.toString()] : [];
+
+      if (categoryIds.length > 0 || subcategoryIds.length > 0) {
+        logger.info(`Auto-assigning categories to new branches: ${newBranchIds.join(', ')}`);
+        
+        const validationService = new CategoryBranchValidationService(companyDB);
+        
+        const assignmentResult = await validationService.assignCategoriesToBranches(
+          newBranchIds,
+          categoryIds,
+          subcategoryIds,
+          userId || 'system',
+          'inventory_item_branch_update',
+          null // no session
+        );
+        
+        autoAssignments.assigned.categories = assignmentResult.assigned.categories;
+        autoAssignments.assigned.subcategories = assignmentResult.assigned.subcategories;
+        autoAssignments.alreadyAssigned.categories = assignmentResult.alreadyAssigned.categories;
+        autoAssignments.alreadyAssigned.subcategories = assignmentResult.alreadyAssigned.subcategories;
+        
+        logger.info(`Category assignment result:`, assignmentResult);
+      }
+
+      // Auto-assign suppliers to branches where specified
+      const Supplier = getSupplierModel(companyDB);
+      for (const config of branchConfigs) {
+        if (config.supplier && newBranchIds.includes(config.branchId)) {
+          try {
+            const supplier = await Supplier.findById(config.supplier);
+            if (supplier) {
+              const supplierBranchIds = supplier.branchIds.map(id => id.toString());
+              if (!supplierBranchIds.includes(config.branchId.toString())) {
+                supplier.branchIds.push(config.branchId);
+                await supplier.save();
+                
+                autoAssignments.assigned.suppliers.push({
+                  supplierId: supplier._id.toString(),
+                  supplierName: supplier.name,
+                  branchId: config.branchId
+                });
+                
+                logger.info(`Auto-assigned supplier ${supplier._id} to branch ${config.branchId}`);
+              } else {
+                autoAssignments.alreadyAssigned.suppliers.push({
+                  supplierId: supplier._id.toString(),
+                  supplierName: supplier.name,
+                  branchId: config.branchId
+                });
+              }
+            }
+          } catch (error) {
+            logger.error(`Error auto-assigning supplier ${config.supplier}:`, error);
+          }
+        }
+      }
+    }
+
+    logger.info(`Bulk updated ${updatedConfigs.length} branch configs for inventory item ${itemId} in company: ${companyId}`);
+
+    // Populate and return
+    const populatedConfigs = await InventoryItemBranch.find({
+      _id: { $in: updatedConfigs.map(c => c._id) }
+    })
+      .populate('inventoryItem')
+      .populate('branch')
+      .populate('supplier')
+      .lean();
+
+    return {
+      branchConfigs: populatedConfigs,
+      autoAssignments
+    };
+  } catch (error) {
+    logger.error('Error bulk updating branch configs:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete branch configuration (remove item from branch)
+ * @param {string} itemId - Inventory item ID
+ * @param {string} branchId - Branch ID
+ * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} Deleted branch config
+ */
+export const deleteBranchConfig = async (itemId, branchId, companyId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+
+    // Validate branch access
+    if (!validateBranchAccess(branchId, userBranchIds)) {
+      throw new Error('You do not have access to this branch');
+    }
+
+    // Find and delete branch config
+    const branchConfig = await InventoryItemBranch.findOneAndDelete({
+      inventoryItem: itemId,
+      branch: branchId
+    });
+
+    if (!branchConfig) {
+      throw new Error('Branch configuration not found');
+    }
+
+    logger.info(`Branch config deleted for inventory item: ${itemId}, branch: ${branchId}, company: ${companyId}`);
+
+    return branchConfig;
+  } catch (error) {
+    logger.error('Error deleting branch config:', error);
+    throw error;
+  }
+};
+
+// Export validateBranchAccess for testing
+export { validateBranchAccess };
