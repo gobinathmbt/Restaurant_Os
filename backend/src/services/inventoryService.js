@@ -288,33 +288,22 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 
     logger.info(`Auto-assigning inventory category ${categoryId} to branches: ${branchIds.join(', ')}`);
 
-    const { CategoryBranchValidationService } = await import('./categoryBranchValidationService.js');
+    const CategoryBranchValidationService = (await import('./categoryBranchValidationService.js')).default;
     const validationService = new CategoryBranchValidationService(companyDB);
     
-    const assignmentResult = await validationService.assignCategoryToBranches(
+    const categoryIdsToAssign = [categoryId];
+    const subcategoryIdsToAssign = subcategoryId ? [subcategoryId] : [];
+    
+    const assignmentResult = await validationService.assignCategoriesToBranches(
       branchIds,
-      categoryId,
+      categoryIdsToAssign,
+      subcategoryIdsToAssign,
       userId,
       'inventory_item_assignment',
       session
     );
 
     logger.info(`Category assignment result:`, assignmentResult);
-
-    // If subcategory is provided, auto-assign it too
-    if (subcategoryId) {
-      logger.info(`Auto-assigning inventory subcategory ${subcategoryId} to branches: ${branchIds.join(', ')}`);
-      
-      const subcategoryAssignmentResult = await validationService.assignCategoryToBranches(
-        branchIds,
-        subcategoryId,
-        userId,
-        'inventory_item_assignment',
-        session
-      );
-
-      logger.info(`Subcategory assignment result:`, subcategoryAssignmentResult);
-    }
 
     // Create inventory item (without branch-specific data)
     let inventoryItem;
@@ -436,7 +425,8 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
-    const Supplier = getSupplierModel(companyDB); // Register Supplier model
+    const Category = getCategoryModel(companyDB); // Register Category model
+    const Branch = getBranchModel(companyDB); // Register Branch model
 
     const {
       page = 1,
@@ -482,9 +472,11 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
       query.category = category;
     }
 
-    // Low stock filter
+    // Low stock filter - Note: This is now handled at branch level
+    // This filter is deprecated and will be removed
     if (lowStock === true || lowStock === 'true') {
-      query.$expr = { $lte: ['$currentStock', '$minimumStock'] };
+      // Skip this filter as stock is now per-branch
+      logger.warn('Low stock filter on InventoryItem is deprecated. Use branch-specific queries instead.');
     }
 
     // Calculate pagination
@@ -493,10 +485,8 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
     // Execute query with population of category and subcategory
     const [items, total] = await Promise.all([
       InventoryItem.find(query)
-        .populate('supplier', 'name contactPerson phone email')
         .populate('category', 'name type parent')
         .populate('subcategory', 'name type parent')
-        .populate('branchIds', 'name location')
         .sort({ name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -504,15 +494,8 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
       InventoryItem.countDocuments(query)
     ]);
 
-    // Calculate virtuals manually for lean queries
-    const itemsWithVirtuals = items.map(item => ({
-      ...item,
-      isLowStock: item.currentStock <= item.minimumStock,
-      isExpiringSoon: item.expiryDate ? isExpiringSoon(item.expiryDate) : false
-    }));
-
     return {
-      items: itemsWithVirtuals,
+      items,
       pagination: {
         total,
         page: parseInt(page),
@@ -542,19 +525,13 @@ export const getInventoryItemById = async (itemId, companyId, userBranchIds = nu
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const item = await InventoryItem.findById(itemId)
-      .populate('supplier', 'name contactPerson phone email rating categories')
       .populate('category', 'name type parent')
       .populate('subcategory', 'name type parent')
-      .populate('branchIds', 'name location')
       .lean();
 
     if (!item) {
       throw new Error('Inventory item not found');
     }
-
-    // Calculate virtuals
-    item.isLowStock = item.currentStock <= item.minimumStock;
-    item.isExpiringSoon = item.expiryDate ? isExpiringSoon(item.expiryDate) : false;
 
     // Fetch ALL branch configurations (don't filter by userBranchIds)
     // Users can see all branches but only edit their own
@@ -806,8 +783,14 @@ export const deleteInventoryItem = async (itemId, companyId) => {
 export const checkLowStock = async (companyId, branchId, userBranchIds = [], userRole = '') => {
   try {
     const companyDB = getCompanyDB(companyId);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    
+    // Register all models needed for populate
     const InventoryItem = getInventoryItemModel(companyDB);
-    const Supplier = getSupplierModel(companyDB); // Register Supplier model
+    const Branch = getBranchModel(companyDB);
+    const Category = getCategoryModel(companyDB);
+    const Supplier = getSupplierModel(companyDB);
 
     const query = {
       isActive: true,
@@ -817,28 +800,28 @@ export const checkLowStock = async (companyId, branchId, userBranchIds = [], use
     // Branch filter based on user role
     if (userRole === 'company_admin') {
       // Company admins see items from their assigned branches
-      query.branchIds = { $in: userBranchIds };
+      query.branch = { $in: userBranchIds };
     } else if (branchId && branchId !== 'all') {
       // Super admins can filter by specific branch
-      query.branchIds = { $in: [branchId] };
+      query.branch = branchId;
     }
     // If branchId is "all" and user is super admin, no branch filter (see all)
 
-    const items = await InventoryItem.find(query)
-      .populate('supplier', 'name contactPerson phone email')
-      .populate('category', 'name type')
-      .populate('subcategory', 'name type')
+    const branchItems = await InventoryItemBranch.find(query)
+      .populate({
+        path: 'inventoryItem',
+        select: 'name type unit sku barcode category subcategory',
+        populate: [
+          { path: 'category', select: 'name type' },
+          { path: 'subcategory', select: 'name type' }
+        ]
+      })
+      .populate('branch', 'name code')
+      .populate('supplier', 'name contactPerson phone')
       .sort({ currentStock: 1 })
       .lean();
 
-    // Add virtuals
-    const itemsWithVirtuals = items.map(item => ({
-      ...item,
-      isLowStock: true,
-      isExpiringSoon: item.expiryDate ? isExpiringSoon(item.expiryDate) : false
-    }));
-
-    return itemsWithVirtuals;
+    return branchItems;
   } catch (error) {
     logger.error('Error checking low stock:', error);
     throw error;
@@ -857,8 +840,14 @@ export const checkLowStock = async (companyId, branchId, userBranchIds = [], use
 export const checkExpiringItems = async (companyId, branchId, daysAhead = 7, userBranchIds = [], userRole = '') => {
   try {
     const companyDB = getCompanyDB(companyId);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    
+    // Register all models needed for populate
     const InventoryItem = getInventoryItemModel(companyDB);
-    const Supplier = getSupplierModel(companyDB); // Register Supplier model
+    const Branch = getBranchModel(companyDB);
+    const Category = getCategoryModel(companyDB);
+    const Supplier = getSupplierModel(companyDB);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -877,28 +866,28 @@ export const checkExpiringItems = async (companyId, branchId, daysAhead = 7, use
     // Branch filter based on user role
     if (userRole === 'company_admin') {
       // Company admins see items from their assigned branches
-      query.branchIds = { $in: userBranchIds };
+      query.branch = { $in: userBranchIds };
     } else if (branchId && branchId !== 'all') {
       // Super admins can filter by specific branch
-      query.branchIds = { $in: [branchId] };
+      query.branch = branchId;
     }
     // If branchId is "all" and user is super admin, no branch filter (see all)
 
-    const items = await InventoryItem.find(query)
-      .populate('supplier', 'name contactPerson phone email')
-      .populate('category', 'name type')
-      .populate('subcategory', 'name type parent')
+    const branchItems = await InventoryItemBranch.find(query)
+      .populate({
+        path: 'inventoryItem',
+        select: 'name type unit sku barcode category subcategory',
+        populate: [
+          { path: 'category', select: 'name type' },
+          { path: 'subcategory', select: 'name type parent' }
+        ]
+      })
+      .populate('branch', 'name code')
+      .populate('supplier', 'name contactPerson phone')
       .sort({ expiryDate: 1 })
       .lean();
 
-    // Add virtuals
-    const itemsWithVirtuals = items.map(item => ({
-      ...item,
-      isLowStock: item.currentStock <= item.minimumStock,
-      isExpiringSoon: true
-    }));
-
-    return itemsWithVirtuals;
+    return branchItems;
   } catch (error) {
     logger.error('Error checking expiring items:', error);
     throw error;
