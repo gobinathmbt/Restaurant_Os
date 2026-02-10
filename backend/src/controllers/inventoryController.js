@@ -149,7 +149,7 @@ export const getInventoryItems = async (req, res, next) => {
 };
 
 /**
- * Get inventory item by ID
+ * Get inventory item by ID with branch configurations
  * GET /api/inventory/items/:id
  */
 export const getInventoryItemById = async (req, res, next) => {
@@ -157,33 +157,13 @@ export const getInventoryItemById = async (req, res, next) => {
     const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { id } = req.params;
 
-    // Get inventory item
-    const item = await inventoryService.getInventoryItemById(id, companyId);
+    // Determine user's accessible branches
+    const effectiveUserBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : userBranchIds; // Company admins only have access to their assigned branches
 
-    // Get user's branch IDs if not already in req.user (for company admins)
-    let effectiveBranchIds = userBranchIds;
-    if (!effectiveBranchIds && role === 'company_admin') {
-      const user = await CompanyUser.findById(userId).select('branchIds');
-      effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
-    }
-
-    // Verify branch access - check if user has access to any of item's branches
-    // Super admins have access to all branches
-    const isSuperAdmin = role === 'company_super_admin_primary' || role === 'company_super_admin_secondary';
-    
-    if (!isSuperAdmin) {
-      // For company admins, check if they have access to at least one of the item's branches
-      const hasAccess = item.branchIds.some(branchId => 
-        effectiveBranchIds.includes(branchId.toString())
-      );
-      
-      if (!hasAccess) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have access to this inventory item'
-        });
-      }
-    }
+    // Get inventory item with ALL branch configurations
+    const item = await inventoryService.getInventoryItemById(id, companyId, effectiveUserBranchIds);
 
     res.json({
       success: true,

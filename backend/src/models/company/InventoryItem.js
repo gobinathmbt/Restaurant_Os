@@ -1,28 +1,21 @@
 import mongoose from 'mongoose';
 
+/**
+ * InventoryItem Schema
+ * Stores global inventory item properties
+ * Branch-specific data (stock, pricing, supplier) is stored in InventoryItemBranch
+ */
 const inventoryItemSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    trim: true
+    trim: true,
+    maxlength: 200
   },
   type: {
     type: String,
     required: true,
     enum: ['raw_material', 'finished_good']
-  },
-  branchIds: {
-    type: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Branch'
-    }],
-    required: true,
-    validate: {
-      validator: function(v) {
-        return Array.isArray(v) && v.length > 0;
-      },
-      message: 'At least one branch must be assigned'
-    }
   },
   category: {
     type: mongoose.Schema.Types.ObjectId,
@@ -39,15 +32,45 @@ const inventoryItemSchema = new mongoose.Schema({
     required: true,
     enum: ['kg', 'gram', 'liter', 'ml', 'piece', 'dozen', 'packet']
   },
+  
+  // Global identifiers (optional, can be overridden per branch)
+  sku: {
+    type: String,
+    trim: true,
+    sparse: true,
+    unique: true
+  },
+  barcode: {
+    type: String,
+    trim: true,
+    sparse: true,
+    unique: true
+  },
+  
+  // Description and notes
+  description: {
+    type: String,
+    trim: true,
+    maxlength: 1000
+  },
+  
+  // Legacy fields for backward compatibility
+  // These are kept for existing data but new items use InventoryItemBranch
+  branchIds: {
+    type: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Branch'
+    }],
+    default: []
+  },
   currentStock: {
     type: Number,
-    required: true,
     default: 0,
     min: 0
   },
   minimumStock: {
     type: Number,
-    required: true,
+    default: 0,
     min: 0
   },
   maximumStock: {
@@ -73,18 +96,6 @@ const inventoryItemSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  sku: {
-    type: String,
-    trim: true,
-    sparse: true,
-    unique: true
-  },
-  barcode: {
-    type: String,
-    trim: true,
-    sparse: true,
-    unique: true
-  },
   lastPurchaseDate: {
     type: Date
   },
@@ -92,6 +103,8 @@ const inventoryItemSchema = new mongoose.Schema({
     type: Number,
     min: 0
   },
+  
+  // Status
   isActive: {
     type: Boolean,
     default: true
@@ -100,12 +113,12 @@ const inventoryItemSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Virtual field: isLowStock
+// Virtual field: isLowStock (for legacy data)
 inventoryItemSchema.virtual('isLowStock').get(function() {
   return this.currentStock <= this.minimumStock;
 });
 
-// Virtual field: isExpiringSoon (within 7 days)
+// Virtual field: isExpiringSoon (within 7 days, for legacy data)
 inventoryItemSchema.virtual('isExpiringSoon').get(function() {
   if (!this.expiryDate) return false;
   
@@ -126,19 +139,18 @@ inventoryItemSchema.set('toJSON', { virtuals: true });
 inventoryItemSchema.set('toObject', { virtuals: true });
 
 // Indexes
-inventoryItemSchema.index({ branchIds: 1, name: 1 });
-inventoryItemSchema.index({ branchIds: 1, type: 1 });
-inventoryItemSchema.index({ branchIds: 1, currentStock: 1 });
+inventoryItemSchema.index({ name: 1 });
+inventoryItemSchema.index({ type: 1 });
 inventoryItemSchema.index({ category: 1 });
 inventoryItemSchema.index({ subcategory: 1 });
-inventoryItemSchema.index({ expiryDate: 1 });
 inventoryItemSchema.index({ sku: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ barcode: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ isActive: 1 });
-// Additional indexes for category-branch consistency
+// Legacy indexes for backward compatibility
+inventoryItemSchema.index({ branchIds: 1, name: 1 });
+inventoryItemSchema.index({ branchIds: 1, type: 1 });
 inventoryItemSchema.index({ category: 1, branchIds: 1 });
 inventoryItemSchema.index({ subcategory: 1, branchIds: 1 });
-inventoryItemSchema.index({ branchIds: 1, category: 1, subcategory: 1 });
 
 export const getInventoryItemModel = (companyDB) => {
   return companyDB.model('InventoryItem', inventoryItemSchema);

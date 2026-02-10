@@ -160,6 +160,37 @@ export const inventoryServices = {
     apiClient.put(`/api/inventory/transfers/${id}/reject`, { reason }),
 };
 
+// Inventory Item Branch Services
+export const inventoryItemBranchServices = {
+  // Create inventory item with branch configurations
+  createInventoryItemWithBranches: (data: { inventoryItemData: any; branchConfigs: any[] }) =>
+    apiClient.post("/api/inventory/items/with-branches", data),
+
+  // Create branch configuration
+  createBranchConfig: (inventoryItemId: string, branchId: string, config: any) =>
+    apiClient.post(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`, config),
+
+  // Get branch configuration
+  getBranchConfig: (inventoryItemId: string, branchId: string) =>
+    apiClient.get(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`),
+
+  // Update branch configuration
+  updateBranchConfig: (inventoryItemId: string, branchId: string, config: any) =>
+    apiClient.put(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`, config),
+
+  // Delete branch configuration
+  deleteBranchConfig: (inventoryItemId: string, branchId: string) =>
+    apiClient.delete(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`),
+
+  // Bulk update branch configurations
+  updateInventoryItemBranches: (inventoryItemId: string, branchConfigs: any[]) =>
+    apiClient.put(`/api/inventory/items/${inventoryItemId}/branches`, { branchConfigs }),
+
+  // Get inventory items for a specific branch
+  getInventoryItemsForBranch: (branchId: string, params?: { page?: number; limit?: number; search?: string; type?: string; isActive?: boolean }) =>
+    apiClient.get(`/api/inventory/branches/${branchId}/items`, { params }),
+};
+
 // Recipe Services
 export const recipeServices = {
   // Get all recipes

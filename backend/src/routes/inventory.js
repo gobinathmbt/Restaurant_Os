@@ -20,6 +20,15 @@ import {
   approveStockTransfer,
   rejectStockTransfer
 } from '../controllers/inventoryController.js';
+import {
+  createBranchConfig,
+  getBranchConfig,
+  updateBranchConfig,
+  deleteBranchConfig,
+  bulkUpdateBranchConfigs,
+  getInventoryItemsForBranch,
+  createInventoryItemWithBranches
+} from '../controllers/inventoryItemBranchController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { validateAndAssignItemCategories } from '../middlewares/categoryBranchValidation.js';
 
@@ -31,12 +40,23 @@ router.use(authenticate);
 // Inventory Item routes
 router.get('/items', getInventoryItems);
 router.post('/items', validateAndAssignItemCategories, createInventoryItem);
+router.post('/items/with-branches', createInventoryItemWithBranches);
 router.get('/items/low-stock', getLowStockItems);
 router.get('/items/expiring', getExpiringItems);
 router.get('/items/categories', getInventoryCategories);
 router.get('/items/:id', getInventoryItemById);
 router.put('/items/:id', validateAndAssignItemCategories, updateInventoryItem);
 router.delete('/items/:id', deleteInventoryItem);
+
+// Inventory Item Branch Configuration routes
+router.post('/items/:inventoryItemId/branches/:branchId', createBranchConfig);
+router.get('/items/:inventoryItemId/branches/:branchId', getBranchConfig);
+router.put('/items/:inventoryItemId/branches/:branchId', updateBranchConfig);
+router.delete('/items/:inventoryItemId/branches/:branchId', deleteBranchConfig);
+router.put('/items/:inventoryItemId/branches', bulkUpdateBranchConfigs);
+
+// Get inventory items for a specific branch
+router.get('/branches/:branchId/items', getInventoryItemsForBranch);
 
 // GRN (Goods Receipt Note) routes
 router.get('/grn', getGRNs);

@@ -170,6 +170,168 @@ export const createInventoryItem = async (itemData, companyId, userBranchIds, us
 };
 
 /**
+ * Create inventory item with branch configurations
+ * @param {Object} inventoryItemData - Inventory item data
+ * @param {Array} branchConfigs - Array of branch configurations
+ * @param {string} companyId - Company ID
+ * @param {string} userId - User ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} Created inventory item with branch configs
+ */
+export const createInventoryItemWithBranches = async (inventoryItemData, branchConfigs, companyId, userId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItem = getInventoryItemModel(companyDB);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const Category = getCategoryModel(companyDB);
+    const Branch = getBranchModel(companyDB);
+
+    // Validate required fields
+    const requiredFields = ['name', 'type', 'unit', 'category'];
+    const missingFields = requiredFields.filter(field => !inventoryItemData[field]);
+    
+    if (missingFields.length > 0) {
+      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    // Validate branch configs
+    if (!branchConfigs || !Array.isArray(branchConfigs) || branchConfigs.length === 0) {
+      throw new Error('At least one branch configuration is required');
+    }
+
+    // Extract branch IDs from configs
+    const branchIds = branchConfigs.map(config => config.branchId);
+
+    // Validate branch access
+    if (userBranchIds !== null) {
+      const invalidBranches = branchIds.filter(
+        branchId => !userBranchIds.includes(branchId.toString())
+      );
+      
+      if (invalidBranches.length > 0) {
+        throw new Error(`No access to branch: ${invalidBranches[0]}`);
+      }
+    }
+
+    // Validate that all branch IDs exist
+    const branches = await Branch.find({ 
+      _id: { $in: branchIds },
+      isActive: true 
+    });
+    
+    if (branches.length !== branchIds.length) {
+      throw new Error('Invalid branch ID detected');
+    }
+
+    // Validate category exists
+    const category = await Category.findById(inventoryItemData.category);
+    if (!category) {
+      throw new Error('Selected category does not exist');
+    }
+
+    // If subcategory is provided, validate it
+    if (inventoryItemData.subcategory) {
+      const subcategory = await Category.findById(inventoryItemData.subcategory);
+      if (!subcategory) {
+        throw new Error('Selected subcategory does not exist');
+      }
+      
+      if (!subcategory.parent || subcategory.parent.toString() !== inventoryItemData.category.toString()) {
+        throw new Error('Subcategory does not belong to the selected category');
+      }
+    }
+
+    // Check unique SKU/barcode if provided
+    if (inventoryItemData.sku) {
+      const existingSku = await InventoryItem.findOne({ sku: inventoryItemData.sku, isActive: true });
+      if (existingSku) {
+        throw new Error('SKU already exists');
+      }
+    }
+
+    if (inventoryItemData.barcode) {
+      const existingBarcode = await InventoryItem.findOne({ barcode: inventoryItemData.barcode, isActive: true });
+      if (existingBarcode) {
+        throw new Error('Barcode already exists');
+      }
+    }
+
+    // Create inventory item (without branch-specific data)
+    const inventoryItem = new InventoryItem({
+      name: inventoryItemData.name,
+      type: inventoryItemData.type,
+      category: inventoryItemData.category,
+      subcategory: inventoryItemData.subcategory || null,
+      unit: inventoryItemData.unit,
+      sku: inventoryItemData.sku,
+      barcode: inventoryItemData.barcode,
+      branchIds: branchIds, // Store branch IDs for backward compatibility
+      currentStock: 0, // Will be managed per branch
+      minimumStock: 0, // Will be managed per branch
+      isActive: true
+    });
+
+    await inventoryItem.save();
+
+    logger.info(`Inventory item created: ${inventoryItem._id} for company: ${companyId}`);
+
+    // Create branch configurations
+    const createdBranchConfigs = [];
+    for (const config of branchConfigs) {
+      const { branchId, ...configData } = config;
+
+      const branchConfig = new InventoryItemBranch({
+        inventoryItem: inventoryItem._id,
+        branch: branchId,
+        currentStock: configData.currentStock !== undefined ? configData.currentStock : 0,
+        minimumStock: configData.minimumStock !== undefined ? configData.minimumStock : 0,
+        maximumStock: configData.maximumStock,
+        reorderPoint: configData.reorderPoint,
+        costPrice: configData.costPrice,
+        lastPurchasePrice: configData.lastPurchasePrice,
+        lastPurchaseDate: configData.lastPurchaseDate,
+        supplier: configData.supplier,
+        storageLocation: configData.storageLocation,
+        batchNumber: configData.batchNumber,
+        expiryDate: configData.expiryDate,
+        branchSKU: configData.branchSKU,
+        branchBarcode: configData.branchBarcode,
+        isActive: true,
+        isAvailable: configData.isAvailable !== undefined ? configData.isAvailable : true,
+        notes: configData.notes
+      });
+
+      await branchConfig.save();
+      createdBranchConfigs.push(branchConfig);
+    }
+
+    logger.info(`Created ${createdBranchConfigs.length} branch configs for inventory item: ${inventoryItem._id}`);
+
+    // Populate and return
+    const populatedItem = await InventoryItem.findById(inventoryItem._id)
+      .populate('category', 'name description color')
+      .populate('subcategory', 'name description color')
+      .lean();
+
+    const populatedBranchConfigs = await InventoryItemBranch.find({
+      _id: { $in: createdBranchConfigs.map(c => c._id) }
+    })
+      .populate('branch', 'name code')
+      .populate('supplier', 'name contactPerson phone')
+      .lean();
+
+    return {
+      inventoryItem: populatedItem,
+      branchConfigs: populatedBranchConfigs
+    };
+  } catch (error) {
+    logger.error('Error creating inventory item with branches:', error);
+    throw error;
+  }
+};
+
+/**
  * Get inventory items with filtering and pagination
  * @param {string} companyId - Company ID
  * @param {Object} filters - Filter options
@@ -271,15 +433,18 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
 };
 
 /**
- * Get inventory item by ID
+ * Get inventory item by ID with branch configurations
  * @param {string} itemId - Inventory item ID
  * @param {string} companyId - Company ID
- * @returns {Promise<Object>} Inventory item
+ * @param {Array|null} userBranchIds - User's accessible branches (null for super admin)
+ * @returns {Promise<Object>} Inventory item with branch configurations
  */
-export const getInventoryItemById = async (itemId, companyId) => {
+export const getInventoryItemById = async (itemId, companyId, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     const item = await InventoryItem.findById(itemId)
@@ -297,7 +462,21 @@ export const getInventoryItemById = async (itemId, companyId) => {
     item.isLowStock = item.currentStock <= item.minimumStock;
     item.isExpiringSoon = item.expiryDate ? isExpiringSoon(item.expiryDate) : false;
 
-    return item;
+    // Fetch ALL branch configurations (don't filter by userBranchIds)
+    // Users can see all branches but only edit their own
+    const branchConfigs = await InventoryItemBranch.find({
+      inventoryItem: itemId,
+      isActive: true
+    })
+      .populate('branch', 'name code address')
+      .populate('supplier', 'name contactPerson phone')
+      .lean();
+
+    // Return item with branch configurations
+    return {
+      ...item,
+      branches: branchConfigs
+    };
   } catch (error) {
     logger.error('Error getting inventory item by ID:', error);
     throw error;
