@@ -254,9 +254,19 @@ export default function InventoryItemsTab({
     setIsItemFormOpen(true);
   };
 
-  const handleEditItem = (item: InventoryItem) => {
-    setSelectedItem(item);
-    setIsItemFormOpen(true);
+  const handleEditItem = async (item: InventoryItem) => {
+    try {
+      // Fetch full item details with branch configurations
+      const response = await inventoryServices.getInventoryItem(item._id);
+      setSelectedItem(response.data.data.item);
+      setIsItemFormOpen(true);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to fetch item details',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleDeleteItem = (item: InventoryItem) => {

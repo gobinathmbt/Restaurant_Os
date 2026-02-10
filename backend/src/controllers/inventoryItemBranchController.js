@@ -371,10 +371,26 @@ export const createInventoryItemWithBranches = async (req, res, next) => {
       userId
     });
 
+    // Check if auto-assignments were made
+    if (result.autoAssignments && Object.keys(result.autoAssignments).length > 0) {
+      return res.status(201).json({
+        success: true,
+        message: 'Inventory item created successfully',
+        data: {
+          inventoryItem: result.inventoryItem,
+          branchConfigs: result.branchConfigs,
+          autoAssignments: result.autoAssignments
+        }
+      });
+    }
+
     res.status(201).json({
       success: true,
       message: 'Inventory item created successfully',
-      data: result
+      data: {
+        inventoryItem: result.inventoryItem,
+        branchConfigs: result.branchConfigs
+      }
     });
   } catch (error) {
     logger.error('Create inventory item with branches error', error);

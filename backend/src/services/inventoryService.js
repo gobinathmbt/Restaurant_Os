@@ -179,8 +179,19 @@ export const createInventoryItem = async (itemData, companyId, userBranchIds, us
  * @returns {Promise<Object>} Created inventory item with branch configs
  */
 export const createInventoryItemWithBranches = async (inventoryItemData, branchConfigs, companyId, userId, userBranchIds = null) => {
+  // Get company database connection first
+  const companyDB = getCompanyDB(companyId);
+  
+  // Check if transactions are supported (replica set or mongos)
+  const supportsTransactions = companyDB.client?.topology?.description?.type !== 'Single';
+  
+  let session = null;
+  if (supportsTransactions) {
+    session = await companyDB.startSession();
+    session.startTransaction();
+  }
+
   try {
-    const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
     const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
@@ -215,24 +226,32 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
     }
 
     // Validate that all branch IDs exist
-    const branches = await Branch.find({ 
+    const branchQuery = Branch.find({ 
       _id: { $in: branchIds },
       isActive: true 
     });
+    if (session) branchQuery.session(session);
+    const branches = await branchQuery;
     
     if (branches.length !== branchIds.length) {
       throw new Error('Invalid branch ID detected');
     }
 
     // Validate category exists
-    const category = await Category.findById(inventoryItemData.category);
+    const categoryQuery = Category.findById(inventoryItemData.category);
+    if (session) categoryQuery.session(session);
+    const category = await categoryQuery;
+    
     if (!category) {
       throw new Error('Selected category does not exist');
     }
 
     // If subcategory is provided, validate it
     if (inventoryItemData.subcategory) {
-      const subcategory = await Category.findById(inventoryItemData.subcategory);
+      const subcategoryQuery = Category.findById(inventoryItemData.subcategory);
+      if (session) subcategoryQuery.session(session);
+      const subcategory = await subcategoryQuery;
+      
       if (!subcategory) {
         throw new Error('Selected subcategory does not exist');
       }
@@ -244,44 +263,102 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 
     // Check unique SKU/barcode if provided
     if (inventoryItemData.sku) {
-      const existingSku = await InventoryItem.findOne({ sku: inventoryItemData.sku, isActive: true });
+      const existingSkuQuery = InventoryItem.findOne({ sku: inventoryItemData.sku, isActive: true });
+      if (session) existingSkuQuery.session(session);
+      const existingSku = await existingSkuQuery;
+      
       if (existingSku) {
         throw new Error('SKU already exists');
       }
     }
 
     if (inventoryItemData.barcode) {
-      const existingBarcode = await InventoryItem.findOne({ barcode: inventoryItemData.barcode, isActive: true });
+      const existingBarcodeQuery = InventoryItem.findOne({ barcode: inventoryItemData.barcode, isActive: true });
+      if (session) existingBarcodeQuery.session(session);
+      const existingBarcode = await existingBarcodeQuery;
+      
       if (existingBarcode) {
         throw new Error('Barcode already exists');
       }
     }
 
-    // Create inventory item (without branch-specific data)
-    const inventoryItem = new InventoryItem({
-      name: inventoryItemData.name,
-      type: inventoryItemData.type,
-      category: inventoryItemData.category,
-      subcategory: inventoryItemData.subcategory || null,
-      unit: inventoryItemData.unit,
-      sku: inventoryItemData.sku,
-      barcode: inventoryItemData.barcode,
-      branchIds: branchIds, // Store branch IDs for backward compatibility
-      currentStock: 0, // Will be managed per branch
-      minimumStock: 0, // Will be managed per branch
-      isActive: true
-    });
+    // Auto-assign category and subcategory to branches if needed
+    const categoryId = inventoryItemData.category;
+    const subcategoryId = inventoryItemData.subcategory;
 
-    await inventoryItem.save();
+    logger.info(`Auto-assigning inventory category ${categoryId} to branches: ${branchIds.join(', ')}`);
+
+    const { CategoryBranchValidationService } = await import('./categoryBranchValidationService.js');
+    const validationService = new CategoryBranchValidationService(companyDB);
+    
+    const assignmentResult = await validationService.assignCategoryToBranches(
+      branchIds,
+      categoryId,
+      userId,
+      'inventory_item_assignment',
+      session
+    );
+
+    logger.info(`Category assignment result:`, assignmentResult);
+
+    // If subcategory is provided, auto-assign it too
+    if (subcategoryId) {
+      logger.info(`Auto-assigning inventory subcategory ${subcategoryId} to branches: ${branchIds.join(', ')}`);
+      
+      const subcategoryAssignmentResult = await validationService.assignCategoryToBranches(
+        branchIds,
+        subcategoryId,
+        userId,
+        'inventory_item_assignment',
+        session
+      );
+
+      logger.info(`Subcategory assignment result:`, subcategoryAssignmentResult);
+    }
+
+    // Create inventory item (without branch-specific data)
+    let inventoryItem;
+    if (session) {
+      const items = await InventoryItem.create(
+        [{
+          name: inventoryItemData.name,
+          type: inventoryItemData.type,
+          category: inventoryItemData.category,
+          subcategory: inventoryItemData.subcategory || null,
+          unit: inventoryItemData.unit,
+          sku: inventoryItemData.sku,
+          barcode: inventoryItemData.barcode,
+          branchIds: branchIds, // Store branch IDs for backward compatibility
+          currentStock: 0, // Will be managed per branch
+          minimumStock: 0, // Will be managed per branch
+          isActive: true
+        }],
+        { session }
+      );
+      inventoryItem = items[0];
+    } else {
+      inventoryItem = await InventoryItem.create({
+        name: inventoryItemData.name,
+        type: inventoryItemData.type,
+        category: inventoryItemData.category,
+        subcategory: inventoryItemData.subcategory || null,
+        unit: inventoryItemData.unit,
+        sku: inventoryItemData.sku,
+        barcode: inventoryItemData.barcode,
+        branchIds: branchIds,
+        currentStock: 0,
+        minimumStock: 0,
+        isActive: true
+      });
+    }
 
     logger.info(`Inventory item created: ${inventoryItem._id} for company: ${companyId}`);
 
     // Create branch configurations
-    const createdBranchConfigs = [];
-    for (const config of branchConfigs) {
+    const branchConfigDocs = branchConfigs.map(config => {
       const { branchId, ...configData } = config;
-
-      const branchConfig = new InventoryItemBranch({
+      
+      return {
         inventoryItem: inventoryItem._id,
         branch: branchId,
         currentStock: configData.currentStock !== undefined ? configData.currentStock : 0,
@@ -300,13 +377,23 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
         isActive: true,
         isAvailable: configData.isAvailable !== undefined ? configData.isAvailable : true,
         notes: configData.notes
-      });
+      };
+    });
 
-      await branchConfig.save();
-      createdBranchConfigs.push(branchConfig);
+    let createdBranchConfigs;
+    if (session) {
+      createdBranchConfigs = await InventoryItemBranch.create(branchConfigDocs, { session });
+    } else {
+      createdBranchConfigs = await InventoryItemBranch.create(branchConfigDocs);
     }
 
     logger.info(`Created ${createdBranchConfigs.length} branch configs for inventory item: ${inventoryItem._id}`);
+
+    // Commit transaction if using transactions
+    if (session) {
+      await session.commitTransaction();
+      session.endSession();
+    }
 
     // Populate and return
     const populatedItem = await InventoryItem.findById(inventoryItem._id)
@@ -323,9 +410,16 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 
     return {
       inventoryItem: populatedItem,
-      branchConfigs: populatedBranchConfigs
+      branchConfigs: populatedBranchConfigs,
+      autoAssignments: assignmentResult // Return auto-assignment info
     };
   } catch (error) {
+    // Rollback transaction if using transactions
+    if (session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
+    
     logger.error('Error creating inventory item with branches:', error);
     throw error;
   }

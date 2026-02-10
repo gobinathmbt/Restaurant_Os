@@ -54,56 +54,6 @@ const inventoryItemSchema = new mongoose.Schema({
     maxlength: 1000
   },
   
-  // Legacy fields for backward compatibility
-  // These are kept for existing data but new items use InventoryItemBranch
-  branchIds: {
-    type: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Branch'
-    }],
-    default: []
-  },
-  currentStock: {
-    type: Number,
-    default: 0,
-    min: 0
-  },
-  minimumStock: {
-    type: Number,
-    default: 0,
-    min: 0
-  },
-  maximumStock: {
-    type: Number,
-    min: 0
-  },
-  reorderPoint: {
-    type: Number,
-    min: 0
-  },
-  costPrice: {
-    type: Number,
-    min: 0
-  },
-  supplier: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Supplier'
-  },
-  expiryDate: {
-    type: Date
-  },
-  batchNumber: {
-    type: String,
-    trim: true
-  },
-  lastPurchaseDate: {
-    type: Date
-  },
-  lastPurchasePrice: {
-    type: Number,
-    min: 0
-  },
-  
   // Status
   isActive: {
     type: Boolean,
@@ -111,27 +61,6 @@ const inventoryItemSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
-});
-
-// Virtual field: isLowStock (for legacy data)
-inventoryItemSchema.virtual('isLowStock').get(function() {
-  return this.currentStock <= this.minimumStock;
-});
-
-// Virtual field: isExpiringSoon (within 7 days, for legacy data)
-inventoryItemSchema.virtual('isExpiringSoon').get(function() {
-  if (!this.expiryDate) return false;
-  
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  const sevenDaysFromNow = new Date(today);
-  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-  
-  const expiryDate = new Date(this.expiryDate);
-  expiryDate.setHours(0, 0, 0, 0);
-  
-  return expiryDate >= today && expiryDate <= sevenDaysFromNow;
 });
 
 // Ensure virtuals are included in JSON output
@@ -146,11 +75,6 @@ inventoryItemSchema.index({ subcategory: 1 });
 inventoryItemSchema.index({ sku: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ barcode: 1 }, { unique: true, sparse: true });
 inventoryItemSchema.index({ isActive: 1 });
-// Legacy indexes for backward compatibility
-inventoryItemSchema.index({ branchIds: 1, name: 1 });
-inventoryItemSchema.index({ branchIds: 1, type: 1 });
-inventoryItemSchema.index({ category: 1, branchIds: 1 });
-inventoryItemSchema.index({ subcategory: 1, branchIds: 1 });
 
 export const getInventoryItemModel = (companyDB) => {
   return companyDB.model('InventoryItem', inventoryItemSchema);

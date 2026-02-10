@@ -196,15 +196,15 @@ export default function InventoryBranchConfigModal({
               <div>
                 <Label htmlFor="supplier">Supplier</Label>
                 <Select
-                  value={localConfig.supplier || ''}
-                  onValueChange={(value) => handleChange('supplier', value || undefined)}
+                  value={localConfig.supplier || 'none'}
+                  onValueChange={(value) => handleChange('supplier', value === 'none' ? undefined : value)}
                   disabled={!isEditable}
                 >
                   <SelectTrigger id="supplier">
                     <SelectValue placeholder="Select supplier" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {suppliers.map((supplier) => (
                       <SelectItem key={supplier._id} value={supplier._id}>
                         {supplier.name}
