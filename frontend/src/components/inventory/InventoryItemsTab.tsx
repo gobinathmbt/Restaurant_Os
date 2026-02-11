@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Package } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -343,6 +343,41 @@ export default function InventoryItemsTab({
     setItemDeleteDialog({ open: true, item });
   };
 
+  const handleToggleStatus = async (item: InventoryItem) => {
+    try {
+      setLoading(true);
+      setLoadingMessage(item.isActive ? 'Deactivating item...' : 'Activating item...');
+      
+      await inventoryServices.updateInventoryItem(item._id, {
+        isActive: !item.isActive
+      });
+      
+      toast({
+        title: 'Success',
+        description: `Item ${item.isActive ? 'deactivated' : 'activated'} successfully`,
+        variant: 'success',
+      });
+      
+      if (paginationEnabled) {
+        fetchItems();
+      } else {
+        setItems([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchItemsInfinite(1, true);
+      }
+      fetchAlertCounts();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to toggle item status',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const confirmDeleteItem = async () => {
     if (!itemDeleteDialog.item) return;
 
@@ -630,8 +665,17 @@ export default function InventoryItemsTab({
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => handleToggleStatus(item)}
+                          title={item.isActive ? 'Deactivate item' : 'Activate item'}
+                        >
+                          <Power className={`h-4 w-4 ${item.isActive ? 'text-green-600' : 'text-gray-400'}`} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleDeleteItem(item)}
-                          title="Delete item"
+                          title="Permanently delete item"
+                          className="text-destructive hover:text-destructive"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

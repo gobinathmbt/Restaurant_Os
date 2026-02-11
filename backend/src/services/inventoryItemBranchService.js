@@ -139,14 +139,8 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
     // Build query for InventoryItemBranch
     const branchQuery = {
       branch: branchId
+      // Removed isActive filter - show all items (active and inactive)
     };
-
-    // Active/Inactive filter for branch config
-    if (isActive === 'true') {
-      branchQuery.isActive = true;
-    } else if (isActive === 'false') {
-      branchQuery.isActive = false;
-    }
 
     // Availability filter
     if (isAvailable === 'true') {

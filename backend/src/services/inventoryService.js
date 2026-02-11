@@ -490,7 +490,7 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
 
     // Build base query for InventoryItem
     const itemQuery = {
-      isActive: true
+      // Removed isActive filter - show all items (active and inactive)
     };
 
     // Search filter - search by name, SKU, or barcode
@@ -525,8 +525,8 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
       if (userBranchIds !== null) {
         // Company admins cannot use 'all' - filter by their branches
         const branchItems = await InventoryItemBranch.find({
-          branch: { $in: userBranchIds },
-          isActive: true
+          branch: { $in: userBranchIds }
+          // Removed isActive filter - show all items
         }).distinct('inventoryItem');
         itemIdsFromBranches = branchItems;
       }
@@ -534,15 +534,15 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
     } else if (branchId) {
       // Specific branch selected - find items assigned to that branch
       const branchItems = await InventoryItemBranch.find({
-        branch: branchId,
-        isActive: true
+        branch: branchId
+        // Removed isActive filter - show all items
       }).distinct('inventoryItem');
       itemIdsFromBranches = branchItems;
     } else if (userBranchIds !== null && userBranchIds.length > 0) {
       // Company admin with no specific branch - show items from their branches
       const branchItems = await InventoryItemBranch.find({
-        branch: { $in: userBranchIds },
-        isActive: true
+        branch: { $in: userBranchIds}
+        // Removed isActive filter - show all items
       }).distinct('inventoryItem');
       itemIdsFromBranches = branchItems;
     }
@@ -572,8 +572,8 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
     const itemsWithBranches = await Promise.all(
       items.map(async (item) => {
         const branchConfigs = await InventoryItemBranch.find({
-          inventoryItem: item._id,
-          isActive: true
+          inventoryItem: item._id
+          // Removed isActive filter - show all branch configs
         })
           .populate('branch', 'name code')
           .select('branch')
@@ -617,6 +617,7 @@ export const getInventoryItemById = async (itemId, companyId, userBranchIds = nu
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
     const Branch = getBranchModel(companyDB); // Register Branch model
+    const Category = getCategoryModel(companyDB); // Register Category model
 
     // Fetch inventory item with category and subcategory populated
     const item = await InventoryItem.findById(itemId)
@@ -628,11 +629,11 @@ export const getInventoryItemById = async (itemId, companyId, userBranchIds = nu
       throw new Error('Inventory item not found');
     }
 
-    // Fetch ALL branch configurations (don't filter by userBranchIds)
+    // Fetch ALL branch configurations (don't filter by isActive)
     // Users can see all branches but only edit their own (handled in frontend/controller)
     const branchConfigs = await InventoryItemBranch.find({
-      inventoryItem: itemId,
-      isActive: true
+      inventoryItem: itemId
+      // Removed isActive filter - show all branch configs
     })
       .populate('branch', 'name code address city state pincode')
       .populate('supplier', 'name contactPerson phone email')
@@ -676,8 +677,8 @@ export const updateInventoryItem = async (itemId, updateData, companyId, userId,
     if (userBranchIds !== null) {
       // Get branches where this item exists
       const itemBranches = await InventoryItemBranch.find({ 
-        inventoryItem: itemId,
-        isActive: true 
+        inventoryItem: itemId
+        // Removed isActive filter - check all branches
       }).select('branch');
       
       const itemBranchIds = itemBranches.map(ib => ib.branch.toString());
@@ -761,8 +762,8 @@ export const updateInventoryItem = async (itemId, updateData, companyId, userId,
       
       // Get all branches where this inventory item is assigned
       const branchAssignments = await InventoryItemBranch.find({
-        inventoryItem: itemId,
-        isActive: true
+        inventoryItem: itemId
+        // Removed isActive filter - check all branches
       }).select('branch').lean();
       
       logger.info(`Inventory item has ${branchAssignments.length} branch assignment(s)`);
@@ -797,8 +798,8 @@ export const updateInventoryItem = async (itemId, updateData, companyId, userId,
       
       // Get all branches where this inventory item is assigned
       const branchAssignments = await InventoryItemBranch.find({
-        inventoryItem: itemId,
-        isActive: true
+        inventoryItem: itemId
+        // Removed isActive filter - check all branches
       }).select('branch').lean();
       
       if (branchAssignments.length > 0) {
@@ -844,7 +845,7 @@ export const updateInventoryItem = async (itemId, updateData, companyId, userId,
 };
 
 /**
- * Delete inventory item (soft delete)
+ * Delete inventory item (hard delete - permanently removes from database)
  * @param {string} itemId - Inventory item ID
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Deleted inventory item
@@ -853,18 +854,20 @@ export const deleteInventoryItem = async (itemId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
 
-    const item = await InventoryItem.findByIdAndUpdate(
-      itemId,
-      { isActive: false },
-      { new: true }
-    );
+    // First, delete all branch configurations for this item
+    await InventoryItemBranch.deleteMany({ inventoryItem: itemId });
+
+    // Then, permanently delete the inventory item
+    const item = await InventoryItem.findByIdAndDelete(itemId);
 
     if (!item) {
       throw new Error('Inventory item not found');
     }
 
-    logger.info(`Inventory item soft deleted: ${itemId} for company: ${companyId}`);
+    logger.info(`Inventory item permanently deleted: ${itemId} for company: ${companyId}`);
 
     return item;
   } catch (error) {
