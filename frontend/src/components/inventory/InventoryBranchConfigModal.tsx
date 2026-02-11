@@ -57,15 +57,74 @@ export default function InventoryBranchConfigModal({
   suppliers = [],
 }: InventoryBranchConfigModalProps) {
   const [localConfig, setLocalConfig] = useState<BranchConfig>(config);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setLocalConfig(config);
+    setValidationErrors({});
   }, [config, isOpen]);
+
+  const validateConfig = (newConfig: BranchConfig): Record<string, string> => {
+    const errors: Record<string, string> = {};
+
+    // Validate maximumStock >= minimumStock
+    if (newConfig.maximumStock !== undefined && newConfig.maximumStock < newConfig.minimumStock) {
+      errors.maximumStock = 'Maximum stock must be greater than or equal to minimum stock';
+    }
+
+    // Validate currentStock <= maximumStock
+    if (newConfig.maximumStock !== undefined && newConfig.currentStock > newConfig.maximumStock) {
+      errors.currentStock = 'Current stock cannot exceed maximum stock';
+    }
+
+    // Validate reorderPoint between minimumStock and maximumStock
+    if (newConfig.reorderPoint !== undefined) {
+      if (newConfig.reorderPoint < newConfig.minimumStock) {
+        errors.reorderPoint = 'Reorder point should be greater than or equal to minimum stock';
+      }
+      if (newConfig.maximumStock !== undefined && newConfig.reorderPoint > newConfig.maximumStock) {
+        errors.reorderPoint = 'Reorder point should be less than or equal to maximum stock';
+      }
+    }
+
+    // Validate expiryDate not in past
+    if (newConfig.expiryDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const expiry = new Date(newConfig.expiryDate);
+      expiry.setHours(0, 0, 0, 0);
+      if (expiry < today) {
+        errors.expiryDate = 'Expiry date cannot be in the past';
+      }
+    }
+
+    // Validate price decimal places (max 2)
+    if (newConfig.costPrice !== undefined) {
+      const decimals = (newConfig.costPrice.toString().split('.')[1] || '').length;
+      if (decimals > 2) {
+        errors.costPrice = 'Price cannot have more than 2 decimal places';
+      }
+    }
+    if (newConfig.lastPurchasePrice !== undefined) {
+      const decimals = (newConfig.lastPurchasePrice.toString().split('.')[1] || '').length;
+      if (decimals > 2) {
+        errors.lastPurchasePrice = 'Price cannot have more than 2 decimal places';
+      }
+    }
+
+    return errors;
+  };
 
   const handleChange = (field: keyof BranchConfig, value: any) => {
     const newConfig = { ...localConfig, [field]: value };
     setLocalConfig(newConfig);
-    if (isEditable) {
+    
+    // Validate the new config
+    const errors = validateConfig(newConfig);
+    setValidationErrors(errors);
+    
+    // Only propagate changes if there are no validation errors
+    if (isEditable && Object.keys(errors).length === 0) {
       onChange(newConfig);
     }
   };
@@ -74,6 +133,11 @@ export default function InventoryBranchConfigModal({
     if (!date) return '';
     const d = new Date(date);
     return d.toISOString().split('T')[0];
+  };
+
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
   };
 
   return (
@@ -107,7 +171,11 @@ export default function InventoryBranchConfigModal({
                     onChange={(e) => handleChange('currentStock', parseFloat(e.target.value) || 0)}
                     disabled={!isEditable}
                     required
+                    className={validationErrors.currentStock ? 'border-red-500' : ''}
                   />
+                  {validationErrors.currentStock && (
+                    <p className="text-xs text-red-500 mt-1">{validationErrors.currentStock}</p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="minimumStock">Minimum Stock *</Label>
@@ -132,7 +200,11 @@ export default function InventoryBranchConfigModal({
                     value={localConfig.maximumStock || ''}
                     onChange={(e) => handleChange('maximumStock', e.target.value ? parseFloat(e.target.value) : undefined)}
                     disabled={!isEditable}
+                    className={validationErrors.maximumStock ? 'border-red-500' : ''}
                   />
+                  {validationErrors.maximumStock && (
+                    <p className="text-xs text-red-500 mt-1">{validationErrors.maximumStock}</p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="reorderPoint">Reorder Point</Label>
@@ -144,7 +216,11 @@ export default function InventoryBranchConfigModal({
                     value={localConfig.reorderPoint || ''}
                     onChange={(e) => handleChange('reorderPoint', e.target.value ? parseFloat(e.target.value) : undefined)}
                     disabled={!isEditable}
+                    className={validationErrors.reorderPoint ? 'border-red-500' : ''}
                   />
+                  {validationErrors.reorderPoint && (
+                    <p className="text-xs text-red-500 mt-1">{validationErrors.reorderPoint}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -163,7 +239,11 @@ export default function InventoryBranchConfigModal({
                     value={localConfig.costPrice || ''}
                     onChange={(e) => handleChange('costPrice', e.target.value ? parseFloat(e.target.value) : undefined)}
                     disabled={!isEditable}
+                    className={validationErrors.costPrice ? 'border-red-500' : ''}
                   />
+                  {validationErrors.costPrice && (
+                    <p className="text-xs text-red-500 mt-1">{validationErrors.costPrice}</p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="lastPurchasePrice">Last Purchase Price (₹)</Label>
@@ -175,7 +255,11 @@ export default function InventoryBranchConfigModal({
                     value={localConfig.lastPurchasePrice || ''}
                     onChange={(e) => handleChange('lastPurchasePrice', e.target.value ? parseFloat(e.target.value) : undefined)}
                     disabled={!isEditable}
+                    className={validationErrors.lastPurchasePrice ? 'border-red-500' : ''}
                   />
+                  {validationErrors.lastPurchasePrice && (
+                    <p className="text-xs text-red-500 mt-1">{validationErrors.lastPurchasePrice}</p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="lastPurchaseDate">Last Purchase Date</Label>
@@ -243,10 +327,15 @@ export default function InventoryBranchConfigModal({
                   <Input
                     id="expiryDate"
                     type="date"
+                    min={getTodayDate()}
                     value={formatDate(localConfig.expiryDate)}
                     onChange={(e) => handleChange('expiryDate', e.target.value ? new Date(e.target.value) : undefined)}
                     disabled={!isEditable}
+                    className={validationErrors.expiryDate ? 'border-red-500' : ''}
                   />
+                  {validationErrors.expiryDate && (
+                    <p className="text-xs text-red-500 mt-1">{validationErrors.expiryDate}</p>
+                  )}
                 </div>
               </div>
             </div>

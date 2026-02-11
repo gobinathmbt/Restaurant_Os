@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
-import { inventoryServices } from '@/api/services';
+import { inventoryServices, inventoryItemBranchServices } from '@/api/services';
 import InventoryItemFormModal from '@/components/inventory/InventoryItemFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -29,7 +29,7 @@ interface InventoryItem {
   _id: string;
   name: string;
   type: 'raw_material' | 'finished_good';
-  branchIds: Array<
+  branchIds?: Array<
     | {
         _id: string;
         name: string;
@@ -52,8 +52,8 @@ interface InventoryItem {
       }
     | string;
   unit: string;
-  currentStock: number;
-  minimumStock: number;
+  currentStock?: number;
+  minimumStock?: number;
   maximumStock?: number;
   costPrice?: number;
   supplier?: {
@@ -61,9 +61,42 @@ interface InventoryItem {
     name: string;
   };
   expiryDate?: string;
-  isLowStock: boolean;
-  isExpiringSoon: boolean;
+  isLowStock?: boolean;
+  isExpiringSoon?: boolean;
   isActive: boolean;
+  // Branch-specific config (when viewing specific branch)
+  branchConfig?: {
+    currentStock: number;
+    minimumStock: number;
+    maximumStock?: number;
+    costPrice?: number;
+    supplier?: {
+      _id: string;
+      name: string;
+    };
+    isLowStock: boolean;
+    isExpiringSoon: boolean;
+    isAvailable: boolean;
+  };
+  branches?: Array<{
+    _id: string;
+    branch: {
+      _id: string;
+      name: string;
+      code: string;
+    };
+    currentStock: number;
+    minimumStock: number;
+    maximumStock?: number;
+    costPrice?: number;
+    supplier?: {
+      _id: string;
+      name: string;
+    };
+    isLowStock: boolean;
+    isExpiringSoon: boolean;
+    isAvailable: boolean;
+  }>;
 }
 
 interface InventoryItemsTabProps {
@@ -154,11 +187,30 @@ export default function InventoryItemsTab({
         subcategory: itemsSubcategoryFilter !== 'all' ? itemsSubcategoryFilter : undefined,
       };
 
-      const response = await inventoryServices.getInventoryItems(selectedBranch, params);
+      let response;
+      if (selectedBranch === 'all') {
+        // Fetch all inventory items (global view without branch-specific data)
+        response = await inventoryServices.getInventoryItems({
+          ...params,
+          branchId: 'all'
+        });
+        const items = response.data.data.items || [];
+        
+        setItems(items);
+        setItemsTotalCount(response.data.data.pagination.total);
+        setItemsTotalPages(response.data.data.pagination.pages);
+      } else {
+        // Fetch branch-specific inventory items (merged with global data)
+        response = await inventoryItemBranchServices.getInventoryItemsForBranch(
+          selectedBranch,
+          params
+        );
 
-      setItems(response.data.data.items || []);
-      setItemsTotalCount(response.data.data.pagination.total);
-      setItemsTotalPages(response.data.data.pagination.pages);
+        const items = response.data.data.items || [];
+        setItems(items);
+        setItemsTotalCount(response.data.data.pagination.total);
+        setItemsTotalPages(response.data.data.pagination.pages);
+      }
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -189,8 +241,25 @@ export default function InventoryItemsTab({
         subcategory: itemsSubcategoryFilter !== 'all' ? itemsSubcategoryFilter : undefined,
       };
 
-      const response = await inventoryServices.getInventoryItems(selectedBranch, params);
-      const fetchedItems = response.data.data.items || [];
+      let response;
+      let fetchedItems;
+      
+      if (selectedBranch === 'all') {
+        // Fetch all inventory items (global view without branch-specific data)
+        response = await inventoryServices.getInventoryItems({
+          ...params,
+          branchId: 'all'
+        });
+        fetchedItems = response.data.data.items || [];
+      } else {
+        // Fetch branch-specific inventory items (merged with global data)
+        response = await inventoryItemBranchServices.getInventoryItemsForBranch(
+          selectedBranch,
+          params
+        );
+        fetchedItems = response.data.data.items || [];
+      }
+
       const pagination = response.data.data.pagination;
 
       if (reset) {
@@ -229,6 +298,13 @@ export default function InventoryItemsTab({
     if (!selectedBranch) return;
 
     try {
+      // Only fetch alert counts for specific branches, not for "all" view
+      if (selectedBranch === 'all') {
+        setLowStockCount(0);
+        setExpiringCount(0);
+        return;
+      }
+
       const [lowStockResponse, expiringResponse] = await Promise.all([
         inventoryServices.getLowStockItems(selectedBranch),
         inventoryServices.getExpiringItems(selectedBranch),
@@ -257,7 +333,7 @@ export default function InventoryItemsTab({
   const handleEditItem = async (item: InventoryItem) => {
     try {
       // Fetch full item details with branch configurations
-      const response = await inventoryServices.getInventoryItem(item._id);
+      const response = await inventoryServices.getInventoryItemById(item._id);
       setSelectedItem(response.data.data.item);
       setIsItemFormOpen(true);
     } catch (error: any) {
@@ -461,6 +537,14 @@ export default function InventoryItemsTab({
                   return categoryName;
                 };
 
+                // Get branch-specific data if viewing a specific branch
+                const currentStock = item.branchConfig?.currentStock ?? item.currentStock ?? 0;
+                const minimumStock = item.branchConfig?.minimumStock ?? item.minimumStock ?? 0;
+                const costPrice = item.branchConfig?.costPrice ?? item.costPrice;
+                const supplier = item.branchConfig?.supplier ?? item.supplier;
+                const isLowStock = item.branchConfig?.isLowStock ?? item.isLowStock ?? false;
+                const isExpiringSoon = item.branchConfig?.isExpiringSoon ?? item.isExpiringSoon ?? false;
+
                 const branchNames = getBranchNames();
                 const branchCount = item.branchIds?.length || 0;
 
@@ -472,14 +556,14 @@ export default function InventoryItemsTab({
                     <TableCell>
                       <div>
                         <p className="font-medium">{item.name}</p>
-                        {(item.isLowStock || item.isExpiringSoon) && (
+                        {(isLowStock || isExpiringSoon) && (
                           <div className="flex gap-1 mt-1">
-                            {item.isLowStock && (
+                            {isLowStock && (
                               <Badge variant="destructive" className="text-xs">
                                 Low Stock
                               </Badge>
                             )}
-                            {item.isExpiringSoon && (
+                            {isExpiringSoon && (
                               <Badge className="text-xs bg-orange-100 text-orange-800">
                                 Expiring Soon
                               </Badge>
@@ -494,39 +578,45 @@ export default function InventoryItemsTab({
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge variant="secondary" className="cursor-help">
-                              {branchCount} branch{branchCount !== 1 ? 'es' : ''}
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="max-w-xs">
-                              {branchNames.length > 0 ? (
-                                <ul className="list-disc list-inside">
-                                  {branchNames.map((name, idx) => (
-                                    <li key={idx}>{name}</li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p>No branches assigned</p>
-                              )}
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      {selectedBranch === 'all' ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge variant="secondary" className="cursor-help">
+                                {branchCount} branch{branchCount !== 1 ? 'es' : ''}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="max-w-xs">
+                                {branchNames.length > 0 ? (
+                                  <ul className="list-disc list-inside">
+                                    {branchNames.map((name, idx) => (
+                                      <li key={idx}>{name}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p>No branches assigned</p>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <Badge variant="default">
+                          {branches.find(b => b._id === selectedBranch)?.name || 'Current Branch'}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>{getCategoryPath()}</TableCell>
-                    <TableCell className="text-right font-medium">{item.currentStock}</TableCell>
+                    <TableCell className="text-right font-medium">{currentStock}</TableCell>
                     <TableCell className="text-right text-muted-foreground">
-                      {item.minimumStock}
+                      {minimumStock}
                     </TableCell>
                     <TableCell>{item.unit}</TableCell>
                     <TableCell className="text-right">
-                      {item.costPrice ? formatCurrency(item.costPrice) : '-'}
+                      {costPrice ? formatCurrency(costPrice) : '-'}
                     </TableCell>
-                    <TableCell>{item.supplier?.name || '-'}</TableCell>
+                    <TableCell>{supplier?.name || '-'}</TableCell>
                     <TableCell>{item.expiryDate ? formatDate(item.expiryDate) : '-'}</TableCell>
                     <TableCell>
                       <Badge variant={item.isActive ? 'default' : 'secondary'}>
@@ -570,8 +660,11 @@ export default function InventoryItemsTab({
                     itemsCategoryFilter !== 'all' ||
                     itemsSubcategoryFilter !== 'all'
                       ? 'Try adjusting your filters'
+                      : selectedBranch === 'all'
+                      ? 'No inventory items have been created yet'
                       : 'Get started by adding your first inventory item',
                   action:
+                    selectedBranch !== 'all' &&
                     !itemsSearch &&
                     !itemsTypeFilter &&
                     itemsCategoryFilter === 'all' &&

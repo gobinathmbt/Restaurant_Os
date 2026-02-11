@@ -484,7 +484,7 @@ export default function InventoryItemFormModal({
           ...branchConfigs.get(branchId),
         }));
 
-        response = await inventoryItemBranchServices.createInventoryItemWithBranches({
+        response = await inventoryServices.createInventoryItemWithBranches({
           inventoryItemData: submitData,
           branchConfigs: branchConfigsArray,
         });
@@ -529,46 +529,6 @@ export default function InventoryItemFormModal({
           }
         } else {
           toast({ title: 'Success', description: 'Inventory item created', variant: 'success' });
-        }
-      }
-
-      // Check for auto-assignment information in response
-      const autoAssignments = response?.data?.data?.autoAssignments;
-      
-      if (autoAssignments && (autoAssignments.categories?.length > 0 || autoAssignments.subcategories?.length > 0)) {
-        // Build notification message for auto-assignments
-        const assignmentMessages: string[] = [];
-        
-        if (autoAssignments.categories?.length > 0) {
-          autoAssignments.categories.forEach((cat: any) => {
-            const branchList = cat.branchNames?.join(', ') || 'selected branches';
-            assignmentMessages.push(`Category "${cat.categoryName}" was automatically assigned to: ${branchList}`);
-          });
-        }
-        
-        if (autoAssignments.subcategories?.length > 0) {
-          autoAssignments.subcategories.forEach((subcat: any) => {
-            const branchList = subcat.branchNames?.join(', ') || 'selected branches';
-            assignmentMessages.push(`Subcategory "${subcat.subcategoryName}" was automatically assigned to: ${branchList}`);
-          });
-        }
-        
-        if (assignmentMessages.length > 0) {
-          toast({
-            title: "Success with Auto-assignments",
-            description: (
-              <div className="space-y-1">
-                <p>{item ? 'Inventory item updated successfully' : 'Inventory item created successfully'}</p>
-                <div className="mt-2 pt-2 border-t border-border/50">
-                  <p className="font-semibold text-xs mb-1">Auto-assignments:</p>
-                  {assignmentMessages.map((msg, idx) => (
-                    <p key={idx} className="text-xs">{msg}</p>
-                  ))}
-                </div>
-              </div>
-            ),
-            variant: "success",
-          });
         }
       }
       
