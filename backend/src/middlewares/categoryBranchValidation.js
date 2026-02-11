@@ -9,6 +9,8 @@ import { getCompanyDB } from '../config/database.js';
 import CategoryBranchValidationService from '../services/categoryBranchValidationService.js';
 import { logger } from '../utils/logger.js';
 import { isFeatureEnabled, logFeatureDisabledWarning } from '../config/featureFlags.js';
+import { getCategoryModel } from '../models/company/Category.js';
+import { getBranchModel } from '../models/company/Branch.js';
 
 /**
  * Middleware to validate and auto-assign categories when creating/updating inventory items
@@ -302,12 +304,12 @@ export const validateCategoryBranchRemoval = async (req, res, next) => {
       const { dependencies } = validationResult;
       
       // Get category name for error message
-      const Category = companyDB.model('Category');
+      const Category = getCategoryModel(companyDB);
       const category = await Category.findById(categoryId).select('name').lean();
       const categoryName = category ? category.name : 'Unknown';
 
       // Get branch name for error message
-      const Branch = companyDB.model('Branch');
+      const Branch = getBranchModel(companyDB);
       const branch = await Branch.findById(branchId).select('name').lean();
       const branchName = branch ? branch.name : 'Unknown';
 
@@ -422,7 +424,7 @@ export const validateCategoryUpdate = async (req, res, next) => {
 
     // Get company database connection
     const companyDB = getCompanyDB(companyId);
-    const Category = companyDB.model('Category');
+    const Category = getCategoryModel(companyDB);
     const validationService = new CategoryBranchValidationService(companyDB);
 
     // Get existing category to compare branches
@@ -461,7 +463,7 @@ export const validateCategoryUpdate = async (req, res, next) => {
 
       if (!validationResult.canRemove) {
         // Get branch name for error message
-        const Branch = companyDB.model('Branch');
+        const Branch = getBranchModel(companyDB);
         const branch = await Branch.findById(branchId).select('name').lean();
         const branchName = branch ? branch.name : 'Unknown';
 
@@ -578,7 +580,7 @@ export const validateCategoryDeletion = async (req, res, next) => {
 
     // Get company database connection
     const companyDB = getCompanyDB(companyId);
-    const Category = companyDB.model('Category');
+    const Category = getCategoryModel(companyDB);
     const validationService = new CategoryBranchValidationService(companyDB);
 
     // Get category to check its branches
@@ -607,7 +609,7 @@ export const validateCategoryDeletion = async (req, res, next) => {
 
       if (!validationResult.canRemove) {
         // Get branch name for error message
-        const Branch = companyDB.model('Branch');
+        const Branch = getBranchModel(companyDB);
         const branch = await Branch.findById(branchId).select('name').lean();
         const branchName = branch ? branch.name : 'Unknown';
 

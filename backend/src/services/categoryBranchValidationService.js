@@ -173,33 +173,50 @@ class CategoryBranchValidationService {
         throw new Error('Invalid branch ID format');
       }
 
-      // Build query
-      const query = {
-        branchIds: branchId,
-        isActive: true
-      };
+      // Build query for InventoryItem (global properties)
+      const itemQuery = {};
 
       if (isSubcategory) {
-        query.subcategory = categoryId;
+        itemQuery.subcategory = categoryId;
       } else {
-        query.category = categoryId;
+        itemQuery.category = categoryId;
       }
 
-      // Find items
-      const items = await this.InventoryItem.find(query)
-        .select('_id name type sku')
+      // Find all inventory items with this category/subcategory
+      const inventoryItems = await this.InventoryItem.find(itemQuery)
+        .select('_id')
+        .lean();
+
+      if (inventoryItems.length === 0) {
+        return { count: 0, items: [] };
+      }
+
+      const inventoryItemIds = inventoryItems.map(item => item._id);
+
+      // Now check which of these items are assigned to the specific branch
+      const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+      const InventoryItemBranch = getInventoryItemBranchModel(this.companyDB);
+
+      const branchItems = await InventoryItemBranch.find({
+        inventoryItem: { $in: inventoryItemIds },
+        branch: branchId
+      })
+        .populate('inventoryItem', 'name type sku')
         .limit(10)
         .lean();
 
-      const count = await this.InventoryItem.countDocuments(query);
+      const count = await InventoryItemBranch.countDocuments({
+        inventoryItem: { $in: inventoryItemIds },
+        branch: branchId
+      });
 
       return {
         count,
-        items: items.map(item => ({
-          id: item._id,
-          name: item.name,
-          type: item.type,
-          sku: item.sku
+        items: branchItems.map(branchItem => ({
+          id: branchItem.inventoryItem._id,
+          name: branchItem.inventoryItem.name,
+          type: branchItem.inventoryItem.type,
+          sku: branchItem.inventoryItem.sku
         }))
       };
     } catch (error) {

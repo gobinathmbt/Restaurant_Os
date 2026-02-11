@@ -181,41 +181,76 @@ export default function CategoryFormModal({
         const details = errorData.error.details;
         const removedBranches = details.removedBranches;
         
-        // Build detailed dependency message
-        const dependencyMessages: string[] = [];
-        
-        removedBranches.forEach((branch: any) => {
-          const itemCount = branch.dependencies?.items?.count || 0;
-          const supplierCount = branch.dependencies?.suppliers?.count || 0;
-          
-          if (itemCount > 0 || supplierCount > 0) {
-            const parts: string[] = [];
-            if (itemCount > 0) parts.push(`${itemCount} item(s)`);
-            if (supplierCount > 0) parts.push(`${supplierCount} supplier(s)`);
-            dependencyMessages.push(`${branch.branchName}: ${parts.join(', ')}`);
-          }
-        });
-        
         toast({
           title: 'Cannot Update Category',
           description: (
-            <div className="space-y-2">
-              <p>{errorData.error.message}</p>
-              {dependencyMessages.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-border/50">
-                  <p className="font-semibold text-xs mb-1">Dependencies found:</p>
-                  {dependencyMessages.map((msg, idx) => (
-                    <p key={idx} className="text-xs">• {msg}</p>
-                  ))}
-                  <p className="text-xs mt-2 text-muted-foreground">
-                    Remove or reassign these items/suppliers before removing branch access.
-                  </p>
-                </div>
-              )}
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              <p className="font-medium">{errorData.error.message}</p>
+              
+              {removedBranches.map((branch: any, branchIdx: number) => {
+                const itemCount = branch.dependencies?.items?.count || 0;
+                const supplierCount = branch.dependencies?.suppliers?.count || 0;
+                const items = branch.dependencies?.items?.items || [];
+                const suppliers = branch.dependencies?.suppliers?.suppliers || [];
+                
+                if (itemCount === 0 && supplierCount === 0) return null;
+                
+                return (
+                  <div key={branchIdx} className="pt-2 border-t border-border/50">
+                    <p className="font-semibold text-sm mb-2">
+                      {branch.branchName}
+                    </p>
+                    
+                    {itemCount > 0 && (
+                      <div className="mb-2">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">
+                          Inventory Items ({itemCount}):
+                        </p>
+                        <div className="space-y-1 ml-2">
+                          {items.slice(0, 5).map((item: any, idx: number) => (
+                            <p key={idx} className="text-xs">
+                              • {item.name} {item.sku ? `(${item.sku})` : ''}
+                            </p>
+                          ))}
+                          {itemCount > 5 && (
+                            <p className="text-xs text-muted-foreground italic">
+                              ... and {itemCount - 5} more item(s)
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {supplierCount > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">
+                          Suppliers ({supplierCount}):
+                        </p>
+                        <div className="space-y-1 ml-2">
+                          {suppliers.slice(0, 5).map((supplier: any, idx: number) => (
+                            <p key={idx} className="text-xs">
+                              • {supplier.name} {supplier.contactPerson ? `(${supplier.contactPerson})` : ''}
+                            </p>
+                          ))}
+                          {supplierCount > 5 && (
+                            <p className="text-xs text-muted-foreground italic">
+                              ... and {supplierCount - 5} more supplier(s)
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              
+              <p className="text-xs mt-3 pt-2 border-t border-border/50 text-muted-foreground">
+                💡 Remove or reassign these items/suppliers to other categories before removing branch access.
+              </p>
             </div>
           ),
           variant: 'destructive',
-          duration: 10000, // Show longer for detailed messages
+          duration: 15000, // Show longer for detailed messages
         });
       } else {
         toast({
