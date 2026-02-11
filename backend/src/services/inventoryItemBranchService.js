@@ -118,6 +118,7 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
     // Validate branch access
     if (!validateBranchAccess(branchId, userBranchIds)) {
@@ -283,7 +284,7 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
     const total = await InventoryItemBranch.countDocuments(branchQuery);
 
     return {
-      inventoryItems: mergedInventoryItems,
+      items: mergedInventoryItems, // Changed from inventoryItems to items
       pagination: {
         total,
         page: parseInt(page),
