@@ -9,7 +9,6 @@ import { getInventoryItemBranchModel } from '../models/company/InventoryItemBran
 import { getBranchModel } from '../models/company/Branch.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
 import { logger } from '../utils/logger.js';
-import CategoryBranchValidationService from './categoryBranchValidationService.js';
 
 /**
  * Validate branch access based on user role
@@ -369,10 +368,10 @@ export const bulkUpdateBranchConfigs = async (itemId, branchConfigs, companyId, 
         validatePrice(updateData.lastPurchasePrice);
       }
 
-      // Validate stock values
+      // Validate stock values if provided
       validateStockValues(updateData);
 
-      // Validate expiry date
+      // Validate expiry date if provided
       if (updateData.expiryDate !== undefined) {
         validateExpiryDate(updateData.expiryDate);
       }
@@ -417,7 +416,7 @@ export const bulkUpdateBranchConfigs = async (itemId, branchConfigs, companyId, 
       updatedConfigs.push(branchConfig);
     }
 
-    // Auto-assignment results
+    // Auto-assign category and subcategory to newly added branches
     const autoAssignments = {
       assigned: {
         categories: [],
@@ -431,62 +430,57 @@ export const bulkUpdateBranchConfigs = async (itemId, branchConfigs, companyId, 
       }
     };
 
-    // Auto-assign category and subcategory to newly added branches
     if (newBranchIds.length > 0) {
+      logger.info(`Auto-assigning category/subcategory to new branches: ${newBranchIds.join(', ')}`);
+      
+      const CategoryBranchValidationService = (await import('./categoryBranchValidationService.js')).default;
+      const validationService = new CategoryBranchValidationService(companyDB);
+      
+      // Prepare category and subcategory IDs
       const categoryIds = inventoryItem.category ? [inventoryItem.category._id.toString()] : [];
       const subcategoryIds = inventoryItem.subcategory ? [inventoryItem.subcategory._id.toString()] : [];
+      
+      // Auto-assign categories and subcategories
+      const assignmentResult = await validationService.assignCategoriesToBranches(
+        newBranchIds,
+        categoryIds,
+        subcategoryIds,
+        userId || 'system',
+        'inventory_item_branch_update',
+        null // no session
+      );
+      
+      autoAssignments.assigned.categories = assignmentResult.assigned.categories;
+      autoAssignments.assigned.subcategories = assignmentResult.assigned.subcategories;
+      autoAssignments.alreadyAssigned.categories = assignmentResult.alreadyAssigned.categories;
+      autoAssignments.alreadyAssigned.subcategories = assignmentResult.alreadyAssigned.subcategories;
+      
+      logger.info(`Category/subcategory assignment result:`, assignmentResult);
+    }
 
-      if (categoryIds.length > 0 || subcategoryIds.length > 0) {
-        logger.info(`Auto-assigning categories to new branches: ${newBranchIds.join(', ')}`);
-        
-        const validationService = new CategoryBranchValidationService(companyDB);
-        
-        const assignmentResult = await validationService.assignCategoriesToBranches(
-          newBranchIds,
-          categoryIds,
-          subcategoryIds,
-          userId || 'system',
-          'inventory_item_branch_update',
-          null // no session
-        );
-        
-        autoAssignments.assigned.categories = assignmentResult.assigned.categories;
-        autoAssignments.assigned.subcategories = assignmentResult.assigned.subcategories;
-        autoAssignments.alreadyAssigned.categories = assignmentResult.alreadyAssigned.categories;
-        autoAssignments.alreadyAssigned.subcategories = assignmentResult.alreadyAssigned.subcategories;
-        
-        logger.info(`Category assignment result:`, assignmentResult);
-      }
-
-      // Auto-assign suppliers to branches where specified
-      const Supplier = getSupplierModel(companyDB);
-      for (const config of branchConfigs) {
-        if (config.supplier && newBranchIds.includes(config.branchId)) {
-          try {
-            const supplier = await Supplier.findById(config.supplier);
-            if (supplier) {
-              const supplierBranchIds = supplier.branchIds.map(id => id.toString());
-              if (!supplierBranchIds.includes(config.branchId.toString())) {
-                supplier.branchIds.push(config.branchId);
-                await supplier.save();
-                
-                autoAssignments.assigned.suppliers.push({
-                  supplierId: supplier._id.toString(),
-                  supplierName: supplier.name,
-                  branchId: config.branchId
-                });
-                
-                logger.info(`Auto-assigned supplier ${supplier._id} to branch ${config.branchId}`);
-              } else {
-                autoAssignments.alreadyAssigned.suppliers.push({
-                  supplierId: supplier._id.toString(),
-                  supplierName: supplier.name,
-                  branchId: config.branchId
-                });
-              }
-            }
-          } catch (error) {
-            logger.error(`Error auto-assigning supplier ${config.supplier}:`, error);
+    // Auto-assign suppliers to branches where specified
+    const Supplier = getSupplierModel(companyDB);
+    for (const config of branchConfigs) {
+      if (config.supplier) {
+        const supplier = await Supplier.findById(config.supplier);
+        if (supplier) {
+          const supplierBranchIds = supplier.branchIds.map(id => id.toString());
+          if (!supplierBranchIds.includes(config.branchId.toString())) {
+            supplier.branchIds.push(config.branchId);
+            await supplier.save();
+            
+            autoAssignments.assigned.suppliers.push({
+              supplierId: supplier._id.toString(),
+              supplierName: supplier.name,
+              branchIds: [config.branchId]
+            });
+            
+            logger.info(`Auto-assigned supplier ${supplier._id} to branch ${config.branchId}`);
+          } else {
+            autoAssignments.alreadyAssigned.suppliers.push({
+              supplierId: supplier._id.toString(),
+              supplierName: supplier.name
+            });
           }
         }
       }
@@ -549,6 +543,3 @@ export const deleteBranchConfig = async (itemId, branchId, companyId, userBranch
     throw error;
   }
 };
-
-// Export validateBranchAccess for testing
-export { validateBranchAccess };
