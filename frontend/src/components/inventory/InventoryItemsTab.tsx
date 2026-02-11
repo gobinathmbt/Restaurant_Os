@@ -29,14 +29,6 @@ interface InventoryItem {
   _id: string;
   name: string;
   type: 'raw_material' | 'finished_good';
-  branchIds?: Array<
-    | {
-        _id: string;
-        name: string;
-        code: string;
-      }
-    | string
-  >;
   category:
     | {
         _id: string;
@@ -78,6 +70,7 @@ interface InventoryItem {
     isExpiringSoon: boolean;
     isAvailable: boolean;
   };
+  // Branch configurations (when viewing all branches)
   branches?: Array<{
     _id: string;
     branch: {
@@ -97,6 +90,7 @@ interface InventoryItem {
     isExpiringSoon: boolean;
     isAvailable: boolean;
   }>;
+  branchCount?: number;
 }
 
 interface InventoryItemsTabProps {
@@ -513,9 +507,9 @@ export default function InventoryItemsTab({
 
                 // Helper function to get branch names
                 const getBranchNames = () => {
-                  if (!item.branchIds || item.branchIds.length === 0) return [];
-                  return item.branchIds.map((branch) =>
-                    typeof branch === 'string' ? branch : branch.name
+                  if (!item.branches || item.branches.length === 0) return [];
+                  return item.branches.map((branchConfig: any) =>
+                    branchConfig.branch?.name || 'Unknown Branch'
                   );
                 };
 
@@ -546,7 +540,7 @@ export default function InventoryItemsTab({
                 const isExpiringSoon = item.branchConfig?.isExpiringSoon ?? item.isExpiringSoon ?? false;
 
                 const branchNames = getBranchNames();
-                const branchCount = item.branchIds?.length || 0;
+                const branchCount = item.branches?.length || 0;
 
                 return (
                   <TableRow key={item._id}>

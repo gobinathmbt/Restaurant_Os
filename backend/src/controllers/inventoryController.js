@@ -193,20 +193,26 @@ export const updateInventoryItem = async (req, res, next) => {
     const { id } = req.params;
     const updateData = req.body;
 
-    // Get user's branch IDs if not already in req.user (for company admins)
-    let effectiveBranchIds = userBranchIds;
-    if (!effectiveBranchIds && role === 'company_admin') {
-      const user = await CompanyUser.findById(userId).select('branchIds');
-      effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
+    // Determine effective branch IDs based on role
+    let effectiveBranchIds = null; // Default for super admins
+    
+    if (role === 'company_admin') {
+      // Company admins have restricted branch access
+      effectiveBranchIds = userBranchIds;
+      if (!effectiveBranchIds) {
+        const user = await CompanyUser.findById(userId).select('branchIds');
+        effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
+      }
     }
+    // Super admins (company_super_admin_primary, company_super_admin_secondary) get null
 
-    // Update inventory item with user's branch access and role
+    // Update inventory item with correct parameter order
     const item = await inventoryService.updateInventoryItem(
       id, 
       updateData, 
       companyId, 
-      effectiveBranchIds || [], 
-      role
+      userId,
+      effectiveBranchIds
     );
 
     logger.info('Inventory item updated via API', { 

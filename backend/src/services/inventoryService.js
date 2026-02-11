@@ -473,8 +473,10 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
-    const Category = getCategoryModel(companyDB); // Register Category model
-    const Branch = getBranchModel(companyDB); // Register Branch model
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const Category = getCategoryModel(companyDB);
+    const Branch = getBranchModel(companyDB);
 
     const {
       page = 1,
@@ -486,32 +488,14 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
       branchId = ''
     } = filters;
 
-    // Build query
-    const query = {
+    // Build base query for InventoryItem
+    const itemQuery = {
       isActive: true
     };
 
-    // Branch filtering logic
-    if (branchId === 'all') {
-      // Super admin viewing all items - no branch filter
-      // Only super admins (userBranchIds === null) should be able to use 'all'
-      if (userBranchIds !== null) {
-        // Company admins cannot use 'all' - default to their branches
-        query.branchIds = { $in: userBranchIds };
-      }
-      // Super admin with 'all' - no branch filter, show everything
-    } else if (branchId) {
-      // Specific branch selected - filter by that branch
-      query.branchIds = branchId;
-    } else if (userBranchIds !== null && userBranchIds.length > 0) {
-      // Company admin with no specific branch - show items from their branches
-      query.branchIds = { $in: userBranchIds };
-    }
-    // Super admin with no branchId specified - show all items
-
     // Search filter - search by name, SKU, or barcode
     if (search) {
-      query.$or = [
+      itemQuery.$or = [
         { name: { $regex: search, $options: 'i' } },
         { sku: { $regex: search, $options: 'i' } },
         { barcode: { $regex: search, $options: 'i' } }
@@ -520,17 +504,53 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
 
     // Type filter
     if (type) {
-      query.type = type;
+      itemQuery.type = type;
     }
 
     // Category filter
     if (category) {
-      query.category = category;
+      itemQuery.category = category;
     }
 
     // Subcategory filter
     if (subcategory) {
-      query.subcategory = subcategory;
+      itemQuery.subcategory = subcategory;
+    }
+
+    // Branch filtering logic - query InventoryItemBranch to find relevant items
+    let itemIdsFromBranches = null;
+    
+    if (branchId === 'all') {
+      // Super admin viewing all items - no branch filter needed
+      if (userBranchIds !== null) {
+        // Company admins cannot use 'all' - filter by their branches
+        const branchItems = await InventoryItemBranch.find({
+          branch: { $in: userBranchIds },
+          isActive: true
+        }).distinct('inventoryItem');
+        itemIdsFromBranches = branchItems;
+      }
+      // Super admin with 'all' - no branch filter, show everything
+    } else if (branchId) {
+      // Specific branch selected - find items assigned to that branch
+      const branchItems = await InventoryItemBranch.find({
+        branch: branchId,
+        isActive: true
+      }).distinct('inventoryItem');
+      itemIdsFromBranches = branchItems;
+    } else if (userBranchIds !== null && userBranchIds.length > 0) {
+      // Company admin with no specific branch - show items from their branches
+      const branchItems = await InventoryItemBranch.find({
+        branch: { $in: userBranchIds },
+        isActive: true
+      }).distinct('inventoryItem');
+      itemIdsFromBranches = branchItems;
+    }
+    // Super admin with no branchId specified - show all items
+
+    // Apply branch filter to item query if needed
+    if (itemIdsFromBranches !== null) {
+      itemQuery._id = { $in: itemIdsFromBranches };
     }
 
     // Calculate pagination
@@ -538,18 +558,37 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
 
     // Execute query with population of category and subcategory
     const [items, total] = await Promise.all([
-      InventoryItem.find(query)
+      InventoryItem.find(itemQuery)
         .populate('category', 'name description color type parent')
         .populate('subcategory', 'name description color type parent')
         .sort({ name: 1 })
         .skip(skip)
         .limit(parseInt(limit))
         .lean(),
-      InventoryItem.countDocuments(query)
+      InventoryItem.countDocuments(itemQuery)
     ]);
 
+    // For each item, fetch branch count and branch details
+    const itemsWithBranches = await Promise.all(
+      items.map(async (item) => {
+        const branchConfigs = await InventoryItemBranch.find({
+          inventoryItem: item._id,
+          isActive: true
+        })
+          .populate('branch', 'name code')
+          .select('branch')
+          .lean();
+
+        return {
+          ...item,
+          branches: branchConfigs,
+          branchCount: branchConfigs.length
+        };
+      })
+    );
+
     return {
-      items,
+      items: itemsWithBranches,
       pagination: {
         total,
         page: parseInt(page),
@@ -635,8 +674,16 @@ export const updateInventoryItem = async (itemId, updateData, companyId, userId,
 
     // Validate user has access to at least one branch where item exists
     if (userBranchIds !== null) {
-      const hasAccess = existingItem.branchIds.some(branchId => 
-        userBranchIds.includes(branchId.toString())
+      // Get branches where this item exists
+      const itemBranches = await InventoryItemBranch.find({ 
+        inventoryItem: itemId,
+        isActive: true 
+      }).select('branch');
+      
+      const itemBranchIds = itemBranches.map(ib => ib.branch.toString());
+      
+      const hasAccess = itemBranchIds.some(branchId => 
+        userBranchIds.includes(branchId)
       );
       
       if (!hasAccess) {
