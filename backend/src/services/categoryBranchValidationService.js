@@ -512,6 +512,131 @@ class CategoryBranchValidationService {
   }
 
   /**
+   * Automatically assign supplier to branches
+   * @param {string[]} branchIds - Branches to assign to
+   * @param {string} supplierId - Supplier to assign
+   * @param {string} userId - User performing the action
+   * @param {string} reason - Reason for assignment
+   * @param {Object} session - MongoDB session for transaction support
+   * @returns {Promise<{assigned: Object, alreadyAssigned: Object}>}
+   */
+  async assignSupplierToBranches(branchIds, supplierId, userId, reason, session = null) {
+    try {
+      // Validate inputs
+      if (!Array.isArray(branchIds) || branchIds.length === 0) {
+        throw new Error('branchIds must be a non-empty array');
+      }
+      if (!supplierId) {
+        throw new Error('supplierId is required');
+      }
+      if (!userId) {
+        throw new Error('userId is required');
+      }
+      if (!reason) {
+        throw new Error('reason is required');
+      }
+
+      // Validate branch IDs format
+      const validBranchIds = branchIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+      if (validBranchIds.length !== branchIds.length) {
+        throw new Error('Invalid branch ID format');
+      }
+
+      // Validate supplier ID format
+      if (!mongoose.Types.ObjectId.isValid(supplierId)) {
+        throw new Error('Invalid supplier ID format');
+      }
+
+      const assigned = {
+        suppliers: []
+      };
+
+      const alreadyAssigned = {
+        suppliers: []
+      };
+
+      // Get supplier document
+      const supplierQuery = this.Supplier.findById(supplierId);
+      if (session) supplierQuery.session(session);
+      const supplier = await supplierQuery;
+
+      if (!supplier) {
+        throw new Error(`Supplier not found: ${supplierId}`);
+      }
+
+      // Check which branches don't have the supplier
+      const supplierBranchIds = supplier.branchIds.map(id => id.toString());
+      const newBranches = validBranchIds.filter(
+        branchId => !supplierBranchIds.includes(branchId.toString())
+      );
+
+      if (newBranches.length > 0) {
+        // Add branches to supplier's branchIds array
+        const updateOptions = { 
+          new: true,
+          runValidators: true
+        };
+        if (session) updateOptions.session = session;
+
+        const updatedSupplier = await this.Supplier.findByIdAndUpdate(
+          supplierId,
+          { 
+            $addToSet: { branchIds: { $each: newBranches } }
+          },
+          updateOptions
+        );
+
+        if (!updatedSupplier) {
+          throw new Error(`Failed to update supplier: ${supplierId}`);
+        }
+
+        assigned.suppliers.push({
+          supplierId: supplierId,
+          supplierName: updatedSupplier.name,
+          branchIds: newBranches
+        });
+
+        // Create audit log (only if audit logging is enabled)
+        if (isFeatureEnabled('ENABLE_AUDIT_LOGGING')) {
+          await this.createAuditLog(
+            userId,
+            'auto_assign_supplier',
+            'supplier',
+            supplierId,
+            null,
+            null,
+            newBranches,
+            reason,
+            { supplierName: updatedSupplier.name },
+            session
+          );
+        } else {
+          logFeatureDisabledWarning(
+            'ENABLE_AUDIT_LOGGING',
+            'assignSupplierToBranches - supplier assignment',
+            { supplierId, branchIds: newBranches }
+          );
+        }
+
+        logger.info(`Auto-assigned supplier ${supplierId} to branches: ${newBranches.join(', ')}`);
+      } else {
+        alreadyAssigned.suppliers.push({
+          supplierId: supplierId,
+          supplierName: supplier.name
+        });
+      }
+
+      return {
+        assigned,
+        alreadyAssigned
+      };
+    } catch (error) {
+      logger.error('Error assigning supplier to branches:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Validate branch removal from category/subcategory
    * @param {string} categoryId - Category ID
    * @param {string} branchId - Branch ID to remove
