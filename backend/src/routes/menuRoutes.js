@@ -23,7 +23,10 @@ import {
   createMenuItemWithBranches,
   bulkUpdateBranchConfigs,
   updateModifiers,
-  deleteModifier
+  deleteModifier,
+  addAddOns,
+  removeAddOn,
+  getAvailableAddOns
 } from '../controllers/menuItemBranchController.js';
 import {
   createMenuCategory,
@@ -97,6 +100,19 @@ router.put('/menu-item-branches/:id/modifiers', updateModifiers);
 
 // Delete a specific modifier from a menu item branch
 router.delete('/menu-item-branches/:id/modifiers/:index', deleteModifier);
+
+// ============================================
+// ADD-ON MANAGEMENT ROUTES
+// ============================================
+
+// Add menu items as add-ons to a menu item branch
+router.post('/menu-item-branches/:id/add-ons', addAddOns);
+
+// Remove an add-on from a menu item branch
+router.delete('/menu-item-branches/:id/add-ons/:addOnId', removeAddOn);
+
+// Get available menu items for add-ons (excludes self)
+router.get('/menu-item-branches/:id/available-add-ons', getAvailableAddOns);
 
 // ============================================
 // MENU CATEGORY ROUTES

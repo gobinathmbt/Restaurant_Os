@@ -588,3 +588,196 @@ export const deleteModifier = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Add menu items as add-ons to a menu item branch
+ * POST /api/menu/menu-item-branches/:id/add-ons
+ */
+export const addAddOns = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id } = req.params;
+    const { addOnIds } = req.body;
+
+    // Validate request body
+    if (!addOnIds || !Array.isArray(addOnIds) || addOnIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Add-on IDs array is required and must not be empty'
+      });
+    }
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Add add-ons
+    const menuItemBranch = await menuItemBranchService.addAddOns(
+      companyId,
+      id,
+      addOnIds,
+      userBranchIds
+    );
+
+    logger.info('Add-ons added via API', {
+      menuItemBranchId: id,
+      addOnCount: addOnIds.length,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Add-ons added successfully',
+      data: { menuItemBranch }
+    });
+  } catch (error) {
+    logger.error('Add add-ons error', error);
+
+    // Handle authorization errors (403)
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle not found errors (404)
+    if (error.message === 'MenuItemBranch not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle validation errors (400)
+    if (error.message.includes('not found') ||
+        error.message.includes('inactive') ||
+        error.message.includes('not available') ||
+        error.message.includes('cannot reference itself') ||
+        error.message.includes('One or more')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Remove an add-on from a menu item branch
+ * DELETE /api/menu/menu-item-branches/:id/add-ons/:addOnId
+ */
+export const removeAddOn = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id, addOnId } = req.params;
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Remove add-on
+    await menuItemBranchService.removeAddOn(
+      companyId,
+      id,
+      addOnId,
+      userBranchIds
+    );
+
+    logger.info('Add-on removed via API', {
+      menuItemBranchId: id,
+      addOnId,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Add-on removed successfully'
+    });
+  } catch (error) {
+    logger.error('Remove add-on error', error);
+
+    // Handle authorization errors (403)
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle not found errors (404)
+    if (error.message === 'MenuItemBranch not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Get available menu items for add-ons (excludes self)
+ * GET /api/menu/menu-item-branches/:id/available-add-ons
+ */
+export const getAvailableAddOns = async (req, res, next) => {
+  try {
+    const { companyId, role, branchIds } = req.user;
+    const { id } = req.params;
+    const { branchId, search } = req.query;
+
+    // Validate required query parameters
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID is required as a query parameter'
+      });
+    }
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Get available add-ons
+    const availableAddOns = await menuItemBranchService.getAvailableAddOns(
+      companyId,
+      id,
+      branchId,
+      search || '',
+      userBranchIds
+    );
+
+    res.json({
+      success: true,
+      data: availableAddOns
+    });
+  } catch (error) {
+    logger.error('Get available add-ons error', error);
+
+    // Handle authorization errors (403)
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle not found errors (404)
+    if (error.message === 'MenuItemBranch not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
