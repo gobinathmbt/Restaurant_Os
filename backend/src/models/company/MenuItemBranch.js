@@ -37,6 +37,37 @@ const availabilityScheduleSchema = new mongoose.Schema({
   }]
 }, { _id: false });
 
+const modifierOptionSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  price: {
+    type: Number,
+    default: 0,
+    min: 0
+  }
+}, { _id: false });
+
+const modifierSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  options: {
+    type: [modifierOptionSchema],
+    default: [],
+    validate: {
+      validator: function(options) {
+        return options.length > 0;
+      },
+      message: 'Modifier must have at least one option'
+    }
+  }
+}, { _id: false });
+
 const menuItemBranchSchema = new mongoose.Schema({
   menuItem: {
     type: mongoose.Schema.Types.ObjectId,
@@ -113,6 +144,16 @@ const menuItemBranchSchema = new mongoose.Schema({
     default: ['dine_in', 'takeaway', 'online']
   },
   
+  // MODIFIERS AND ADD-ONS
+  modifiers: {
+    type: [modifierSchema],
+    default: []
+  },
+  addOns: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MenuItem'
+  }],
+  
   isActive: {
     type: Boolean,
     default: true
@@ -125,6 +166,21 @@ const menuItemBranchSchema = new mongoose.Schema({
 menuItemBranchSchema.index({ menuItem: 1, branch: 1 }, { unique: true });
 menuItemBranchSchema.index({ branch: 1, isActive: 1 });
 menuItemBranchSchema.index({ menuItem: 1, isActive: 1 });
+
+// Pre-save hook to prevent self-referencing add-ons
+menuItemBranchSchema.pre('save', async function(next) {
+  if (this.isModified('addOns') && this.addOns.length > 0) {
+    // Check for self-reference
+    const hasSelfReference = this.addOns.some(
+      addOnId => addOnId.toString() === this.menuItem.toString()
+    );
+    
+    if (hasSelfReference) {
+      throw new Error('Menu item cannot reference itself as an add-on');
+    }
+  }
+  next();
+});
 
 // Method to get effective price (considering time-based pricing)
 menuItemBranchSchema.methods.getEffectivePrice = function() {
@@ -165,6 +221,15 @@ menuItemBranchSchema.methods.isAvailableNow = function() {
     }
     return currentTime >= schedule.startTime && currentTime <= schedule.endTime;
   });
+};
+
+// Method to populate add-ons with MenuItem details
+menuItemBranchSchema.methods.populateAddOns = async function() {
+  await this.populate({
+    path: 'addOns',
+    select: 'name basePrice description images isActive'
+  });
+  return this;
 };
 
 export const getMenuItemBranchModel = (companyDB) => {
