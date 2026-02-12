@@ -373,6 +373,23 @@ export const menuItemBranchServices = {
   // Bulk assign menu item to multiple branches
   bulkAssignToBranches: (menuItemId: string, branchConfigs: Array<{ branchId: string; price: number; [key: string]: any }>) =>
     apiClient.post(`/api/menu/items/${menuItemId}/branches/bulk`, { branchConfigs }),
+
+  // NEW: Modifier management for branch-specific menu items
+  updateModifiers: (menuItemBranchId: string, modifiers: any[]) =>
+    apiClient.put(`/api/menu-item-branches/${menuItemBranchId}/modifiers`, { modifiers }),
+
+  deleteModifier: (menuItemBranchId: string, modifierIndex: number) =>
+    apiClient.delete(`/api/menu-item-branches/${menuItemBranchId}/modifiers/${modifierIndex}`),
+
+  // NEW: Add-on management for branch-specific menu items
+  addAddOns: (menuItemBranchId: string, addOnIds: string[]) =>
+    apiClient.post(`/api/menu-item-branches/${menuItemBranchId}/add-ons`, { addOnIds }),
+
+  removeAddOn: (menuItemBranchId: string, addOnId: string) =>
+    apiClient.delete(`/api/menu-item-branches/${menuItemBranchId}/add-ons/${addOnId}`),
+
+  getAvailableAddOns: (menuItemBranchId: string, params?: { branchId: string; search?: string }) =>
+    apiClient.get(`/api/menu-item-branches/${menuItemBranchId}/available-add-ons`, { params }),
 };
 
 // Menu Category Services

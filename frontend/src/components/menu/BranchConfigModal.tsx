@@ -19,7 +19,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Clock } from 'lucide-react';
+import { Plus, Trash2, Clock, Search, X, CheckCircle2, XCircle } from 'lucide-react';
+import type { BranchModifier, BranchModifierOption, AddOnMenuItem } from '@/types/menu';
+import { menuItemBranchServices } from '@/api/services';
+import { useToast } from '@/hooks/use-toast';
 
 interface TimeBasedPricing {
   name: string;
@@ -50,6 +53,10 @@ interface BranchConfig {
   availability: {
     schedule: AvailabilitySchedule[];
   };
+  // NEW: Branch-specific modifiers
+  modifiers?: BranchModifier[];
+  // NEW: Branch-specific add-ons (MenuItem IDs)
+  addOns?: string[];
 }
 
 interface Branch {
@@ -65,6 +72,9 @@ interface BranchConfigModalProps {
   config: BranchConfig;
   onChange: (config: BranchConfig) => void;
   isEditable?: boolean;
+  // NEW: Props for add-on management
+  menuItemId?: string;
+  menuItemBranchId?: string;
 }
 
 const DAYS_OF_WEEK = [
@@ -91,14 +101,130 @@ export default function BranchConfigModal({
   config,
   onChange,
   isEditable = true,
+  menuItemId,
+  menuItemBranchId,
 }: BranchConfigModalProps) {
+  const { toast } = useToast();
   const [localConfig, setLocalConfig] = useState<BranchConfig>(config);
+  
+  // Add-on management state
+  const [availableAddOns, setAvailableAddOns] = useState<AddOnMenuItem[]>([]);
+  const [selectedAddOns, setSelectedAddOns] = useState<AddOnMenuItem[]>([]);
+  const [addOnSearchTerm, setAddOnSearchTerm] = useState('');
+  const [isLoadingAddOns, setIsLoadingAddOns] = useState(false);
+  const [showAddOnSearch, setShowAddOnSearch] = useState(false);
 
   useEffect(() => {
     setLocalConfig(config);
-  }, [config, isOpen]);
+    console.log( isOpen, menuItemBranchId, branch._id)
+    // Load available add-ons if menuItemBranchId is provided
+    if (isOpen && menuItemBranchId && branch._id) {
+      fetchAvailableAddOns();
+    }
+  }, [config, isOpen, menuItemBranchId, branch._id]);
+
+  const fetchAvailableAddOns = async () => {
+    if (!menuItemBranchId) return;
+    
+    try {
+      setIsLoadingAddOns(true);
+      const response = await menuItemBranchServices.getAvailableAddOns(
+        menuItemBranchId,
+        { branchId: branch._id, search: addOnSearchTerm }
+      );
+      
+      const addOns = response.data.data || [];
+      setAvailableAddOns(addOns);
+      
+      // Load currently selected add-ons details
+      if (localConfig.addOns && localConfig.addOns.length > 0) {
+        const selected = addOns.filter((addOn: AddOnMenuItem) => 
+          localConfig.addOns?.includes(addOn._id)
+        );
+        setSelectedAddOns(selected);
+      }
+    } catch (error: any) {
+      const status = error.response?.status || error.status;
+      const message = error.response?.data?.message || error.message;
+      
+      if (status === 404) {
+        toast({
+          title: 'Not Found',
+          description: message || 'Menu item branch configuration not found',
+          variant: 'destructive',
+        });
+      } else if (status === 403) {
+        toast({
+          title: 'Access Denied',
+          description: message || 'You do not have permission to access this branch',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: message || 'Failed to load available add-ons',
+          variant: 'destructive',
+        });
+      }
+    } finally {
+      setIsLoadingAddOns(false);
+    }
+  };
+
+  // Debounced search for add-ons
+  useEffect(() => {
+    if (showAddOnSearch && menuItemBranchId) {
+      const timer = setTimeout(() => {
+        fetchAvailableAddOns();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [addOnSearchTerm, showAddOnSearch]);
 
   const handleSave = () => {
+    // Validate modifiers
+    if (localConfig.modifiers && localConfig.modifiers.length > 0) {
+      for (const modifier of localConfig.modifiers) {
+        if (!modifier.name || modifier.name.trim() === '') {
+          toast({
+            title: 'Validation Error',
+            description: 'All modifiers must have a name',
+            variant: 'destructive',
+          });
+          return;
+        }
+        
+        if (!modifier.options || modifier.options.length === 0) {
+          toast({
+            title: 'Validation Error',
+            description: `Modifier "${modifier.name}" must have at least one option`,
+            variant: 'destructive',
+          });
+          return;
+        }
+        
+        for (const option of modifier.options) {
+          if (!option.name || option.name.trim() === '') {
+            toast({
+              title: 'Validation Error',
+              description: `All options in modifier "${modifier.name}" must have a name`,
+              variant: 'destructive',
+            });
+            return;
+          }
+          
+          if (option.price < 0) {
+            toast({
+              title: 'Validation Error',
+              description: `Option "${option.name}" in modifier "${modifier.name}" cannot have a negative price`,
+              variant: 'destructive',
+            });
+            return;
+          }
+        }
+      }
+    }
+    
     onChange(localConfig);
     onClose();
   };
@@ -188,6 +314,104 @@ export default function BranchConfigModal({
       ? schedule.days.filter((d) => d !== day)
       : [...schedule.days, day];
     updateAvailabilitySchedule(scheduleIndex, 'days', newDays);
+  };
+
+  // Modifier management functions
+  const addModifier = () => {
+    setLocalConfig({
+      ...localConfig,
+      modifiers: [
+        ...(localConfig.modifiers || []),
+        { name: '', options: [] },
+      ],
+    });
+  };
+
+  const removeModifier = (index: number) => {
+    setLocalConfig({
+      ...localConfig,
+      modifiers: (localConfig.modifiers || []).filter((_, i) => i !== index),
+    });
+  };
+
+  const updateModifier = (index: number, field: string, value: any) => {
+    const newModifiers = [...(localConfig.modifiers || [])];
+    newModifiers[index] = { ...newModifiers[index], [field]: value };
+    setLocalConfig({ ...localConfig, modifiers: newModifiers });
+  };
+
+  const addModifierOption = (modifierIndex: number) => {
+    const newModifiers = [...(localConfig.modifiers || [])];
+    newModifiers[modifierIndex].options.push({ name: '', price: 0 });
+    setLocalConfig({ ...localConfig, modifiers: newModifiers });
+  };
+
+  const removeModifierOption = (modifierIndex: number, optionIndex: number) => {
+    const newModifiers = [...(localConfig.modifiers || [])];
+    newModifiers[modifierIndex].options = newModifiers[modifierIndex].options.filter(
+      (_, i) => i !== optionIndex
+    );
+    setLocalConfig({ ...localConfig, modifiers: newModifiers });
+  };
+
+  const updateModifierOption = (
+    modifierIndex: number,
+    optionIndex: number,
+    field: string,
+    value: any
+  ) => {
+    const newModifiers = [...(localConfig.modifiers || [])];
+    newModifiers[modifierIndex].options[optionIndex] = {
+      ...newModifiers[modifierIndex].options[optionIndex],
+      [field]: value,
+    };
+    setLocalConfig({ ...localConfig, modifiers: newModifiers });
+  };
+
+  // Add-on management functions
+  const handleAddOnSelect = (addOn: AddOnMenuItem) => {
+    // Prevent self-reference
+    if (menuItemId && addOn._id === menuItemId) {
+      toast({
+        title: 'Invalid Selection',
+        description: 'A menu item cannot be added as an add-on to itself',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (!localConfig.addOns?.includes(addOn._id)) {
+      setLocalConfig({
+        ...localConfig,
+        addOns: [...(localConfig.addOns || []), addOn._id],
+      });
+      setSelectedAddOns([...selectedAddOns, addOn]);
+      
+      toast({
+        title: 'Add-on Added',
+        description: `${addOn.name} has been added as an add-on`,
+        variant: 'success',
+      });
+    }
+    setShowAddOnSearch(false);
+    setAddOnSearchTerm('');
+  };
+
+  const handleAddOnRemove = (addOnId: string) => {
+    const addOn = selectedAddOns.find(a => a._id === addOnId);
+    setLocalConfig({
+      ...localConfig,
+      addOns: (localConfig.addOns || []).filter(id => id !== addOnId),
+    });
+    setSelectedAddOns(selectedAddOns.filter(addOn => addOn._id !== addOnId));
+    
+    if (addOn) {
+      toast({
+        title: 'Add-on Removed',
+        description: `${addOn.name} has been removed from add-ons`,
+        variant: 'success',
+      });
+    }
   };
 
   return (
@@ -372,6 +596,251 @@ export default function BranchConfigModal({
                 ))}
               </div>
             </div>
+
+            {/* Modifiers - Branch Specific */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-sm">Modifiers (Branch-Specific)</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addModifier}
+                  disabled={!isEditable}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Modifier
+                </Button>
+              </div>
+              {(localConfig.modifiers || []).map((modifier, modifierIndex) => (
+                <div
+                  key={modifierIndex}
+                  className="border rounded-lg p-3 space-y-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={modifier.name}
+                      onChange={(e) =>
+                        updateModifier(modifierIndex, 'name', e.target.value)
+                      }
+                      placeholder="Modifier name (e.g., Size)"
+                      disabled={!isEditable}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeModifier(modifierIndex)}
+                      disabled={!isEditable}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="ml-4 space-y-2">
+                    {modifier.options.map((option, optionIndex) => (
+                      <div key={optionIndex} className="flex items-center gap-2">
+                        <Input
+                          value={option.name}
+                          onChange={(e) =>
+                            updateModifierOption(
+                              modifierIndex,
+                              optionIndex,
+                              'name',
+                              e.target.value
+                            )
+                          }
+                          placeholder="Option name"
+                          className="flex-1"
+                          disabled={!isEditable}
+                        />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={option.price}
+                          onChange={(e) =>
+                            updateModifierOption(
+                              modifierIndex,
+                              optionIndex,
+                              'price',
+                              parseFloat(e.target.value) || 0
+                            )
+                          }
+                          placeholder="Price"
+                          className="w-32"
+                          disabled={!isEditable}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            removeModifierOption(modifierIndex, optionIndex)
+                          }
+                          disabled={!isEditable}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addModifierOption(modifierIndex)}
+                      disabled={!isEditable}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Option
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Add-ons - Menu Item Based (Branch Specific) */}
+            {menuItemBranchId && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-sm">Add-ons (Branch-Specific)</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAddOnSearch(!showAddOnSearch)}
+                    disabled={!isEditable}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Menu Item
+                  </Button>
+                </div>
+
+                {/* Add-on Search */}
+                {showAddOnSearch && (
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          value={addOnSearchTerm}
+                          onChange={(e) => setAddOnSearchTerm(e.target.value)}
+                          placeholder="Search menu items..."
+                          className="pl-9"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setShowAddOnSearch(false);
+                          setAddOnSearchTerm('');
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Available Add-ons List */}
+                    <div className="max-h-60 overflow-y-auto space-y-1">
+                      {isLoadingAddOns ? (
+                        <div className="text-center py-4 text-sm text-muted-foreground">
+                          Loading menu items...
+                        </div>
+                      ) : availableAddOns.length === 0 ? (
+                        <div className="text-center py-4 text-sm text-muted-foreground">
+                          No menu items found
+                        </div>
+                      ) : (
+                        availableAddOns
+                          .filter(addOn => !localConfig.addOns?.includes(addOn._id))
+                          .map((addOn) => (
+                            <div
+                              key={addOn._id}
+                              className="flex items-center justify-between p-2 hover:bg-muted rounded cursor-pointer"
+                              onClick={() => handleAddOnSelect(addOn)}
+                            >
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{addOn.name}</p>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <span>₹{addOn.basePrice.toFixed(2)}</span>
+                                  {addOn.hasRecipe ? (
+                                    <Badge variant="outline" className="text-xs">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      Has Recipe
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-xs">
+                                      <XCircle className="h-3 w-3 mr-1" />
+                                      No Recipe
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddOnSelect(addOn);
+                                }}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Selected Add-ons */}
+                {selectedAddOns.length > 0 && (
+                  <div className="space-y-2">
+                    {selectedAddOns.map((addOn) => (
+                      <div
+                        key={addOn._id}
+                        className="flex items-center justify-between p-3 border rounded-lg"
+                      >
+                        <div className="flex-1">
+                          <p className="font-medium">{addOn.name}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span>₹{addOn.basePrice.toFixed(2)}</span>
+                            {addOn.hasRecipe ? (
+                              <Badge variant="outline" className="text-xs">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Has Recipe
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">
+                                <XCircle className="h-3 w-3 mr-1" />
+                                No Recipe
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleAddOnRemove(addOn._id)}
+                          disabled={!isEditable}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedAddOns.length === 0 && !showAddOnSearch && (
+                  <div className="text-center py-4 text-sm text-muted-foreground border rounded-lg">
+                    No add-ons configured. Click "Add Menu Item" to add add-ons.
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Time-Based Pricing */}
             <div className="space-y-3">

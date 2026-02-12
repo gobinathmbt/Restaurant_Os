@@ -103,6 +103,9 @@ interface MergedMenuItem {
     taxRateOverride?: number;
     displayOrder: number;
     channels: string[];
+    // NEW: Branch-specific modifiers and add-ons
+    modifiers?: Modifier[];
+    addOns?: AddOn[];
   };
   branches?: Array<{
     _id: string;
@@ -633,12 +636,27 @@ export default function MenuItemsTab({
                             <UtensilsCrossed className="h-5 w-5 text-muted-foreground" />
                           </div>
                         )}
-                        <div>
+                        <div className="flex-1">
                           <p className="font-medium">{item.name}</p>
                           {item.description && (
                             <p className="text-sm text-muted-foreground line-clamp-1">
                               {item.description}
                             </p>
+                          )}
+                          {/* Branch-specific indicators */}
+                          {selectedBranch !== 'all' && (
+                            <div className="flex items-center gap-1 mt-1">
+                              {item.branchConfig.modifiers && item.branchConfig.modifiers.length > 0 && (
+                                <Badge variant="outline" className="text-xs">
+                                  {item.branchConfig.modifiers.length} Modifier{item.branchConfig.modifiers.length !== 1 ? 's' : ''}
+                                </Badge>
+                              )}
+                              {item.branchConfig.addOns && item.branchConfig.addOns.length > 0 && (
+                                <Badge variant="outline" className="text-xs">
+                                  {item.branchConfig.addOns.length} Add-on{item.branchConfig.addOns.length !== 1 ? 's' : ''}
+                                </Badge>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
