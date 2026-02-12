@@ -72,6 +72,37 @@ const validateTaxRate = (taxRate) => {
 };
 
 /**
+ * Validate modifier structure
+ * @param {Array} modifiers - Array of modifiers to validate
+ * @throws {Error} If modifier structure is invalid
+ */
+const validateModifiers = (modifiers) => {
+  if (!Array.isArray(modifiers)) {
+    throw new Error('Modifiers must be an array');
+  }
+
+  for (const modifier of modifiers) {
+    if (!modifier.name || typeof modifier.name !== 'string' || modifier.name.trim() === '') {
+      throw new Error('Each modifier must have a non-empty name');
+    }
+
+    if (!Array.isArray(modifier.options) || modifier.options.length === 0) {
+      throw new Error('Each modifier must have at least one option');
+    }
+
+    for (const option of modifier.options) {
+      if (!option.name || typeof option.name !== 'string' || option.name.trim() === '') {
+        throw new Error('Each modifier option must have a non-empty name');
+      }
+
+      if (typeof option.price !== 'number' || option.price < 0) {
+        throw new Error('Each modifier option must have a valid non-negative price');
+      }
+    }
+  }
+};
+
+/**
  * Create branch configuration for menu item
  * @param {string} menuItemId - Menu item ID
  * @param {string} branchId - Branch ID
@@ -257,6 +288,51 @@ export const updateBranchConfig = async (menuItemId, branchId, updateData, compa
     return branchConfig;
   } catch (error) {
     logger.error('Error updating branch config:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update modifiers for a menu item branch
+ * @param {string} companyId - Company ID
+ * @param {string} menuItemBranchId - MenuItemBranch ID
+ * @param {Array} modifiers - Array of modifiers with options
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} Updated MenuItemBranch
+ */
+export const updateModifiers = async (companyId, menuItemBranchId, modifiers, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+
+    // Validate modifier structure
+    validateModifiers(modifiers);
+
+    // Find the MenuItemBranch
+    const menuItemBranch = await MenuItemBranch.findById(menuItemBranchId);
+
+    if (!menuItemBranch) {
+      throw new Error('MenuItemBranch not found');
+    }
+
+    // Validate branch access
+    if (!validateBranchAccess(menuItemBranch.branch.toString(), userBranchIds)) {
+      throw new Error('You do not have access to this branch');
+    }
+
+    // Update modifiers
+    menuItemBranch.modifiers = modifiers;
+    await menuItemBranch.save();
+
+    logger.info(`Modifiers updated for MenuItemBranch: ${menuItemBranchId}, company: ${companyId}`);
+
+    // Populate and return
+    await menuItemBranch.populate('menuItem');
+    await menuItemBranch.populate('branch');
+
+    return menuItemBranch;
+  } catch (error) {
+    logger.error('Error updating modifiers:', error);
     throw error;
   }
 };
