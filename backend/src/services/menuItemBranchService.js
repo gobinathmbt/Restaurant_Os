@@ -338,6 +338,199 @@ export const updateModifiers = async (companyId, menuItemBranchId, modifiers, us
 };
 
 /**
+ * Add menu items as add-ons to a MenuItemBranch
+ * @param {string} companyId - Company ID
+ * @param {string} menuItemBranchId - MenuItemBranch ID
+ * @param {Array} addOnIds - Array of MenuItem IDs to add as add-ons
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} Updated MenuItemBranch with populated add-ons
+ */
+export const addAddOns = async (companyId, menuItemBranchId, addOnIds, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItem = getMenuItemModel(companyDB);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+
+    // Find the MenuItemBranch
+    const menuItemBranch = await MenuItemBranch.findById(menuItemBranchId);
+
+    if (!menuItemBranch) {
+      throw new Error('MenuItemBranch not found');
+    }
+
+    // Validate branch access
+    if (!validateBranchAccess(menuItemBranch.branch.toString(), userBranchIds)) {
+      throw new Error('You do not have access to this branch');
+    }
+
+    // Validate that add-on menu items exist and are active
+    const addOnMenuItems = await MenuItem.find({
+      _id: { $in: addOnIds },
+      isActive: true
+    });
+
+    if (addOnMenuItems.length !== addOnIds.length) {
+      throw new Error('One or more add-on menu items not found or inactive');
+    }
+
+    // Check for self-reference
+    const hasSelfReference = addOnIds.some(
+      id => id.toString() === menuItemBranch.menuItem.toString()
+    );
+
+    if (hasSelfReference) {
+      throw new Error('Menu item cannot reference itself as an add-on');
+    }
+
+    // Validate that add-ons are available in the same branch
+    const branchId = menuItemBranch.branch;
+    const addOnBranches = await MenuItemBranch.find({
+      menuItem: { $in: addOnIds },
+      branch: branchId,
+      isActive: true
+    });
+
+    if (addOnBranches.length !== addOnIds.length) {
+      throw new Error('One or more add-ons not available in this branch');
+    }
+
+    // Add to existing add-ons (avoid duplicates)
+    const existingAddOnIds = menuItemBranch.addOns.map(id => id.toString());
+    const newAddOnIds = addOnIds.filter(id => !existingAddOnIds.includes(id.toString()));
+
+    menuItemBranch.addOns.push(...newAddOnIds);
+    await menuItemBranch.save();
+
+    logger.info(`Add-ons added to MenuItemBranch: ${menuItemBranchId}, company: ${companyId}`);
+
+    // Populate and return
+    await menuItemBranch.populateAddOns();
+    return menuItemBranch;
+  } catch (error) {
+    logger.error('Error adding add-ons:', error);
+    throw error;
+  }
+};
+
+/**
+ * Remove an add-on from a MenuItemBranch
+ * @param {string} companyId - Company ID
+ * @param {string} menuItemBranchId - MenuItemBranch ID
+ * @param {string} addOnId - MenuItem ID to remove from add-ons
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} Updated MenuItemBranch
+ */
+export const removeAddOn = async (companyId, menuItemBranchId, addOnId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+
+    // Find the MenuItemBranch
+    const menuItemBranch = await MenuItemBranch.findById(menuItemBranchId);
+
+    if (!menuItemBranch) {
+      throw new Error('MenuItemBranch not found');
+    }
+
+    // Validate branch access
+    if (!validateBranchAccess(menuItemBranch.branch.toString(), userBranchIds)) {
+      throw new Error('You do not have access to this branch');
+    }
+
+    // Remove the add-on
+    menuItemBranch.addOns = menuItemBranch.addOns.filter(
+      id => id.toString() !== addOnId.toString()
+    );
+
+    await menuItemBranch.save();
+
+    logger.info(`Add-on removed from MenuItemBranch: ${menuItemBranchId}, company: ${companyId}`);
+
+    return menuItemBranch;
+  } catch (error) {
+    logger.error('Error removing add-on:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get available menu items for add-ons (excludes self)
+ * @param {string} companyId - Company ID
+ * @param {string} menuItemBranchId - MenuItemBranch ID
+ * @param {string} branchId - Branch ID
+ * @param {string} searchTerm - Optional search term to filter by name
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Array>} List of available menu items with hasRecipe flag
+ */
+export const getAvailableAddOns = async (companyId, menuItemBranchId, branchId, searchTerm = '', userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+    const { getRecipeModel } = await import('../models/company/Recipe.js');
+    const Recipe = getRecipeModel(companyDB);
+
+    // Validate branch access
+    if (!validateBranchAccess(branchId, userBranchIds)) {
+      throw new Error('You do not have access to this branch');
+    }
+
+    // Find the MenuItemBranch to get the current menu item
+    const menuItemBranch = await MenuItemBranch.findById(menuItemBranchId);
+
+    if (!menuItemBranch) {
+      throw new Error('MenuItemBranch not found');
+    }
+
+    // Find all menu items available in the branch (excluding self)
+    const query = {
+      branch: branchId,
+      menuItem: { $ne: menuItemBranch.menuItem },
+      isActive: true
+    };
+
+    const availableBranches = await MenuItemBranch.find(query)
+      .populate('menuItem', 'name basePrice description');
+
+    // Filter by search term if provided
+    let results = availableBranches.map(branch => ({
+      _id: branch.menuItem._id,
+      name: branch.menuItem.name,
+      basePrice: branch.menuItem.basePrice,
+      description: branch.menuItem.description
+    }));
+
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      results = results.filter(item => 
+        item.name.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Check which items have recipes
+    const menuItemIds = results.map(r => r._id);
+    const recipes = await Recipe.find({
+      finishedGood: { $in: menuItemIds },
+      isActive: true
+    }).select('finishedGood');
+
+    const itemsWithRecipes = new Set(
+      recipes.map(r => r.finishedGood.toString())
+    );
+
+    results.forEach(item => {
+      item.hasRecipe = itemsWithRecipes.has(item._id.toString());
+    });
+
+    logger.info(`Retrieved ${results.length} available add-ons for MenuItemBranch: ${menuItemBranchId}, company: ${companyId}`);
+
+    return results;
+  } catch (error) {
+    logger.error('Error getting available add-ons:', error);
+    throw error;
+  }
+};
+
+/**
  * Delete branch configuration (remove item from branch)
  * @param {string} menuItemId - Menu item ID
  * @param {string} branchId - Branch ID
