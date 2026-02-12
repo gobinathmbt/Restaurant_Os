@@ -21,7 +21,9 @@ import {
   deleteBranchConfig,
   getMenuItemsForBranch,
   createMenuItemWithBranches,
-  bulkUpdateBranchConfigs
+  bulkUpdateBranchConfigs,
+  updateModifiers,
+  deleteModifier
 } from '../controllers/menuItemBranchController.js';
 import {
   createMenuCategory,
@@ -85,6 +87,16 @@ router.delete('/items/:menuItemId/branches/:branchId', deleteBranchConfig);
 
 // Get menu items for a specific branch (merged with global data)
 router.get('/branches/:branchId/items', getMenuItemsForBranch);
+
+// ============================================
+// MODIFIER MANAGEMENT ROUTES
+// ============================================
+
+// Update modifiers for a menu item branch
+router.put('/menu-item-branches/:id/modifiers', updateModifiers);
+
+// Delete a specific modifier from a menu item branch
+router.delete('/menu-item-branches/:id/modifiers/:index', deleteModifier);
 
 // ============================================
 // MENU CATEGORY ROUTES

@@ -434,3 +434,157 @@ export const bulkUpdateBranchConfigs = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Update modifiers for a menu item branch
+ * PUT /api/menu/menu-item-branches/:id/modifiers
+ */
+export const updateModifiers = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id } = req.params;
+    const { modifiers } = req.body;
+
+    // Validate request body
+    if (!modifiers || !Array.isArray(modifiers)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Modifiers array is required'
+      });
+    }
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Update modifiers
+    const menuItemBranch = await menuItemBranchService.updateModifiers(
+      companyId,
+      id,
+      modifiers,
+      userBranchIds
+    );
+
+    logger.info('Modifiers updated via API', {
+      menuItemBranchId: id,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Modifiers updated successfully',
+      data: { menuItemBranch }
+    });
+  } catch (error) {
+    logger.error('Update modifiers error', error);
+
+    // Handle authorization errors (403)
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle not found errors (404)
+    if (error.message === 'MenuItemBranch not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle validation errors (400)
+    if (error.message.includes('Modifier') ||
+        error.message.includes('modifier') ||
+        error.message.includes('option') ||
+        error.message.includes('name is required') ||
+        error.message.includes('must have') ||
+        error.message.includes('must be') ||
+        error.message.includes('price')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Delete a modifier from a menu item branch
+ * DELETE /api/menu/menu-item-branches/:id/modifiers/:index
+ */
+export const deleteModifier = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { id, index } = req.params;
+
+    // Validate index
+    const modifierIndex = parseInt(index, 10);
+    if (isNaN(modifierIndex) || modifierIndex < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid modifier index'
+      });
+    }
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Delete modifier
+    const menuItemBranch = await menuItemBranchService.deleteModifier(
+      companyId,
+      id,
+      modifierIndex,
+      userBranchIds
+    );
+
+    logger.info('Modifier deleted via API', {
+      menuItemBranchId: id,
+      modifierIndex,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Modifier deleted successfully',
+      data: { menuItemBranch }
+    });
+  } catch (error) {
+    logger.error('Delete modifier error', error);
+
+    // Handle authorization errors (403)
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle not found errors (404)
+    if (error.message === 'MenuItemBranch not found' ||
+        error.message.includes('Modifier not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle validation errors (400)
+    if (error.message.includes('Invalid') || error.message.includes('index')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};

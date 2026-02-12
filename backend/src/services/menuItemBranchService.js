@@ -338,6 +338,53 @@ export const updateModifiers = async (companyId, menuItemBranchId, modifiers, us
 };
 
 /**
+ * Delete a modifier from a menu item branch
+ * @param {string} companyId - Company ID
+ * @param {string} menuItemBranchId - MenuItemBranch ID
+ * @param {number} modifierIndex - Index of the modifier to delete
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} Updated MenuItemBranch
+ */
+export const deleteModifier = async (companyId, menuItemBranchId, modifierIndex, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+
+    // Find the MenuItemBranch
+    const menuItemBranch = await MenuItemBranch.findById(menuItemBranchId);
+
+    if (!menuItemBranch) {
+      throw new Error('MenuItemBranch not found');
+    }
+
+    // Validate branch access
+    if (!validateBranchAccess(menuItemBranch.branch.toString(), userBranchIds)) {
+      throw new Error('You do not have access to this branch');
+    }
+
+    // Validate modifier index
+    if (modifierIndex >= menuItemBranch.modifiers.length) {
+      throw new Error('Modifier not found at the specified index');
+    }
+
+    // Remove modifier at the specified index
+    menuItemBranch.modifiers.splice(modifierIndex, 1);
+    await menuItemBranch.save();
+
+    logger.info(`Modifier deleted at index ${modifierIndex} for MenuItemBranch: ${menuItemBranchId}, company: ${companyId}`);
+
+    // Populate and return
+    await menuItemBranch.populate('menuItem');
+    await menuItemBranch.populate('branch');
+
+    return menuItemBranch;
+  } catch (error) {
+    logger.error('Error deleting modifier:', error);
+    throw error;
+  }
+};
+
+/**
  * Add menu items as add-ons to a MenuItemBranch
  * @param {string} companyId - Company ID
  * @param {string} menuItemBranchId - MenuItemBranch ID
