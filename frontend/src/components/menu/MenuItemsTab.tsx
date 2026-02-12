@@ -26,7 +26,7 @@ import { useLoading } from '@/contexts/LoadingContext';
 import { useAuth } from '@/contexts/AuthContext';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import MenuItemFormModal from '@/components/menu/MenuItemFormModal';
-import MenuItemBranchConfigModal from '@/components/menu/MenuItemBranchConfigModal';
+import BranchConfigModal from '@/components/menu/BranchConfigModal';
 import ImageGalleryModal from '@/components/menu/ImageGalleryModal';
 import { ProxiedImage } from '@/components/common/ProxiedImage';
 
@@ -105,7 +105,7 @@ interface MergedMenuItem {
     channels: string[];
     // NEW: Branch-specific modifiers and add-ons
     modifiers?: Modifier[];
-    addOns?: AddOn[];
+    addOns?: string[]; // Array of MenuItem IDs (new format)
   };
   branches?: Array<{
     _id: string;
@@ -161,6 +161,7 @@ export default function MenuItemsTab({
   // Modal states
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState<MergedMenuItem | null>(null);
+  console.log(selectedMenuItem)
   const [isBranchConfigModalOpen, setIsBranchConfigModalOpen] = useState(false);
   const [isImageGalleryOpen, setIsImageGalleryOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -831,23 +832,48 @@ export default function MenuItemsTab({
       />
 
       {/* Branch Configuration Modal */}
-      {selectedMenuItem && selectedBranch && selectedBranch !== 'all' && (
-        <MenuItemBranchConfigModal
-          isOpen={isBranchConfigModalOpen}
-          onClose={() => {
-            setIsBranchConfigModalOpen(false);
-            setSelectedMenuItem(null);
-          }}
-          menuItem={{
-            _id: selectedMenuItem._id,
-            name: selectedMenuItem.name,
-            basePrice: selectedMenuItem.basePrice,
-          }}
-          branch={branches.find((b) => b._id === selectedBranch) || { _id: selectedBranch, name: 'Unknown', code: '' }}
-          branchConfig={selectedMenuItem.branchConfig}
-          onSuccess={handleBranchConfigSuccess}
-        />
-      )}
+      {selectedMenuItem && selectedBranch && selectedBranch !== 'all' && (() => {
+        
+        const branch = branches.find((b) => b._id === selectedBranch);
+        if (!branch) return null;
+        
+        return (
+          <BranchConfigModal
+            isOpen={isBranchConfigModalOpen}
+            onClose={() => {
+              setIsBranchConfigModalOpen(false);
+              setSelectedMenuItem(null);
+            }}
+            branch={branch}
+            config={selectedMenuItem.branchConfig}
+            onChange={async (config) => {
+              // Update the branch configuration
+              try {
+                await menuItemBranchServices.updateBranchConfig(
+                  selectedMenuItem._id,
+                  selectedBranch,
+                  config
+                );
+                toast({
+                  title: 'Success',
+                  description: 'Branch configuration updated successfully',
+                  variant: 'success',
+                });
+                handleBranchConfigSuccess();
+              } catch (error: any) {
+                toast({
+                  title: 'Error',
+                  description: error.response?.data?.message || 'Failed to update branch configuration',
+                  variant: 'destructive',
+                });
+              }
+            }}
+            isEditable={true}
+            menuItemId={selectedMenuItem._id}
+            menuItemBranchId={branch._id}
+          />
+        );
+      })()}
 
       {/* Image Gallery Modal */}
       {selectedMenuItem && (

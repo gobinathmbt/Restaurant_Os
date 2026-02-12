@@ -55,8 +55,8 @@ interface BranchConfig {
   };
   // NEW: Branch-specific modifiers
   modifiers?: BranchModifier[];
-  // NEW: Branch-specific add-ons (MenuItem IDs)
-  addOns?: string[];
+  // NEW: Branch-specific add-ons (can be IDs or populated objects)
+  addOns?: string[] | AddOnMenuItem[];
 }
 
 interface Branch {
@@ -116,6 +116,16 @@ export default function BranchConfigModal({
 
   useEffect(() => {
     setLocalConfig(config);
+    
+    // Initialize selected add-ons from config
+    if (config.addOns && config.addOns.length > 0) {
+      // Check if addOns are already populated objects
+      const firstAddOn = config.addOns[0];
+      if (typeof firstAddOn === 'object' && firstAddOn !== null && '_id' in firstAddOn) {
+        setSelectedAddOns(config.addOns as AddOnMenuItem[]);
+      }
+    }
+    
     console.log( isOpen, menuItemBranchId, branch._id)
     // Load available add-ons if menuItemBranchId is provided
     if (isOpen && menuItemBranchId && branch._id) {
@@ -138,8 +148,13 @@ export default function BranchConfigModal({
       
       // Load currently selected add-ons details
       if (localConfig.addOns && localConfig.addOns.length > 0) {
+        // Get add-on IDs (handle both string[] and AddOnMenuItem[])
+        const addOnIds = localConfig.addOns.map((addOn: any) => 
+          typeof addOn === 'string' ? addOn : addOn._id
+        );
+        
         const selected = addOns.filter((addOn: AddOnMenuItem) => 
-          localConfig.addOns?.includes(addOn._id)
+          addOnIds.includes(addOn._id)
         );
         setSelectedAddOns(selected);
       }
@@ -380,10 +395,15 @@ export default function BranchConfigModal({
       return;
     }
     
-    if (!localConfig.addOns?.includes(addOn._id)) {
+    // Get current add-on IDs (handle both string[] and AddOnMenuItem[])
+    const currentAddOnIds = (localConfig.addOns || []).map((a: any) => 
+      typeof a === 'string' ? a : a._id
+    );
+    
+    if (!currentAddOnIds.includes(addOn._id)) {
       setLocalConfig({
         ...localConfig,
-        addOns: [...(localConfig.addOns || []), addOn._id],
+        addOns: [...currentAddOnIds, addOn._id],
       });
       setSelectedAddOns([...selectedAddOns, addOn]);
       
@@ -399,9 +419,15 @@ export default function BranchConfigModal({
 
   const handleAddOnRemove = (addOnId: string) => {
     const addOn = selectedAddOns.find(a => a._id === addOnId);
+    
+    // Get current add-on IDs (handle both string[] and AddOnMenuItem[])
+    const currentAddOnIds = (localConfig.addOns || []).map((a: any) => 
+      typeof a === 'string' ? a : a._id
+    );
+    
     setLocalConfig({
       ...localConfig,
-      addOns: (localConfig.addOns || []).filter(id => id !== addOnId),
+      addOns: currentAddOnIds.filter((id: string) => id !== addOnId),
     });
     setSelectedAddOns(selectedAddOns.filter(addOn => addOn._id !== addOnId));
     
@@ -753,7 +779,13 @@ export default function BranchConfigModal({
                         </div>
                       ) : (
                         availableAddOns
-                          .filter(addOn => !localConfig.addOns?.includes(addOn._id))
+                          .filter(addOn => {
+                            // Get current add-on IDs (handle both string[] and AddOnMenuItem[])
+                            const currentAddOnIds = (localConfig.addOns || []).map((a: any) => 
+                              typeof a === 'string' ? a : a._id
+                            );
+                            return !currentAddOnIds.includes(addOn._id);
+                          })
                           .map((addOn) => (
                             <div
                               key={addOn._id}

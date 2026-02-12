@@ -857,6 +857,11 @@ export default function MenuItemFormModal({
         // Only render if we have both branch and config
         if (!branch || !config) return null;
         
+        // Find the MenuItemBranch ID if editing an existing menu item
+        const menuItemBranchId = menuItem?.branches?.find(
+          (b) => b.branch._id === selectedBranchForConfig
+        )?._id;
+
         return (
           <BranchConfigModal
             isOpen={configModalOpen}
@@ -868,6 +873,8 @@ export default function MenuItemFormModal({
             config={config}
             onChange={(config) => handleBranchConfigChange(selectedBranchForConfig, config)}
             isEditable={canEditBranch(selectedBranchForConfig)}
+            menuItemId={menuItem?._id}
+            menuItemBranchId={menuItemBranchId}
           />
         );
       })()}
