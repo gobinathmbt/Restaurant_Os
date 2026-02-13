@@ -19,8 +19,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Clock, Search, X, CheckCircle2, XCircle } from 'lucide-react';
-import type { BranchModifier, BranchModifierOption, AddOnMenuItem } from '@/types/menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Plus, Trash2, Clock, X, CheckCircle2, XCircle, Check, ChevronsUpDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { BranchModifier, AddOnMenuItem } from '@/types/menu';
 import { menuItemBranchServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
 
@@ -55,8 +65,8 @@ interface BranchConfig {
   };
   // NEW: Branch-specific modifiers
   modifiers?: BranchModifier[];
-  // NEW: Branch-specific add-ons (can be IDs or populated objects)
-  addOns?: string[] | AddOnMenuItem[];
+  // NEW: Branch-specific add-ons (array of menu item IDs)
+  addOns?: string[];
 }
 
 interface Branch {
@@ -116,32 +126,18 @@ export default function BranchConfigModal({
 
   useEffect(() => {
     setLocalConfig(config);
-    
-    // Initialize selected add-ons from config
-    if (config.addOns && config.addOns.length > 0) {
-      // Check if addOns are already populated objects
-      const firstAddOn = config.addOns[0];
-      if (typeof firstAddOn === 'object' && firstAddOn !== null && '_id' in firstAddOn) {
-        setSelectedAddOns(config.addOns as AddOnMenuItem[]);
-      }
-    } else {
-      // Clear selected add-ons if config has no add-ons
+    // Reset selectedAddOns when modal closes
+    if (!isOpen) {
       setSelectedAddOns([]);
+      setAvailableAddOns([]);
+      setAddOnSearchTerm('');
+      setShowAddOnSearch(false);
     }
-  }, [config]);
-
-  // Separate useEffect for fetching available add-ons
-  useEffect(() => {
-    // Only fetch if modal is open AND we have a menuItemBranchId
-    if (isOpen && menuItemBranchId && branch._id) {
-      fetchAvailableAddOns();
-    }
-  }, [isOpen, menuItemBranchId]);
+  }, [config, isOpen]);
 
   const fetchAvailableAddOns = async () => {
     // Guard: Don't fetch if no menuItemBranchId
     if (!menuItemBranchId) {
-      console.log('Skipping fetchAvailableAddOns: no menuItemBranchId');
       return;
     }
     
@@ -155,17 +151,14 @@ export default function BranchConfigModal({
       const addOns = response.data.data || [];
       setAvailableAddOns(addOns);
       
-      // Load currently selected add-ons details
-      if (localConfig.addOns && localConfig.addOns.length > 0) {
-        // Get add-on IDs (handle both string[] and AddOnMenuItem[])
-        const addOnIds = localConfig.addOns.map((addOn: any) => 
-          typeof addOn === 'string' ? addOn : addOn._id
-        );
-        
+      // Only initialize selectedAddOns if they are currently empty
+      // This prevents overwriting user selections when reopening the dropdown
+      if (selectedAddOns.length === 0 && localConfig.addOns && localConfig.addOns.length > 0) {
         const selected = addOns.filter((addOn: AddOnMenuItem) => 
-          addOnIds.includes(addOn._id)
+          localConfig.addOns!.includes(addOn._id)
         );
         setSelectedAddOns(selected);
+      } else {
       }
     } catch (error: any) {
       const status = error.response?.status || error.status;
@@ -197,6 +190,16 @@ export default function BranchConfigModal({
     }
   };
 
+  // Fetch add-ons when search is opened
+  useEffect(() => {
+    if (showAddOnSearch && menuItemBranchId && branch._id) {
+      // Only fetch if we haven't loaded yet or if availableAddOns is empty
+      if (availableAddOns.length === 0) {
+        fetchAvailableAddOns();
+      }
+    }
+  }, [showAddOnSearch]);
+
   // Debounced search for add-ons
   useEffect(() => {
     // Only search if we have menuItemBranchId and search is active
@@ -206,7 +209,7 @@ export default function BranchConfigModal({
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [addOnSearchTerm, showAddOnSearch, menuItemBranchId]);
+  }, [addOnSearchTerm]);
 
   const handleSave = () => {
     // Validate modifiers
@@ -407,41 +410,43 @@ export default function BranchConfigModal({
       return;
     }
     
-    // Get current add-on IDs (handle both string[] and AddOnMenuItem[])
-    const currentAddOnIds = (localConfig.addOns || []).map((a: any) => 
-      typeof a === 'string' ? a : a._id
-    );
+    // Check if already selected
+    const isAlreadySelected = selectedAddOns.some(a => a._id === addOn._id);
     
-    if (!currentAddOnIds.includes(addOn._id)) {
+    if (!isAlreadySelected) {
+      // Update both selectedAddOns and localConfig
+      const newSelectedAddOns = [...selectedAddOns, addOn];
+      const newAddOnIds = newSelectedAddOns.map(a => a._id);
+
+      setSelectedAddOns(newSelectedAddOns);
       setLocalConfig({
         ...localConfig,
-        addOns: [...currentAddOnIds, addOn._id],
+        addOns: newAddOnIds,
       });
-      setSelectedAddOns([...selectedAddOns, addOn]);
       
       toast({
         title: 'Add-on Added',
         description: `${addOn.name} has been added as an add-on`,
         variant: 'success',
       });
+    } else {
     }
-    setShowAddOnSearch(false);
-    setAddOnSearchTerm('');
+    // Don't close the dropdown - allow multi-select
   };
 
   const handleAddOnRemove = (addOnId: string) => {
+    
     const addOn = selectedAddOns.find(a => a._id === addOnId);
     
-    // Get current add-on IDs (handle both string[] and AddOnMenuItem[])
-    const currentAddOnIds = (localConfig.addOns || []).map((a: any) => 
-      typeof a === 'string' ? a : a._id
-    );
+    // Update both selectedAddOns and localConfig
+    const newSelectedAddOns = selectedAddOns.filter(a => a._id !== addOnId);
+    const newAddOnIds = newSelectedAddOns.map(a => a._id);
     
+    setSelectedAddOns(newSelectedAddOns);
     setLocalConfig({
       ...localConfig,
-      addOns: currentAddOnIds.filter((id: string) => id !== addOnId),
+      addOns: newAddOnIds,
     });
-    setSelectedAddOns(selectedAddOns.filter(addOn => addOn._id !== addOnId));
     
     if (addOn) {
       toast({
@@ -739,148 +744,114 @@ export default function BranchConfigModal({
             {/* Add-ons - Menu Item Based (Branch Specific) */}
             {menuItemBranchId && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-sm">Add-ons </h3>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAddOnSearch(!showAddOnSearch)}
-                    disabled={!isEditable}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Menu Item
-                  </Button>
-                </div>
+                <h3 className="font-semibold text-sm">Add-ons</h3>
+                
+                {/* Multi-select Dropdown for Add-ons */}
+                <Popover open={showAddOnSearch} onOpenChange={setShowAddOnSearch}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={showAddOnSearch}
+                      className="w-full justify-between"
+                      disabled={!isEditable}
+                    >
+                      {selectedAddOns.length > 0
+                        ? `${selectedAddOns.length} add-on${selectedAddOns.length > 1 ? 's' : ''} selected`
+                        : 'Select add-ons...'}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
 
-                {/* Add-on Search */}
-                {showAddOnSearch && (
-                  <div className="border rounded-lg p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          value={addOnSearchTerm}
-                          onChange={(e) => setAddOnSearchTerm(e.target.value)}
-                          placeholder="Search menu items..."
-                          className="pl-9"
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setShowAddOnSearch(false);
-                          setAddOnSearchTerm('');
-                        }}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    {/* Available Add-ons List */}
-                    <div className="max-h-60 overflow-y-auto space-y-1">
-                      {isLoadingAddOns ? (
-                        <div className="text-center py-4 text-sm text-muted-foreground">
-                          Loading menu items...
-                        </div>
-                      ) : availableAddOns.length === 0 ? (
-                        <div className="text-center py-4 text-sm text-muted-foreground">
-                          No menu items found
-                        </div>
-                      ) : (
-                        availableAddOns
-                          .filter(addOn => {
-                            // Get current add-on IDs (handle both string[] and AddOnMenuItem[])
-                            const currentAddOnIds = (localConfig.addOns || []).map((a: any) => 
-                              typeof a === 'string' ? a : a._id
-                            );
-                            return !currentAddOnIds.includes(addOn._id);
-                          })
-                          .map((addOn) => (
-                            <div
-                              key={addOn._id}
-                              className="flex items-center justify-between p-2 hover:bg-muted rounded cursor-pointer"
-                              onClick={() => handleAddOnSelect(addOn)}
-                            >
-                              <div className="flex-1">
-                                <p className="font-medium text-sm">{addOn.name}</p>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span>₹{addOn.basePrice.toFixed(2)}</span>
-                                  {addOn.hasRecipe ? (
-                                    <Badge variant="outline" className="text-xs">
-                                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                                      Has Recipe
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="secondary" className="text-xs">
-                                      <XCircle className="h-3 w-3 mr-1" />
-                                      No Recipe
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddOnSelect(addOn);
-                                }}
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
+                  <PopoverContent className="w-full p-0" align="start">
+                    <Command shouldFilter={false}>
+                      <CommandInput
+                        placeholder="Search menu items..."
+                        value={addOnSearchTerm}
+                        onValueChange={setAddOnSearchTerm}
+                      />
+                      <CommandEmpty>
+                        {isLoadingAddOns
+                          ? 'Searching...'
+                          : addOnSearchTerm
+                            ? `No menu items found matching "${addOnSearchTerm}"`
+                            : 'No menu items available'}
+                      </CommandEmpty>
+                      <CommandList>
+                        <CommandGroup>
+                          {isLoadingAddOns ? (
+                            <div className="py-6 text-center text-sm text-muted-foreground">
+                              Loading menu items...
                             </div>
-                          ))
-                      )}
-                    </div>
-                  </div>
-                )}
+                          ) : (
+                            availableAddOns
+                              .filter(addOn => {
+                                // Filter out already selected add-ons
+                                return !selectedAddOns.some(selected => selected._id === addOn._id);
+                              })
+                              .map((addOn) => (
+                                <CommandItem
+                                  key={addOn._id}
+                                  value={`${addOn.name} ${addOn.basePrice}`}
+                                  onSelect={() => handleAddOnSelect(addOn)}
+                                >
+                                  <Check
+                                    className={cn(
+                                      'mr-2 h-4 w-4',
+                                      selectedAddOns.some(a => a._id === addOn._id)
+                                        ? 'opacity-100'
+                                        : 'opacity-0'
+                                    )}
+                                  />
+                                  <div className="flex-1">
+                                    <p className="font-medium text-sm">{addOn.name}</p>
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                      <span>₹{addOn.basePrice.toFixed(2)}</span>
+                                      {addOn.hasRecipe ? (
+                                        <Badge variant="outline" className="text-xs">
+                                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                                          Has Recipe
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="secondary" className="text-xs">
+                                          <XCircle className="h-3 w-3 mr-1" />
+                                          No Recipe
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                </CommandItem>
+                              ))
+                          )}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
 
-                {/* Selected Add-ons */}
+
                 {selectedAddOns.length > 0 && (
-                  <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
                     {selectedAddOns.map((addOn) => (
-                      <div
+                      <Badge
                         key={addOn._id}
-                        className="flex items-center justify-between p-3 border rounded-lg"
+                        variant="secondary"
+                        className="pl-3 pr-1 py-1.5"
                       >
-                        <div className="flex-1">
-                          <p className="font-medium">{addOn.name}</p>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <span>₹{addOn.basePrice.toFixed(2)}</span>
-                            {addOn.hasRecipe ? (
-                              <Badge variant="outline" className="text-xs">
-                                <CheckCircle2 className="h-3 w-3 mr-1" />
-                                Has Recipe
-                              </Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-xs">
-                                <XCircle className="h-3 w-3 mr-1" />
-                                No Recipe
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <Button
+                        <span className="mr-2">{addOn.name}</span>
+                        <span className="text-xs text-muted-foreground mr-2">
+                          ₹{addOn.basePrice.toFixed(2)}
+                        </span>
+                        <button
                           type="button"
-                          variant="ghost"
-                          size="sm"
                           onClick={() => handleAddOnRemove(addOn._id)}
                           disabled={!isEditable}
+                          className="ml-1 rounded-full hover:bg-muted p-0.5"
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
                     ))}
-                  </div>
-                )}
-
-                {selectedAddOns.length === 0 && !showAddOnSearch && (
-                  <div className="text-center py-4 text-sm text-muted-foreground border rounded-lg">
-                    No add-ons configured. Click "Add Menu Item" to add add-ons.
                   </div>
                 )}
               </div>

@@ -61,6 +61,8 @@ interface BranchConfig {
   availability: {
     schedule: AvailabilitySchedule[];
   };
+  modifiers?: any[];
+  addOns?: string[];
 }
 
 interface ModifierOption {
@@ -175,6 +177,8 @@ export default function MenuItemFormModal({
     availability: {
       schedule: [],
     },
+    modifiers: [],
+    addOns: [],
   });
 
   // Handle branch selection changes
@@ -306,6 +310,8 @@ export default function MenuItemFormModal({
             channels: branchConfig.channels,
             timeBasedPricing: branchConfig.timeBasedPricing,
             availability: branchConfig.availability,
+            modifiers: (branchConfig as any).modifiers || [],
+            addOns: (branchConfig as any).addOns || [],
           });
         });
         setBranchConfigs(configs);
