@@ -191,6 +191,7 @@ export const getMenuItemById = async (menuItemId, companyId, branchId = null, us
     // Fetch branch configurations
     const branchConfigs = await MenuItemBranch.find(branchQuery)
       .populate('branch', 'name code address')
+      .populate('addOns', 'name basePrice description') // Populate add-ons with menu item details
       .lean();
 
     // Return menu item with branch configurations

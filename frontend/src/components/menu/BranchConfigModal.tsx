@@ -137,6 +137,21 @@ export default function BranchConfigModal({
       // Only reset config if we're not in the middle of editing
       if (!isEditingRef.current) {
         setLocalConfig(config);
+        
+        // Initialize selectedAddOns from config if addOns are populated objects
+        if (config.addOns && config.addOns.length > 0) {
+          const firstAddOn = config.addOns[0];
+          // Check if addOns are populated objects (not just IDs)
+          if (typeof firstAddOn === 'object' && firstAddOn && '_id' in firstAddOn) {
+            console.log('Initializing selectedAddOns from populated addOns:', config.addOns);
+            setSelectedAddOns(config.addOns as any[]);
+          } else {
+            console.log('AddOns are IDs, will load when dropdown opens');
+            setSelectedAddOns([]);
+          }
+        } else {
+          setSelectedAddOns([]);
+        }
       }
     } else {
       // Reset when modal closes
@@ -274,8 +289,16 @@ export default function BranchConfigModal({
       }
     }
     
-    console.log('Validation passed, calling onChange with:', localConfig);
-    onChange(localConfig);
+    // Ensure addOns are IDs (not populated objects)
+    const configToSave = {
+      ...localConfig,
+      addOns: localConfig.addOns?.map((addOn: any) => 
+        typeof addOn === 'string' ? addOn : addOn._id
+      ) || []
+    };
+    
+    console.log('Validation passed, calling onChange with:', configToSave);
+    onChange(configToSave);
     onClose();
   };
 
