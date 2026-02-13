@@ -327,9 +327,17 @@ export const menuItemServices = {
   updateMenuItem: (id: string, data: any) =>
     apiClient.put(`/api/menu/items/${id}`, data),
 
-  // Delete menu item
+  // Delete menu item (soft delete - sets isActive to false)
   deleteMenuItem: (id: string) =>
     apiClient.delete(`/api/menu/items/${id}`),
+
+  // Permanently delete menu item (hard delete with all branch configs)
+  permanentlyDeleteMenuItem: (id: string) =>
+    apiClient.delete(`/api/menu/items/${id}/permanent`),
+
+  // Toggle menu item active status
+  toggleMenuItemStatus: (id: string) =>
+    apiClient.patch(`/api/menu/items/${id}/toggle-status`),
 
   // Add image to menu item
   addImage: (id: string, imageUrl: string) =>

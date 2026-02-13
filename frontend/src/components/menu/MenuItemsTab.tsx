@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Image as ImageIcon, Settings, UtensilsCrossed } from 'lucide-react';
+import { Plus, Edit, Trash2, Image as ImageIcon, Settings, UtensilsCrossed, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -460,18 +460,45 @@ export default function MenuItemsTab({
     setIsDeleteDialogOpen(true);
   };
 
+  const handleToggleStatus = async (item: MergedMenuItem) => {
+    try {
+      setLoading(true);
+      setLoadingMessage(item.isActive ? 'Disabling menu item...' : 'Enabling menu item...');
+
+      await menuItemServices.toggleMenuItemStatus(item._id);
+
+      toast({
+        title: 'Success',
+        description: `Menu item ${item.isActive ? 'disabled' : 'enabled'} successfully`,
+        variant: 'success',
+      });
+
+      handleRefresh();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to toggle menu item status',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!itemToDelete) return;
 
     try {
       setLoading(true);
-      setLoadingMessage('Deleting menu item...');
+      setLoadingMessage('Permanently deleting menu item and all branch configurations...');
 
-      await menuItemServices.deleteMenuItem(itemToDelete._id);
+      await menuItemServices.permanentlyDeleteMenuItem(itemToDelete._id);
 
       toast({
         title: 'Success',
-        description: 'Menu item deleted successfully',
+        description: 'Menu item and all branch configurations permanently deleted',
+        variant: 'success',
       });
 
       setIsDeleteDialogOpen(false);
@@ -743,6 +770,15 @@ export default function MenuItemsTab({
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => handleToggleStatus(item)}
+                          title={item.isActive ? 'Disable menu item' : 'Enable menu item'}
+                          className={item.isActive ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-500'}
+                        >
+                          <Power className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleEditMenuItem(item)}
                           title="Edit menu item"
                         >
@@ -770,7 +806,8 @@ export default function MenuItemsTab({
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteMenuItem(item)}
-                          title="Delete menu item"
+                          title="Permanently delete menu item"
+                          className="text-destructive hover:text-destructive"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -949,9 +986,10 @@ export default function MenuItemsTab({
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Permanently Delete Menu Item?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete "{itemToDelete?.name}" from the menu. This action cannot be undone.
+              This will permanently delete "{itemToDelete?.name}" and all its branch configurations. 
+              This action cannot be undone. If you want to temporarily disable the item, use the power button instead.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -959,7 +997,7 @@ export default function MenuItemsTab({
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+              Permanently Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

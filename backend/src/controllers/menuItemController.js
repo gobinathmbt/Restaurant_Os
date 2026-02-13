@@ -195,6 +195,80 @@ export const deleteMenuItem = async (req, res, next) => {
 };
 
 /**
+ * Permanently delete menu item (hard delete with all branch configs)
+ * DELETE /api/menu/items/:id/permanent
+ */
+export const permanentlyDeleteMenuItem = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { id } = req.params;
+
+    // Permanently delete menu item and all branch configurations
+    await menuItemService.permanentlyDeleteMenuItem(id, companyId);
+
+    logger.info('Menu item permanently deleted via API', { 
+      menuItemId: id, 
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Menu item and all branch configurations permanently deleted'
+    });
+  } catch (error) {
+    logger.error('Permanently delete menu item error', error);
+    
+    if (error.message === 'Menu item not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Toggle menu item active status
+ * PATCH /api/menu/items/:id/toggle-status
+ */
+export const toggleMenuItemStatus = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { id } = req.params;
+
+    // Toggle menu item status
+    const menuItem = await menuItemService.toggleMenuItemStatus(id, companyId);
+
+    logger.info('Menu item status toggled via API', { 
+      menuItemId: id,
+      newStatus: menuItem.isActive,
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: `Menu item ${menuItem.isActive ? 'enabled' : 'disabled'} successfully`,
+      data: { menuItem }
+    });
+  } catch (error) {
+    logger.error('Toggle menu item status error', error);
+    
+    if (error.message === 'Menu item not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
  * Add image to menu item
  * POST /api/menu/items/:id/images
  */

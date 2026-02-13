@@ -351,6 +351,79 @@ export const deleteMenuItem = async (menuItemId, companyId) => {
 };
 
 /**
+ * Permanently delete menu item and all branch configurations
+ * @param {string} menuItemId - Menu item ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<void>}
+ */
+export const permanentlyDeleteMenuItem = async (menuItemId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItem = getMenuItemModel(companyDB);
+    const MenuItemBranch = getMenuItemBranchModel(companyDB);
+
+    // Get menu item first to access images
+    const menuItem = await MenuItem.findById(menuItemId);
+    if (!menuItem) {
+      throw new Error('Menu item not found');
+    }
+
+    // Delete all branch configurations first
+    await MenuItemBranch.deleteMany({ menuItem: menuItemId });
+    logger.info(`Deleted all branch configurations for menu item: ${menuItemId}`);
+
+    // Delete all images from S3 (async, don't wait for it)
+    if (menuItem.images && menuItem.images.length > 0) {
+      import('./imageUploadService.js').then(({ deleteImageFromS3 }) => {
+        menuItem.images.forEach(image => {
+          deleteImageFromS3(image.url).catch(err => {
+            logger.warn(`Failed to delete image from S3: ${image.url}`, err);
+          });
+        });
+      });
+    }
+
+    // Permanently delete the menu item
+    await MenuItem.findByIdAndDelete(menuItemId);
+
+    logger.info(`Menu item permanently deleted: ${menuItemId} for company: ${companyId}`);
+  } catch (error) {
+    logger.error('Error permanently deleting menu item:', error);
+    throw error;
+  }
+};
+
+/**
+ * Toggle menu item active status
+ * @param {string} menuItemId - Menu item ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Updated menu item
+ */
+export const toggleMenuItemStatus = async (menuItemId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const MenuItem = getMenuItemModel(companyDB);
+
+    // Get menu item
+    const menuItem = await MenuItem.findById(menuItemId);
+    if (!menuItem) {
+      throw new Error('Menu item not found');
+    }
+
+    // Toggle isActive status
+    menuItem.isActive = !menuItem.isActive;
+    await menuItem.save();
+
+    logger.info(`Menu item status toggled: ${menuItemId}, new status: ${menuItem.isActive}, company: ${companyId}`);
+
+    return menuItem;
+  } catch (error) {
+    logger.error('Error toggling menu item status:', error);
+    throw error;
+  }
+};
+
+/**
  * Add image to menu item
  * @param {string} menuItemId - Menu item ID
  * @param {string} imageUrl - S3 image URL

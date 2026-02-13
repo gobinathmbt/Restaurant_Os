@@ -10,6 +10,8 @@ import {
   getMenuItemById,
   updateMenuItem,
   deleteMenuItem,
+  permanentlyDeleteMenuItem,
+  toggleMenuItemStatus,
   addImage,
   removeImage,
   reorderImages
@@ -65,7 +67,9 @@ router.post('/items', createMenuItem);
 router.get('/items', getMenuItems);
 router.get('/items/:id', getMenuItemById);
 router.put('/items/:id', updateMenuItem);
-router.delete('/items/:id', deleteMenuItem);
+router.delete('/items/:id', deleteMenuItem); // Soft delete (sets isActive = false)
+router.delete('/items/:id/permanent', permanentlyDeleteMenuItem); // Permanent delete with branch configs
+router.patch('/items/:id/toggle-status', toggleMenuItemStatus); // Toggle active status
 
 // Create menu item with branch assignments
 router.post('/items/with-branches', createMenuItemWithBranches);
