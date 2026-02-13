@@ -376,20 +376,20 @@ export const menuItemBranchServices = {
 
   // NEW: Modifier management for branch-specific menu items
   updateModifiers: (menuItemBranchId: string, modifiers: any[]) =>
-    apiClient.put(`/api/menu-item-branches/${menuItemBranchId}/modifiers`, { modifiers }),
+    apiClient.put(`/api/menu/menu-item-branches/${menuItemBranchId}/modifiers`, { modifiers }),
 
   deleteModifier: (menuItemBranchId: string, modifierIndex: number) =>
-    apiClient.delete(`/api/menu-item-branches/${menuItemBranchId}/modifiers/${modifierIndex}`),
+    apiClient.delete(`/api/menu/menu-item-branches/${menuItemBranchId}/modifiers/${modifierIndex}`),
 
   // NEW: Add-on management for branch-specific menu items
   addAddOns: (menuItemBranchId: string, addOnIds: string[]) =>
-    apiClient.post(`/api/menu-item-branches/${menuItemBranchId}/add-ons`, { addOnIds }),
+    apiClient.post(`/api/menu/menu-item-branches/${menuItemBranchId}/add-ons`, { addOnIds }),
 
   removeAddOn: (menuItemBranchId: string, addOnId: string) =>
-    apiClient.delete(`/api/menu-item-branches/${menuItemBranchId}/add-ons/${addOnId}`),
+    apiClient.delete(`/api/menu/menu-item-branches/${menuItemBranchId}/add-ons/${addOnId}`),
 
   getAvailableAddOns: (menuItemBranchId: string, params?: { branchId: string; search?: string }) =>
-    apiClient.get(`/api/menu-item-branches/${menuItemBranchId}/available-add-ons`, { params }),
+    apiClient.get(`/api/menu/menu-item-branches/${menuItemBranchId}/available-add-ons`, { params }),
 };
 
 // Menu Category Services

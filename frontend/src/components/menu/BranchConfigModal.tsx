@@ -124,17 +124,26 @@ export default function BranchConfigModal({
       if (typeof firstAddOn === 'object' && firstAddOn !== null && '_id' in firstAddOn) {
         setSelectedAddOns(config.addOns as AddOnMenuItem[]);
       }
+    } else {
+      // Clear selected add-ons if config has no add-ons
+      setSelectedAddOns([]);
     }
-    
-    console.log( isOpen, menuItemBranchId, branch._id)
-    // Load available add-ons if menuItemBranchId is provided
+  }, [config]);
+
+  // Separate useEffect for fetching available add-ons
+  useEffect(() => {
+    // Only fetch if modal is open AND we have a menuItemBranchId
     if (isOpen && menuItemBranchId && branch._id) {
       fetchAvailableAddOns();
     }
-  }, [config, isOpen, menuItemBranchId, branch._id]);
+  }, [isOpen, menuItemBranchId]);
 
   const fetchAvailableAddOns = async () => {
-    if (!menuItemBranchId) return;
+    // Guard: Don't fetch if no menuItemBranchId
+    if (!menuItemBranchId) {
+      console.log('Skipping fetchAvailableAddOns: no menuItemBranchId');
+      return;
+    }
     
     try {
       setIsLoadingAddOns(true);
@@ -162,6 +171,8 @@ export default function BranchConfigModal({
       const status = error.response?.status || error.status;
       const message = error.response?.data?.message || error.message;
       
+      console.error('Error fetching available add-ons:', error);
+      
       if (status === 404) {
         toast({
           title: 'Not Found',
@@ -188,13 +199,14 @@ export default function BranchConfigModal({
 
   // Debounced search for add-ons
   useEffect(() => {
+    // Only search if we have menuItemBranchId and search is active
     if (showAddOnSearch && menuItemBranchId) {
       const timer = setTimeout(() => {
         fetchAvailableAddOns();
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [addOnSearchTerm, showAddOnSearch]);
+  }, [addOnSearchTerm, showAddOnSearch, menuItemBranchId]);
 
   const handleSave = () => {
     // Validate modifiers
@@ -626,7 +638,7 @@ export default function BranchConfigModal({
             {/* Modifiers - Branch Specific */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-sm">Modifiers (Branch-Specific)</h3>
+                <h3 className="font-semibold text-sm">Modifiers </h3>
                 <Button
                   type="button"
                   variant="outline"
@@ -728,7 +740,7 @@ export default function BranchConfigModal({
             {menuItemBranchId && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-sm">Add-ons (Branch-Specific)</h3>
+                  <h3 className="font-semibold text-sm">Add-ons </h3>
                   <Button
                     type="button"
                     variant="outline"
