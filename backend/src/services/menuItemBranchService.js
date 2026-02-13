@@ -528,30 +528,42 @@ export const getAvailableAddOns = async (companyId, menuItemBranchId, branchId, 
       throw new Error('MenuItemBranch not found');
     }
 
-    // Find all menu items available in the branch (excluding self)
+    // Build query for menu items available in the branch (excluding self)
     const query = {
       branch: branchId,
       menuItem: { $ne: menuItemBranch.menuItem },
       isActive: true
     };
 
-    const availableBranches = await MenuItemBranch.find(query)
-      .populate('menuItem', 'name basePrice description');
+    // Build populate query with search filter if provided
+    let populateQuery = {
+      path: 'menuItem',
+      select: 'name basePrice description'
+    };
 
-    // Filter by search term if provided
-    let results = availableBranches.map(branch => ({
+    // If search term is provided, add it to the populate match
+    if (searchTerm) {
+      populateQuery.match = {
+        name: { $regex: searchTerm, $options: 'i' }
+      };
+    }
+
+    // Find available branches with limit of 100
+    const availableBranches = await MenuItemBranch.find(query)
+      .populate(populateQuery)
+      .limit(100)
+      .sort({ 'menuItem.name': 1 }); // Sort by name for better UX
+
+    // Filter out null menuItems (in case populate match filtered them out)
+    const validBranches = availableBranches.filter(branch => branch.menuItem);
+
+    // Map to result format
+    let results = validBranches.map(branch => ({
       _id: branch.menuItem._id,
       name: branch.menuItem.name,
       basePrice: branch.menuItem.basePrice,
       description: branch.menuItem.description
     }));
-
-    if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase();
-      results = results.filter(item => 
-        item.name.toLowerCase().includes(searchLower)
-      );
-    }
 
     // Check which items have recipes
     const menuItemIds = results.map(r => r._id);
@@ -568,7 +580,7 @@ export const getAvailableAddOns = async (companyId, menuItemBranchId, branchId, 
       item.hasRecipe = itemsWithRecipes.has(item._id.toString());
     });
 
-    logger.info(`Retrieved ${results.length} available add-ons for MenuItemBranch: ${menuItemBranchId}, company: ${companyId}`);
+    logger.info(`Retrieved ${results.length} available add-ons (limit: 100) for MenuItemBranch: ${menuItemBranchId}, company: ${companyId}, search: "${searchTerm}"`);
 
     return results;
   } catch (error) {

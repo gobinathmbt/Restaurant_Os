@@ -424,9 +424,30 @@ export default function MenuItemsTab({
     }
   };
 
-  const handleConfigureBranch = (item: MergedMenuItem) => {
-    setSelectedMenuItem(item);
-    setIsBranchConfigModalOpen(true);
+  const handleConfigureBranch = async (item: MergedMenuItem) => {
+    try {
+      setLoading(true);
+      setLoadingMessage('Loading menu item details...');
+      
+      // Fetch full menu item details with branch configurations
+      const response = await menuItemServices.getMenuItemById(item._id);
+      const menuItemWithBranches = response.data.data.menuItem;
+      
+      setSelectedMenuItem({
+        ...item,
+        branches: menuItemWithBranches.branches || []
+      });
+      setIsBranchConfigModalOpen(true);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to load menu item details',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
   };
 
   const handleManageImages = (item: MergedMenuItem) => {
@@ -837,6 +858,20 @@ export default function MenuItemsTab({
         const branch = branches.find((b) => b._id === selectedBranch);
         if (!branch) return null;
         
+        // Find the MenuItemBranch ID from the branches array
+        // This is the actual document ID we need for the API call
+        const menuItemBranch = selectedMenuItem.branches?.find(
+          (b) => b.branch._id === selectedBranch
+        );
+        const menuItemBranchId = menuItemBranch?._id;
+        
+        console.log('BranchConfigModal props:', {
+          menuItemId: selectedMenuItem._id,
+          branchId: selectedBranch,
+          menuItemBranchId: menuItemBranchId,
+          branch: branch
+        });
+        
         return (
           <BranchConfigModal
             isOpen={isBranchConfigModalOpen}
@@ -870,7 +905,7 @@ export default function MenuItemsTab({
             }}
             isEditable={true}
             menuItemId={selectedMenuItem._id}
-            menuItemBranchId={branch._id}
+            menuItemBranchId={menuItemBranchId}
           />
         );
       })()}
