@@ -882,13 +882,30 @@ export default function MenuItemsTab({
             branch={branch}
             config={selectedMenuItem.branchConfig}
             onChange={async (config) => {
-              // Update the branch configuration
+              console.log('=== MenuItemsTab onChange called ===');
+              console.log('Config received:', config);
+              console.log('Config.modifiers:', config.modifiers);
+              console.log('Config.addOns:', config.addOns);
+              
+              // Update the branch configuration IMMEDIATELY
               try {
-                await menuItemBranchServices.updateBranchConfig(
+                console.log('Calling updateBranchConfig with:', {
+                  menuItemId: selectedMenuItem._id,
+                  branchId: selectedBranch,
+                  config: config
+                });
+                
+                setLoading(true);
+                setLoadingMessage('Saving branch configuration...');
+                
+                const response = await menuItemBranchServices.updateBranchConfig(
                   selectedMenuItem._id,
                   selectedBranch,
                   config
                 );
+                
+                console.log('updateBranchConfig successful, response:', response);
+                
                 toast({
                   title: 'Success',
                   description: 'Branch configuration updated successfully',
@@ -896,11 +913,15 @@ export default function MenuItemsTab({
                 });
                 handleBranchConfigSuccess();
               } catch (error: any) {
+                console.error('updateBranchConfig error:', error);
                 toast({
                   title: 'Error',
                   description: error.response?.data?.message || 'Failed to update branch configuration',
                   variant: 'destructive',
                 });
+              } finally {
+                setLoading(false);
+                setLoadingMessage('');
               }
             }}
             isEditable={true}

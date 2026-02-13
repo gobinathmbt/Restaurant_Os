@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -123,17 +123,31 @@ export default function BranchConfigModal({
   const [addOnSearchTerm, setAddOnSearchTerm] = useState('');
   const [isLoadingAddOns, setIsLoadingAddOns] = useState(false);
   const [showAddOnSearch, setShowAddOnSearch] = useState(false);
+  
+  // Track if we're in the middle of editing to prevent config resets
+  const isEditingRef = useRef(false);
 
+  // Initialize localConfig only when modal opens or branch changes
   useEffect(() => {
-    setLocalConfig(config);
-    // Reset selectedAddOns when modal closes
-    if (!isOpen) {
+    if (isOpen) {
+      console.log('=== Modal opened, initializing config ===');
+      console.log('Initial config:', config);
+      console.log('isEditingRef.current:', isEditingRef.current);
+      
+      // Only reset config if we're not in the middle of editing
+      if (!isEditingRef.current) {
+        setLocalConfig(config);
+      }
+    } else {
+      // Reset when modal closes
+      console.log('=== Modal closed, resetting state ===');
       setSelectedAddOns([]);
       setAvailableAddOns([]);
       setAddOnSearchTerm('');
       setShowAddOnSearch(false);
+      isEditingRef.current = false;
     }
-  }, [config, isOpen]);
+  }, [isOpen, config]);
 
   const fetchAvailableAddOns = async () => {
     // Guard: Don't fetch if no menuItemBranchId
@@ -212,6 +226,11 @@ export default function BranchConfigModal({
   }, [addOnSearchTerm]);
 
   const handleSave = () => {
+    console.log('=== handleSave called ===');
+    console.log('localConfig being saved:', localConfig);
+    console.log('localConfig.modifiers:', localConfig.modifiers);
+    console.log('localConfig.addOns:', localConfig.addOns);
+    
     // Validate modifiers
     if (localConfig.modifiers && localConfig.modifiers.length > 0) {
       for (const modifier of localConfig.modifiers) {
@@ -255,6 +274,7 @@ export default function BranchConfigModal({
       }
     }
     
+    console.log('Validation passed, calling onChange with:', localConfig);
     onChange(localConfig);
     onClose();
   };
@@ -400,8 +420,17 @@ export default function BranchConfigModal({
 
   // Add-on management functions
   const handleAddOnSelect = (addOn: AddOnMenuItem) => {
+    console.log('=== handleAddOnSelect called ===');
+    console.log('Selected addOn:', addOn);
+    console.log('Current selectedAddOns:', selectedAddOns);
+    console.log('Current localConfig.addOns:', localConfig.addOns);
+    
+    // Mark that we're editing
+    isEditingRef.current = true;
+    
     // Prevent self-reference
     if (menuItemId && addOn._id === menuItemId) {
+      console.log('Self-reference detected, aborting');
       toast({
         title: 'Invalid Selection',
         description: 'A menu item cannot be added as an add-on to itself',
@@ -412,17 +441,29 @@ export default function BranchConfigModal({
     
     // Check if already selected
     const isAlreadySelected = selectedAddOns.some(a => a._id === addOn._id);
+    console.log('Is already selected?', isAlreadySelected);
     
     if (!isAlreadySelected) {
       // Update both selectedAddOns and localConfig
       const newSelectedAddOns = [...selectedAddOns, addOn];
       const newAddOnIds = newSelectedAddOns.map(a => a._id);
+      
+      console.log('New selectedAddOns:', newSelectedAddOns);
+      console.log('New addOn IDs:', newAddOnIds);
 
       setSelectedAddOns(newSelectedAddOns);
-      setLocalConfig({
-        ...localConfig,
-        addOns: newAddOnIds,
+      
+      // Use functional update to ensure we have the latest state
+      setLocalConfig(prevConfig => {
+        const updated = {
+          ...prevConfig,
+          addOns: newAddOnIds,
+        };
+        console.log('Updated localConfig:', updated);
+        return updated;
       });
+      
+      console.log('State updated');
       
       toast({
         title: 'Add-on Added',
@@ -430,11 +471,18 @@ export default function BranchConfigModal({
         variant: 'success',
       });
     } else {
+      console.log('Add-on already selected, skipping');
     }
     // Don't close the dropdown - allow multi-select
   };
 
   const handleAddOnRemove = (addOnId: string) => {
+    console.log('=== handleAddOnRemove called ===');
+    console.log('Removing addOn ID:', addOnId);
+    console.log('Current selectedAddOns:', selectedAddOns);
+    
+    // Mark that we're editing
+    isEditingRef.current = true;
     
     const addOn = selectedAddOns.find(a => a._id === addOnId);
     
@@ -442,10 +490,19 @@ export default function BranchConfigModal({
     const newSelectedAddOns = selectedAddOns.filter(a => a._id !== addOnId);
     const newAddOnIds = newSelectedAddOns.map(a => a._id);
     
+    console.log('New selectedAddOns:', newSelectedAddOns);
+    console.log('New addOn IDs:', newAddOnIds);
+    
     setSelectedAddOns(newSelectedAddOns);
-    setLocalConfig({
-      ...localConfig,
-      addOns: newAddOnIds,
+    
+    // Use functional update to ensure we have the latest state
+    setLocalConfig(prevConfig => {
+      const updated = {
+        ...prevConfig,
+        addOns: newAddOnIds,
+      };
+      console.log('Updated localConfig after remove:', updated);
+      return updated;
     });
     
     if (addOn) {

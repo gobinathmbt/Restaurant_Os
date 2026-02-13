@@ -236,6 +236,16 @@ export const updateBranchConfig = async (menuItemId, branchId, updateData, compa
     const companyDB = getCompanyDB(companyId);
     const MenuItemBranch = getMenuItemBranchModel(companyDB);
 
+    logger.info(`Updating branch config - menuItem: ${menuItemId}, branch: ${branchId}, company: ${companyId}`);
+    logger.info('Update data received:', JSON.stringify({
+      hasModifiers: !!updateData.modifiers,
+      modifiersCount: updateData.modifiers?.length || 0,
+      hasAddOns: !!updateData.addOns,
+      addOnsCount: updateData.addOns?.length || 0,
+      modifiers: updateData.modifiers,
+      addOns: updateData.addOns
+    }));
+
     // Validate branch access
     if (!validateBranchAccess(branchId, userBranchIds)) {
       throw new Error('You do not have access to this branch');
@@ -279,11 +289,16 @@ export const updateBranchConfig = async (menuItemId, branchId, updateData, compa
     Object.assign(branchConfig, updateData);
     await branchConfig.save();
 
-    logger.info(`Branch config updated for menu item: ${menuItemId}, branch: ${branchId}, company: ${companyId}`);
+    logger.info(`Branch config updated successfully - modifiers: ${branchConfig.modifiers?.length || 0}, addOns: ${branchConfig.addOns?.length || 0}`);
 
     // Populate and return
     await branchConfig.populate('menuItem');
     await branchConfig.populate('branch');
+    
+    // Populate add-ons with full menu item details
+    if (branchConfig.populateAddOns) {
+      await branchConfig.populateAddOns();
+    }
 
     return branchConfig;
   } catch (error) {
