@@ -14,7 +14,7 @@ import { useTheme, ThemeMode } from "@/contexts/ThemeContext";
 import { CustomColorPicker } from "./CustomColorPicker";
 
 export function ThemeToggleDropdown() {
-  const { mode, setMode, customColors, setCustomColors } = useTheme();
+  const { mode, setMode, customColors, setCustomColors, currentTheme } = useTheme();
   const [showCustomColors, setShowCustomColors] = useState(false);
 
   const getThemeIcon = () => {
@@ -40,17 +40,21 @@ export function ThemeToggleDropdown() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="relative group">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative group hover:bg-accent transition-colors"
+          >
             {getThemeIcon()}
-            <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 bg-neutral-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+            <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2 bg-background border border-border text-foreground text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50 shadow-md">
               {getModeLabel()}
             </div>
           </Button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel className="flex items-center gap-2">
-            Theme Settings
+            <span>Theme Settings</span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
 
@@ -100,18 +104,18 @@ export function ThemeToggleDropdown() {
             <Palette className="h-4 w-4" />
             <span>Custom Colors</span>
             {customColors && (
-              <div className="ml-auto flex gap-1">
+              <div className="ml-auto flex gap-1.5">
                 <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: customColors.primary }}
+                  className="w-2 h-2 rounded-full border border-foreground/20"
+                  style={{ backgroundColor: customColors[currentTheme].primary }}
                 />
                 <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: customColors.secondary }}
+                  className="w-2 h-2 rounded-full border border-foreground/20"
+                  style={{ backgroundColor: customColors[currentTheme].secondary }}
                 />
                 <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: customColors.tertiary }}
+                  className="w-2 h-2 rounded-full border border-foreground/20"
+                  style={{ backgroundColor: customColors[currentTheme].tertiary }}
                 />
               </div>
             )}
@@ -120,9 +124,9 @@ export function ThemeToggleDropdown() {
           {customColors && (
             <DropdownMenuItem
               onClick={() => setCustomColors(null)}
-              className="cursor-pointer text-xs text-muted-foreground"
+              className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
             >
-              ↻ Reset to Default
+              ↻ Reset to Default Colors
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>

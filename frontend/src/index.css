@@ -107,6 +107,19 @@
     --border: 0 0% 88%;
     --input: 0 0% 88%;
     --ring: var(--color-primary);
+    
+    /* Light sidebar */
+    --sidebar-background: 0 0% 96%;
+    --sidebar-foreground: 0 0% 30%;
+    --sidebar-primary: var(--color-primary);
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 152 40% 92%;
+    --sidebar-accent-foreground: 152 81% 12%;
+    --sidebar-border: 0 0% 88%;
+    
+    /* Light theme gradients */
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(0 0% 97%));
+    --gradient-glow: radial-gradient(ellipse at top, hsl(var(--color-primary) / 0.1), transparent 50%);
   }
 }
 
@@ -157,6 +170,22 @@
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground));
   }
+
+  /* Light mode scrollbar */
+  .light ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+  }
+
+  .light ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+
+  /* Improve light mode text rendering */
+  .light {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
 @layer components {
@@ -181,6 +210,11 @@
     background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.5), transparent);
   }
 
+  /* Light mode improvements for stat card */
+  .light .stat-card {
+    border: 1px solid hsl(var(--border));
+  }
+
   /* POS Button styles */
   .pos-button {
     @apply relative transition-all duration-150 active:scale-95;
@@ -200,20 +234,74 @@
     box-shadow: var(--shadow-glow);
   }
 
+  /* Light mode card styling */
+  .light .module-card {
+    @apply border border-border;
+  }
+
+  .light .module-card:hover {
+    @apply border-primary/70 bg-accent;
+  }
+
   /* Command palette styles */
   .command-palette {
     @apply backdrop-blur-xl;
     background: hsl(var(--card) / 0.95);
   }
 
-  /* Glow text effect */
+  .light .command-palette {
+    background: hsl(var(--card) / 0.98);
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* Glow text effect - mode aware */
   .glow-text {
     text-shadow: 0 0 20px hsl(var(--primary) / 0.5);
+  }
+
+  .light .glow-text {
+    text-shadow: 0 0 15px hsl(var(--primary) / 0.3);
   }
 
   /* Mono font for numbers/codes */
   .font-mono-display {
     font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Input and form improvements */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  textarea,
+  select {
+    @apply transition-colors;
+  }
+
+  .light input[type="text"],
+  .light input[type="email"],
+  .light input[type="password"],
+  .light input[type="number"],
+  .light textarea,
+  .light select {
+    @apply border-border bg-background text-foreground;
+  }
+
+  .light input[type="text"]:focus,
+  .light input[type="email"]:focus,
+  .light input[type="password"]:focus,
+  .light input[type="number"]:focus,
+  .light textarea:focus,
+  .light select:focus {
+    @apply border-primary ring-primary;
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
+  }
+
+  /* Dropdown and menu improvements */
+  .light [role="menu"],
+  .light [role="listbox"],
+  .light [role="dialog"] {
+    @apply border border-border;
   }
 }
 
