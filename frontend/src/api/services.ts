@@ -197,25 +197,60 @@ export const inventoryItemBranchServices = {
 
 // Recipe Services
 export const recipeServices = {
-  // Get all recipes
-  getRecipes: (params?: { page?: number; limit?: number; search?: string; finishedGood?: string }) =>
+  // Get all recipes with optional branch filter
+  getRecipes: (params?: { page?: number; limit?: number; search?: string; finishedGood?: string; branchId?: string }) =>
     apiClient.get("/api/recipes", { params }),
 
-  // Get single recipe
+  // Get single recipe (with branch configurations)
   getRecipe: (id: string) =>
     apiClient.get(`/api/recipes/${id}`),
 
-  // Create recipe
+  // Create recipe (global data only)
   createRecipe: (data: any) =>
     apiClient.post("/api/recipes", data),
 
-  // Update recipe
+  // Update recipe (global data only)
   updateRecipe: (id: string, data: any) =>
     apiClient.put(`/api/recipes/${id}`, data),
 
-  // Delete recipe
+  // Delete recipe (cascade deletes RecipeBranch records)
   deleteRecipe: (id: string) =>
     apiClient.delete(`/api/recipes/${id}`),
+
+  // Create recipe with branch configurations in one request
+  createRecipeWithBranches: (data: { recipeData: any; branchConfigs: any[] }) =>
+    apiClient.post("/api/recipes/with-branches", data),
+};
+
+// Recipe Branch Services
+export const recipeBranchServices = {
+  // Create branch configuration for recipe
+  createRecipeBranch: (recipeId: string, branchId: string, config: any) =>
+    apiClient.post(`/api/recipes/${recipeId}/branches/${branchId}`, config),
+
+  // Get all branch configurations for a recipe
+  getRecipeBranches: (recipeId: string, params?: { branchId?: string; isActive?: boolean }) =>
+    apiClient.get(`/api/recipes/${recipeId}/branches`, { params }),
+
+  // Get specific branch configuration
+  getRecipeBranch: (recipeId: string, branchId: string) =>
+    apiClient.get(`/api/recipes/${recipeId}/branches/${branchId}`),
+
+  // Update branch configuration
+  updateRecipeBranch: (recipeId: string, branchId: string, config: any) =>
+    apiClient.put(`/api/recipes/${recipeId}/branches/${branchId}`, config),
+
+  // Delete branch configuration
+  deleteRecipeBranch: (recipeId: string, branchId: string) =>
+    apiClient.delete(`/api/recipes/${recipeId}/branches/${branchId}`),
+
+  // Bulk create/update branch configurations
+  bulkUpdateRecipeBranches: (recipeId: string, branchConfigs: any[]) =>
+    apiClient.post(`/api/recipes/${recipeId}/branches/bulk`, { branchConfigs }),
+
+  // Copy recipe branch configuration to other branches
+  copyRecipeBranchConfig: (recipeId: string, sourceBranchId: string, targetBranchIds: string[]) =>
+    apiClient.post(`/api/recipes/${recipeId}/branches/copy`, { sourceBranchId, targetBranchIds }),
 };
 
 // Supplier Services
@@ -443,7 +478,9 @@ export default {
   users: userServices,
   platformConfig: platformConfigServices,
   inventory: inventoryServices,
+  inventoryItemBranches: inventoryItemBranchServices,
   recipes: recipeServices,
+  recipeBranches: recipeBranchServices,
   suppliers: supplierServices,
   categories: categoryServices,
   menuItems: menuItemServices,

@@ -5,12 +5,13 @@
 
 import { getCompanyDB } from '../config/database.js';
 import { getRecipeModel } from '../models/company/Recipe.js';
+import { getRecipeBranchModel } from '../models/company/RecipeBranch.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { logger } from '../utils/logger.js';
 
 /**
  * Create a new recipe
- * @param {Object} recipeData - Recipe data
+ * @param {Object} recipeData - Recipe data (global fields only)
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Created recipe
  */
@@ -19,46 +20,24 @@ export const createRecipe = async (recipeData, companyId) => {
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
 
-    // Validate required fields
-    const requiredFields = ['name', 'finishedGood', 'ingredients', 'yield'];
+    // Validate required fields (only global fields)
+    const requiredFields = ['name', 'finishedGood'];
     const missingFields = requiredFields.filter(field => !recipeData[field]);
     
     if (missingFields.length > 0) {
       throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
     }
 
-    // Validate ingredients array is not empty
-    if (!Array.isArray(recipeData.ingredients) || recipeData.ingredients.length === 0) {
-      throw new Error('Recipe must have at least one ingredient');
-    }
-
-    // Validate each ingredient
-    for (const ingredient of recipeData.ingredients) {
-      if (!ingredient.rawMaterial || !ingredient.quantity || !ingredient.unit) {
-        throw new Error('Each ingredient must have rawMaterial, quantity, and unit');
-      }
-      if (ingredient.quantity <= 0) {
-        throw new Error('Ingredient quantity must be positive');
-      }
-    }
-
-    // Validate yield
-    if (!recipeData.yield.quantity || !recipeData.yield.unit) {
-      throw new Error('Yield must have quantity and unit');
-    }
-    if (recipeData.yield.quantity <= 0) {
-      throw new Error('Yield quantity must be positive');
-    }
-
-    // Create recipe with version 1
+    // Create recipe with only global fields
     const recipe = new Recipe({
-      ...recipeData,
+      name: recipeData.name,
+      finishedGood: recipeData.finishedGood,
+      preparationSteps: recipeData.preparationSteps || [],
       version: 1,
-      isActive: true
+      isActive: recipeData.isActive !== undefined ? recipeData.isActive : true,
+      notes: recipeData.notes || ''
     });
 
-    // Calculate cost per unit
-    await recipe.calculateCost();
     await recipe.save();
 
     logger.info(`Recipe created: ${recipe._id} for company: ${companyId}`);
@@ -66,6 +45,84 @@ export const createRecipe = async (recipeData, companyId) => {
     return recipe;
   } catch (error) {
     logger.error('Error creating recipe:', error);
+    throw error;
+  }
+};
+
+/**
+ * Create a recipe with branch configurations in one transaction
+ * @param {Object} recipeData - Recipe data (global fields)
+ * @param {Array} branchConfigs - Array of branch configurations
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Created recipe with branches
+ */
+export const createRecipeWithBranches = async (recipeData, branchConfigs, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Recipe = getRecipeModel(companyDB);
+    const RecipeBranch = getRecipeBranchModel(companyDB);
+
+    // Validate required fields
+    const requiredFields = ['name', 'finishedGood'];
+    const missingFields = requiredFields.filter(field => !recipeData[field]);
+    
+    if (missingFields.length > 0) {
+      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    // Validate branch configs
+    if (!Array.isArray(branchConfigs) || branchConfigs.length === 0) {
+      throw new Error('At least one branch configuration is required');
+    }
+
+    // Create recipe
+    const recipe = new Recipe({
+      name: recipeData.name,
+      finishedGood: recipeData.finishedGood,
+      preparationSteps: recipeData.preparationSteps || [],
+      version: 1,
+      isActive: recipeData.isActive !== undefined ? recipeData.isActive : true,
+      notes: recipeData.notes || ''
+    });
+
+    await recipe.save();
+
+    // Create branch configurations
+    const recipeBranches = [];
+    for (const branchConfig of branchConfigs) {
+      if (!branchConfig.branch) {
+        throw new Error('Each branch configuration must have a branch ID');
+      }
+
+      const recipeBranch = new RecipeBranch({
+        recipe: recipe._id,
+        branch: branchConfig.branch,
+        ingredients: branchConfig.ingredients || [],
+        yield: branchConfig.yield,
+        preparationTime: branchConfig.preparationTime,
+        cookingTime: branchConfig.cookingTime,
+        isActive: branchConfig.isActive !== undefined ? branchConfig.isActive : true,
+        notes: branchConfig.notes || ''
+      });
+
+      // Calculate cost if ingredients and yield are provided
+      if (recipeBranch.ingredients.length > 0 && recipeBranch.yield) {
+        await recipeBranch.calculateCost();
+      }
+
+      await recipeBranch.save();
+      recipeBranches.push(recipeBranch);
+    }
+
+    logger.info(`Recipe created with ${recipeBranches.length} branch configurations: ${recipe._id} for company: ${companyId}`);
+
+    // Return recipe with branches
+    const recipeWithBranches = recipe.toObject();
+    recipeWithBranches.branches = recipeBranches;
+
+    return recipeWithBranches;
+  } catch (error) {
+    logger.error('Error creating recipe with branches:', error);
     throw error;
   }
 };
@@ -85,7 +142,9 @@ export const getRecipes = async (companyId, filters = {}) => {
       page = 1,
       limit = 10,
       search = '',
-      finishedGood = ''
+      finishedGood = '',
+      branch = '',
+      populateBranches = false
     } = filters;
 
     // Build query - only return active recipes
@@ -103,29 +162,109 @@ export const getRecipes = async (companyId, filters = {}) => {
       query.finishedGood = finishedGood;
     }
 
+    // If branch filter is provided, we need to filter recipes that have RecipeBranch for that branch
+    if (branch) {
+      const RecipeBranch = getRecipeBranchModel(companyDB);
+      const recipeBranches = await RecipeBranch.find({ 
+        branch, 
+        isActive: true 
+      }).select('recipe').lean();
+      
+      const recipeIds = recipeBranches.map(rb => rb.recipe);
+      query._id = { $in: recipeIds };
+    }
+
     // Calculate pagination
     const skip = (page - 1) * limit;
 
     // Execute query
+    let recipeQuery = Recipe.find(query)
+      .populate('finishedGood', 'name category price')
+      .sort({ name: 1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Optionally populate branch configurations
+    if (populateBranches) {
+      recipeQuery = recipeQuery.lean();
+    }
+
     const [recipes, total] = await Promise.all([
-      Recipe.find(query)
-        .populate('finishedGood', 'name category price')
-        .populate('ingredients.rawMaterial', 'name unit costPrice')
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
+      recipeQuery.lean(),
       Recipe.countDocuments(query)
     ]);
 
-    // Calculate virtuals manually for lean queries
-    const recipesWithVirtuals = recipes.map(recipe => ({
-      ...recipe,
-      totalTime: (recipe.preparationTime || 0) + (recipe.cookingTime || 0)
-    }));
+    // If branch filter is provided, populate branch-specific data
+    if (branch && recipes.length > 0) {
+      const RecipeBranch = getRecipeBranchModel(companyDB);
+      const recipeIds = recipes.map(r => r._id);
+      
+      const recipeBranches = await RecipeBranch.find({
+        recipe: { $in: recipeIds },
+        branch,
+        isActive: true
+      })
+      .populate({
+        path: 'ingredients.inventoryItemBranch',
+        select: 'inventoryItem currentStock costPrice',
+        populate: {
+          path: 'inventoryItem',
+          select: 'name unit'
+        }
+      })
+      .lean();
+
+      // Map branch data to recipes
+      const branchDataMap = {};
+      recipeBranches.forEach(rb => {
+        branchDataMap[rb.recipe.toString()] = {
+          ...rb,
+          totalTime: (rb.preparationTime || 0) + (rb.cookingTime || 0)
+        };
+      });
+
+      // Merge branch data with recipes
+      recipes.forEach(recipe => {
+        const branchData = branchDataMap[recipe._id.toString()];
+        if (branchData) {
+          recipe.branchData = branchData;
+        }
+      });
+    }
+
+    // If populateBranches is true, populate all branch configurations
+    if (populateBranches && recipes.length > 0) {
+      const RecipeBranch = getRecipeBranchModel(companyDB);
+      const recipeIds = recipes.map(r => r._id);
+      
+      const recipeBranches = await RecipeBranch.find({
+        recipe: { $in: recipeIds },
+        isActive: true
+      })
+      .populate('branch', 'name code')
+      .lean();
+
+      // Group branches by recipe
+      const branchesMap = {};
+      recipeBranches.forEach(rb => {
+        const recipeId = rb.recipe.toString();
+        if (!branchesMap[recipeId]) {
+          branchesMap[recipeId] = [];
+        }
+        branchesMap[recipeId].push({
+          ...rb,
+          totalTime: (rb.preparationTime || 0) + (rb.cookingTime || 0)
+        });
+      });
+
+      // Add branches to recipes
+      recipes.forEach(recipe => {
+        recipe.branches = branchesMap[recipe._id.toString()] || [];
+      });
+    }
 
     return {
-      recipes: recipesWithVirtuals,
+      recipes,
       pagination: {
         total,
         page: parseInt(page),
@@ -143,27 +282,51 @@ export const getRecipes = async (companyId, filters = {}) => {
  * Get recipe by ID
  * @param {string} recipeId - Recipe ID
  * @param {string} companyId - Company ID
- * @returns {Promise<Object>} Recipe with ingredient details
+ * @param {Object} options - Options for population
+ * @returns {Promise<Object>} Recipe with optional branch details
  */
-export const getRecipeById = async (recipeId, companyId) => {
+export const getRecipeById = async (recipeId, companyId, options = {}) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
 
+    const { populateBranches = false, branch = null } = options;
+
     const recipe = await Recipe.findById(recipeId)
       .populate('finishedGood', 'name category price description')
-      .populate({
-        path: 'ingredients.rawMaterial',
-        select: 'name unit costPrice currentStock minimumStock type category'
-      })
       .lean();
 
     if (!recipe) {
       throw new Error('Recipe not found');
     }
 
-    // Calculate virtual
-    recipe.totalTime = (recipe.preparationTime || 0) + (recipe.cookingTime || 0);
+    // Populate branch configurations if requested
+    if (populateBranches) {
+      const RecipeBranch = getRecipeBranchModel(companyDB);
+      
+      const branchQuery = { recipe: recipeId, isActive: true };
+      if (branch) {
+        branchQuery.branch = branch;
+      }
+
+      const recipeBranches = await RecipeBranch.find(branchQuery)
+        .populate('branch', 'name code location')
+        .populate({
+          path: 'ingredients.inventoryItemBranch',
+          select: 'inventoryItem currentStock costPrice isActive',
+          populate: {
+            path: 'inventoryItem',
+            select: 'name unit type category'
+          }
+        })
+        .lean();
+
+      // Add totalTime virtual to each branch
+      recipe.branches = recipeBranches.map(rb => ({
+        ...rb,
+        totalTime: (rb.preparationTime || 0) + (rb.cookingTime || 0)
+      }));
+    }
 
     return recipe;
   } catch (error) {
@@ -173,9 +336,9 @@ export const getRecipeById = async (recipeId, companyId) => {
 };
 
 /**
- * Update recipe
+ * Update recipe (global fields only)
  * @param {string} recipeId - Recipe ID
- * @param {Object} updateData - Update data
+ * @param {Object} updateData - Update data (global fields only)
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Updated recipe
  */
@@ -190,47 +353,28 @@ export const updateRecipe = async (recipeId, updateData, companyId) => {
       throw new Error('Recipe not found');
     }
 
-    // Validate ingredients if provided
-    if (updateData.ingredients) {
-      if (!Array.isArray(updateData.ingredients) || updateData.ingredients.length === 0) {
-        throw new Error('Recipe must have at least one ingredient');
+    // Only allow updating global fields
+    const allowedFields = ['name', 'finishedGood', 'preparationSteps', 'notes', 'isActive'];
+    const updates = {};
+    
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        updates[field] = updateData[field];
       }
+    });
 
-      // Validate each ingredient
-      for (const ingredient of updateData.ingredients) {
-        if (!ingredient.rawMaterial || !ingredient.quantity || !ingredient.unit) {
-          throw new Error('Each ingredient must have rawMaterial, quantity, and unit');
-        }
-        if (ingredient.quantity <= 0) {
-          throw new Error('Ingredient quantity must be positive');
-        }
-      }
+    // Check if any global data changed - increment version if it did
+    const globalDataChanged = 
+      (updates.name && updates.name !== existingRecipe.name) ||
+      (updates.finishedGood && updates.finishedGood.toString() !== existingRecipe.finishedGood.toString()) ||
+      (updates.preparationSteps && JSON.stringify(updates.preparationSteps) !== JSON.stringify(existingRecipe.preparationSteps));
 
-      // Check if ingredients changed - increment version if they did
-      const ingredientsChanged = JSON.stringify(existingRecipe.ingredients) !== JSON.stringify(updateData.ingredients);
-      if (ingredientsChanged) {
-        updateData.version = existingRecipe.version + 1;
-      }
-    }
-
-    // Validate yield if provided
-    if (updateData.yield) {
-      if (!updateData.yield.quantity || !updateData.yield.unit) {
-        throw new Error('Yield must have quantity and unit');
-      }
-      if (updateData.yield.quantity <= 0) {
-        throw new Error('Yield quantity must be positive');
-      }
+    if (globalDataChanged) {
+      updates.version = existingRecipe.version + 1;
     }
 
     // Update recipe
-    Object.assign(existingRecipe, updateData);
-
-    // Recalculate cost if ingredients or yield changed
-    if (updateData.ingredients || updateData.yield) {
-      await existingRecipe.calculateCost();
-    }
-
+    Object.assign(existingRecipe, updates);
     await existingRecipe.save();
 
     logger.info(`Recipe updated: ${recipeId} for company: ${companyId}`);
@@ -243,7 +387,7 @@ export const updateRecipe = async (recipeId, updateData, companyId) => {
 };
 
 /**
- * Delete recipe (soft delete)
+ * Delete recipe (soft delete) and cascade delete RecipeBranch records
  * @param {string} recipeId - Recipe ID
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Deleted recipe
@@ -252,7 +396,9 @@ export const deleteRecipe = async (recipeId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
+    const RecipeBranch = getRecipeBranchModel(companyDB);
 
+    // Soft delete the recipe
     const recipe = await Recipe.findByIdAndUpdate(
       recipeId,
       { isActive: false },
@@ -263,7 +409,10 @@ export const deleteRecipe = async (recipeId, companyId) => {
       throw new Error('Recipe not found');
     }
 
-    logger.info(`Recipe soft deleted: ${recipeId} for company: ${companyId}`);
+    // Cascade delete all associated RecipeBranch records
+    await RecipeBranch.deleteMany({ recipe: recipeId });
+
+    logger.info(`Recipe soft deleted: ${recipeId} and associated RecipeBranch records deleted for company: ${companyId}`);
 
     return recipe;
   } catch (error) {

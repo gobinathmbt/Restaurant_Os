@@ -11,11 +11,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { recipeServices, inventoryServices, menuItemServices } from '@/api/services';
-import RecipeFormModal from '@/components/inventory/RecipeFormModal';
+import { recipeServices, menuItemServices, branchServices } from '@/api/services';
+import RecipeFormModal from '@/components/recipes/RecipeFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
+import { useAuth } from '@/contexts/AuthContext';
 import DataTableLayout from '@/components/common/DataTableLayout';
+
+interface Branch {
+  _id: string;
+  name: string;
+  code: string;
+}
 
 interface Recipe {
   _id: string;
@@ -24,7 +31,7 @@ interface Recipe {
     _id: string;
     name: string;
   };
-  ingredients: Array<{
+  ingredients?: Array<{
     rawMaterial: {
       _id: string;
       name: string;
@@ -32,7 +39,7 @@ interface Recipe {
     quantity: number;
     unit: string;
   }>;
-  yield: {
+  yield?: {
     quantity: number;
     unit: string;
   };
@@ -42,6 +49,59 @@ interface Recipe {
   version: number;
   isActive: boolean;
   totalTime?: number;
+  preparationSteps: Array<{
+    stepNumber: number;
+    description: string;
+  }>;
+  notes?: string;
+  branches?: Array<{
+    _id: string;
+    branch: {
+      _id: string;
+      name: string;
+      code: string;
+    };
+    ingredients: Array<{
+      inventoryItemBranch: string | {
+        _id: string;
+        inventoryItem: {
+          name: string;
+        };
+      };
+      quantity: number;
+      unit: string;
+    }>;
+    yield: {
+      quantity: number;
+      unit: string;
+    };
+    preparationTime?: number;
+    cookingTime?: number;
+    costPerUnit?: number;
+    isActive: boolean;
+    notes?: string;
+  }>;
+  branchConfig?: {
+    ingredients: Array<{
+      inventoryItemBranch: {
+        _id: string;
+        inventoryItem: {
+          name: string;
+        };
+      };
+      quantity: number;
+      unit: string;
+    }>;
+    yield: {
+      quantity: number;
+      unit: string;
+    };
+    preparationTime?: number;
+    cookingTime?: number;
+    costPerUnit?: number;
+    isActive: boolean;
+    notes?: string;
+  };
 }
 
 interface FinishedGood {
@@ -50,14 +110,22 @@ interface FinishedGood {
 }
 
 export default function Recipes() {
+  const { user } = useAuth();
   const { setLoading, setLoadingMessage } = useLoading();
   const { toast } = useToast();
+
+  // Determine user's branch access
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
 
   // State
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipesLoading, setRecipesLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [finishedGoodFilter, setFinishedGoodFilter] = useState('');
+  const [branchFilter, setBranchFilter] = useState('');
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([]);
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -76,6 +144,24 @@ export default function Recipes() {
   const [hasMore, setHasMore] = useState(true);
   const [paginationEnabled, setPaginationEnabled] = useState(true);
 
+  // Auto-select branch for single-branch admin
+  useEffect(() => {
+    if (isSingleBranchAdmin && user?.branchIds && user.branchIds.length === 1) {
+      setBranchFilter(user.branchIds[0]);
+    } else if (isMultiBranchAdmin && user?.branchIds && user.branchIds.length > 1 && !branchFilter) {
+      // For multi-branch company admins, default to "all" branches
+      setBranchFilter('all');
+    } else if (isSuperAdmin && !branchFilter && branches.length > 0) {
+      // For super admins, default to "all" branches
+      setBranchFilter('all');
+    }
+  }, [isSingleBranchAdmin, isMultiBranchAdmin, isSuperAdmin, user?.branchIds, branchFilter, branches]);
+
+  // Fetch branches on mount
+  useEffect(() => {
+    fetchBranches();
+  }, []);
+
   // Fetch recipes on mount and when filters change
   useEffect(() => {
     if (paginationEnabled) {
@@ -87,24 +173,55 @@ export default function Recipes() {
       setHasMore(true);
       fetchRecipesInfinite(1, true);
     }
-  }, [page, rowsPerPage, search, finishedGoodFilter, paginationEnabled]);
+  }, [page, rowsPerPage, search, finishedGoodFilter, branchFilter, paginationEnabled]);
 
   // Fetch finished goods for filter
   useEffect(() => {
     fetchFinishedGoods();
   }, []);
 
+  const fetchBranches = async () => {
+    try {
+      const response = await branchServices.getBranches({ limit: 1000 });
+      const allBranches = response.data.data.branches || [];
+
+      // Filter branches based on user role
+      let availableBranches = allBranches;
+      if (isMultiBranchAdmin || isSingleBranchAdmin) {
+        availableBranches = allBranches.filter((branch: Branch) =>
+          user?.branchIds?.includes(branch._id)
+        );
+      }
+
+      setBranches(availableBranches);
+
+      // Auto-select for super admins if none selected
+      if (isSuperAdmin && !branchFilter && availableBranches.length > 0) {
+        setBranchFilter('all');
+      }
+    } catch (error: any) {
+      // Silently fail for branches
+    }
+  };
+
   const fetchRecipes = async () => {
     if (!paginationEnabled) return;
 
     try {
       setRecipesLoading(true);
-      const response = await recipeServices.getRecipes({
+      const params: any = {
         page,
         limit: rowsPerPage,
         search: search || undefined,
         finishedGood: finishedGoodFilter || undefined,
-      });
+      };
+
+      // Add branch filter if selected and not "all"
+      if (branchFilter && branchFilter !== 'all') {
+        params.branchId = branchFilter;
+      }
+
+      const response = await recipeServices.getRecipes(params);
 
       setRecipes(response.data.data.recipes || []);
       setTotalCount(response.data.data.pagination.total);
@@ -128,12 +245,19 @@ export default function Recipes() {
         setIsLoadingMore(true);
       }
 
-      const response = await recipeServices.getRecipes({
+      const params: any = {
         page: page,
         limit: 20, // Fixed batch size for infinite scroll
         search: search || undefined,
         finishedGood: finishedGoodFilter || undefined,
-      });
+      };
+
+      // Add branch filter if selected and not "all"
+      if (branchFilter && branchFilter !== 'all') {
+        params.branchId = branchFilter;
+      }
+
+      const response = await recipeServices.getRecipes(params);
 
       const newRecipes = response.data.data.recipes || [];
       const pagination = response.data.data.pagination;
@@ -276,6 +400,23 @@ export default function Recipes() {
         filterConfig={{
           component: (
             <div className="flex items-center gap-2">
+              {(isSuperAdmin || isMultiBranchAdmin) && branches.length > 0 && (
+                <Select value={branchFilter} onValueChange={setBranchFilter}>
+                  <SelectTrigger className="w-48 h-9">
+                    <SelectValue placeholder="Select branch" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(isSuperAdmin || isMultiBranchAdmin) && (
+                      <SelectItem value="all">All Branches</SelectItem>
+                    )}
+                    {branches.map((branch) => (
+                      <SelectItem key={branch._id} value={branch._id}>
+                        {branch.name} ({branch.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={finishedGoodFilter} onValueChange={setFinishedGoodFilter}>
                 <SelectTrigger className="w-48 h-9">
                   <SelectValue placeholder="All finished goods" />
@@ -313,6 +454,23 @@ export default function Recipes() {
                 ? (page - 1) * rowsPerPage + index + 1
                 : index + 1;
 
+              // Determine which data to display based on branch filter
+              const displayData = branchFilter && branchFilter !== 'all' && recipe.branchConfig
+                ? {
+                    ingredients: recipe.branchConfig.ingredients || [],
+                    yield: recipe.branchConfig.yield,
+                    preparationTime: recipe.branchConfig.preparationTime,
+                    cookingTime: recipe.branchConfig.cookingTime,
+                    costPerUnit: recipe.branchConfig.costPerUnit,
+                  }
+                : {
+                    ingredients: recipe.ingredients || [],
+                    yield: recipe.yield,
+                    preparationTime: recipe.preparationTime,
+                    cookingTime: recipe.cookingTime,
+                    costPerUnit: recipe.costPerUnit,
+                  };
+
               return (
                 <TableRow key={recipe._id}>
                   <TableCell className="font-medium text-muted-foreground">
@@ -320,24 +478,26 @@ export default function Recipes() {
                   </TableCell>
                   <TableCell>
                     <p className="font-medium">{recipe.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Yield: {recipe.yield?.quantity} {recipe.yield?.unit}
-                    </p>
+                    {displayData.yield && (
+                      <p className="text-xs text-muted-foreground">
+                        Yield: {displayData.yield.quantity} {displayData.yield.unit}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{recipe.finishedGood?.name || '-'}</Badge>
                   </TableCell>
                   <TableCell className="text-center">
-                    <Badge variant="secondary">{recipe.ingredients?.length || 0} items</Badge>
+                    <Badge variant="secondary">{displayData.ingredients.length || 0} items</Badge>
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatCurrency(recipe.costPerUnit)}
+                    {formatCurrency(displayData.costPerUnit)}
                   </TableCell>
                   <TableCell className="text-center text-muted-foreground">
-                    {formatTime(recipe.preparationTime)}
+                    {formatTime(displayData.preparationTime)}
                   </TableCell>
                   <TableCell className="text-center text-muted-foreground">
-                    {formatTime(recipe.cookingTime)}
+                    {formatTime(displayData.cookingTime)}
                   </TableCell>
                   <TableCell className="text-center">
                     <Badge variant="outline" className="bg-blue-50 text-blue-700">
@@ -376,11 +536,11 @@ export default function Recipes() {
                 icon: <Package className="h-12 w-12" />,
                 title: 'No recipes found',
                 description:
-                  search || finishedGoodFilter
+                  search || finishedGoodFilter || (branchFilter && branchFilter !== 'all')
                     ? 'Try adjusting your filters'
                     : 'Get started by adding your first recipe',
                 action:
-                  !search && !finishedGoodFilter ? (
+                  !search && !finishedGoodFilter && (!branchFilter || branchFilter === 'all') ? (
                     <Button onClick={handleCreate}>
                       <Plus className="h-4 w-4 mr-2" />
                       Add Recipe
@@ -417,13 +577,15 @@ export default function Recipes() {
 
       {/* Recipe Form Modal */}
       <RecipeFormModal
-        open={isFormOpen}
+        isOpen={isFormOpen}
         onClose={() => {
           setIsFormOpen(false);
           setSelectedRecipe(null);
         }}
-        recipe={selectedRecipe}
+        recipe={selectedRecipe as any}
         onSuccess={handleFormSuccess}
+        branches={branches}
+        userBranchIds={isSuperAdmin ? null : user?.branchIds || []}
       />
 
       {/* Delete Confirmation Dialog */}
