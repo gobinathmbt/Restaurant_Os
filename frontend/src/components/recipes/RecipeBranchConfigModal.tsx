@@ -58,15 +58,19 @@ interface Branch {
   code: string;
 }
 
-interface InventoryItemBranch {
+interface InventoryItemWithBranch {
   _id: string;
-  inventoryItem: {
+  name: string;
+  unit: string;
+  type: string;
+  branchConfig: {
     _id: string;
-    name: string;
-    unit: string;
+    currentStock: number;
+    minimumStock: number;
+    costPrice?: number;
+    isAvailable: boolean;
+    isActive: boolean;
   };
-  costPrice?: number;
-  currentStock: number;
   isActive: boolean;
 }
 
@@ -100,7 +104,7 @@ export default function RecipeBranchConfigModal({
 }: RecipeBranchConfigModalProps) {
   const { toast } = useToast();
   const [localConfig, setLocalConfig] = useState<RecipeBranchConfig>(config);
-  const [availableInventoryItems, setAvailableInventoryItems] = useState<InventoryItemBranch[]>([]);
+  const [availableInventoryItems, setAvailableInventoryItems] = useState<InventoryItemWithBranch[]>([]);
   const [inventorySearchTerm, setInventorySearchTerm] = useState('');
   const [isLoadingInventory, setIsLoadingInventory] = useState(false);
   const [showInventorySearch, setShowInventorySearch] = useState(false);
@@ -175,10 +179,10 @@ export default function RecipeBranchConfigModal({
     }
   }, [inventorySearchTerm]);
 
-  const handleInventoryItemSelect = (item: InventoryItemBranch) => {
+  const handleInventoryItemSelect = (item: InventoryItemWithBranch) => {
     // Check if already added
     const isAlreadyAdded = localConfig.ingredients.some(
-      (ing) => ing.inventoryItemBranch === item._id
+      (ing) => ing.inventoryItemBranch === item.branchConfig._id
     );
 
     if (isAlreadyAdded) {
@@ -192,9 +196,9 @@ export default function RecipeBranchConfigModal({
 
     // Add new ingredient
     const newIngredient: Ingredient = {
-      inventoryItemBranch: item._id,
+      inventoryItemBranch: item.branchConfig._id,
       quantity: 1,
-      unit: item.inventoryItem.unit,
+      unit: item.unit,
     };
 
     setLocalConfig({
@@ -204,7 +208,7 @@ export default function RecipeBranchConfigModal({
 
     toast({
       title: 'Ingredient Added',
-      description: `${item.inventoryItem.name} has been added`,
+      description: `${item.name} has been added`,
       variant: 'success',
     });
 
@@ -236,10 +240,10 @@ export default function RecipeBranchConfigModal({
     let totalCost = 0;
     for (const ingredient of localConfig.ingredients) {
       const inventoryItem = availableInventoryItems.find(
-        (item) => item._id === ingredient.inventoryItemBranch
+        (item) => item.branchConfig._id === ingredient.inventoryItemBranch
       );
-      if (inventoryItem && inventoryItem.costPrice) {
-        totalCost += ingredient.quantity * inventoryItem.costPrice;
+      if (inventoryItem && inventoryItem.branchConfig.costPrice) {
+        totalCost += ingredient.quantity * inventoryItem.branchConfig.costPrice;
       }
     }
 
@@ -247,7 +251,7 @@ export default function RecipeBranchConfigModal({
   };
 
   const getIngredientDetails = (inventoryItemBranchId: string) => {
-    return availableInventoryItems.find((item) => item._id === inventoryItemBranchId);
+    return availableInventoryItems.find((item) => item.branchConfig._id === inventoryItemBranchId);
   };
 
   const handleRecalculateCost = async () => {
@@ -399,14 +403,14 @@ export default function RecipeBranchConfigModal({
                             availableInventoryItems.map((item) => (
                               <CommandItem
                                 key={item._id}
-                                value={`${item.inventoryItem.name} ${item.inventoryItem.unit}`}
+                                value={`${item.name} ${item.unit}`}
                                 onSelect={() => handleInventoryItemSelect(item)}
                               >
                                 <Check
                                   className={cn(
                                     'mr-2 h-4 w-4',
                                     localConfig.ingredients.some(
-                                      (ing) => ing.inventoryItemBranch === item._id
+                                      (ing) => ing.inventoryItemBranch === item.branchConfig._id
                                     )
                                       ? 'opacity-100'
                                       : 'opacity-0'
@@ -414,14 +418,14 @@ export default function RecipeBranchConfigModal({
                                 />
                                 <div className="flex-1">
                                   <p className="font-medium text-sm">
-                                    {item.inventoryItem.name}
+                                    {item.name}
                                   </p>
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <span>Unit: {item.inventoryItem.unit}</span>
-                                    {item.costPrice && (
-                                      <span>• Cost: ₹{item.costPrice.toFixed(2)}</span>
+                                    <span>Unit: {item.unit}</span>
+                                    {item.branchConfig.costPrice && (
+                                      <span>• Cost: ₹{item.branchConfig.costPrice.toFixed(2)}</span>
                                     )}
-                                    <span>• Stock: {item.currentStock}</span>
+                                    <span>• Stock: {item.branchConfig.currentStock}</span>
                                   </div>
                                 </div>
                               </CommandItem>
@@ -446,7 +450,7 @@ export default function RecipeBranchConfigModal({
                       <div key={index} className="border rounded-lg p-3 space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium">
-                            {itemDetails?.inventoryItem.name || 'Unknown Item'}
+                            {itemDetails?.name || 'Unknown Item'}
                           </span>
                           <Button
                             type="button"
@@ -504,8 +508,8 @@ export default function RecipeBranchConfigModal({
                             <Label className="text-xs">Cost</Label>
                             <Input
                               value={
-                                itemDetails?.costPrice
-                                  ? `₹${(ingredient.quantity * itemDetails.costPrice).toFixed(2)}`
+                                itemDetails?.branchConfig.costPrice
+                                  ? `₹${(ingredient.quantity * itemDetails.branchConfig.costPrice).toFixed(2)}`
                                   : 'N/A'
                               }
                               readOnly
@@ -514,9 +518,9 @@ export default function RecipeBranchConfigModal({
                           </div>
                         </div>
 
-                        {itemDetails?.costPrice && (
+                        {itemDetails?.branchConfig.costPrice && (
                           <div className="text-xs text-muted-foreground">
-                            Cost per unit: ₹{itemDetails.costPrice.toFixed(2)}/{itemDetails.inventoryItem.unit}
+                            Cost per unit: ₹{itemDetails.branchConfig.costPrice.toFixed(2)}/{itemDetails.unit}
                           </div>
                         )}
                       </div>
@@ -646,17 +650,17 @@ export default function RecipeBranchConfigModal({
                     <div className="space-y-1">
                       {localConfig.ingredients.map((ingredient, index) => {
                         const itemDetails = getIngredientDetails(ingredient.inventoryItemBranch);
-                        const cost = itemDetails?.costPrice
-                          ? ingredient.quantity * itemDetails.costPrice
+                        const cost = itemDetails?.branchConfig.costPrice
+                          ? ingredient.quantity * itemDetails.branchConfig.costPrice
                           : 0;
                         return (
                           <div key={index} className="flex justify-between text-sm">
                             <span>
-                              {itemDetails?.inventoryItem.name || 'Unknown'} ({ingredient.quantity}{' '}
+                              {itemDetails?.name || 'Unknown'} ({ingredient.quantity}{' '}
                               {ingredient.unit})
                             </span>
                             <span>
-                              {itemDetails?.costPrice ? `₹${cost.toFixed(2)}` : 'N/A'}
+                              {itemDetails?.branchConfig.costPrice ? `₹${cost.toFixed(2)}` : 'N/A'}
                             </span>
                           </div>
                         );
@@ -673,7 +677,7 @@ export default function RecipeBranchConfigModal({
                       {localConfig.ingredients
                         .reduce((sum, ing) => {
                           const itemDetails = getIngredientDetails(ing.inventoryItemBranch);
-                          return sum + (itemDetails?.costPrice ? ing.quantity * itemDetails.costPrice : 0);
+                          return sum + (itemDetails?.branchConfig.costPrice ? ing.quantity * itemDetails.branchConfig.costPrice : 0);
                         }, 0)
                         .toFixed(2)}
                     </span>

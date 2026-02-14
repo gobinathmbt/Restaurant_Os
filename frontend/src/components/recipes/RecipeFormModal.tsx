@@ -426,7 +426,7 @@ export default function RecipeFormModal({
       } else {
         // Create new recipe with branch assignments
         const branchConfigsArray = selectedBranches.map((branchId) => ({
-          branchId,
+          branch: branchId, // Backend expects 'branch', not 'branchId'
           ...branchConfigs.get(branchId),
         }));
 
