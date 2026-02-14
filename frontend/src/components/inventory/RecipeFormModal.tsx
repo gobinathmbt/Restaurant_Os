@@ -2,7 +2,14 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -12,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { recipeServices, inventoryServices } from '@/api/services';
+import { recipeServices, inventoryServices, menuItemServices } from '@/api/services';
 import { Plus, Trash2 } from 'lucide-react';
 
 interface RecipeFormModalProps {
@@ -41,11 +48,11 @@ interface PreparationStep {
   description: string;
 }
 
-export default function RecipeFormModal({ 
-  open, 
-  onClose, 
-  recipe, 
-  onSuccess 
+export default function RecipeFormModal({
+  open,
+  onClose,
+  recipe,
+  onSuccess,
 }: RecipeFormModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -58,21 +65,21 @@ export default function RecipeFormModal({
     yieldUnit: 'piece',
     preparationTime: 0,
     cookingTime: 0,
-    notes: ''
+    notes: '',
   });
   const [ingredients, setIngredients] = useState<Ingredient[]>([
     {
       rawMaterial: '',
       quantity: 0,
       unit: '',
-      cost: 0
-    }
+      cost: 0,
+    },
   ]);
   const [preparationSteps, setPreparationSteps] = useState<PreparationStep[]>([
     {
       stepNumber: 1,
-      description: ''
-    }
+      description: '',
+    },
   ]);
 
   useEffect(() => {
@@ -93,23 +100,27 @@ export default function RecipeFormModal({
         yieldUnit: recipe.yield?.unit || 'piece',
         preparationTime: recipe.preparationTime || 0,
         cookingTime: recipe.cookingTime || 0,
-        notes: recipe.notes || ''
+        notes: recipe.notes || '',
       });
 
       if (recipe.ingredients && recipe.ingredients.length > 0) {
-        setIngredients(recipe.ingredients.map((ing: any) => ({
-          rawMaterial: ing.rawMaterial?._id || ing.rawMaterial || '',
-          quantity: ing.quantity || 0,
-          unit: ing.unit || '',
-          cost: ing.rawMaterial?.costPrice || 0
-        })));
+        setIngredients(
+          recipe.ingredients.map((ing: any) => ({
+            rawMaterial: ing.rawMaterial?._id || ing.rawMaterial || '',
+            quantity: ing.quantity || 0,
+            unit: ing.unit || '',
+            cost: ing.rawMaterial?.costPrice || 0,
+          }))
+        );
       }
 
       if (recipe.preparationSteps && recipe.preparationSteps.length > 0) {
-        setPreparationSteps(recipe.preparationSteps.map((step: any) => ({
-          stepNumber: step.stepNumber || 0,
-          description: step.description || ''
-        })));
+        setPreparationSteps(
+          recipe.preparationSteps.map((step: any) => ({
+            stepNumber: step.stepNumber || 0,
+            description: step.description || '',
+          }))
+        );
       }
     }
   }, [recipe, open]);
@@ -122,50 +133,53 @@ export default function RecipeFormModal({
       yieldUnit: 'piece',
       preparationTime: 0,
       cookingTime: 0,
-      notes: ''
+      notes: '',
     });
     setIngredients([
       {
         rawMaterial: '',
         quantity: 0,
         unit: '',
-        cost: 0
-      }
+        cost: 0,
+      },
     ]);
     setPreparationSteps([
       {
         stepNumber: 1,
-        description: ''
-      }
+        description: '',
+      },
     ]);
   };
 
   const fetchInventoryItems = async () => {
     try {
-      // Note: Since recipes are company-wide and inventory items are branch-specific,
-      // we need to fetch items from all branches. The API should handle this by
-      // accepting an empty branchId or fetching from all user's accessible branches.
-      // For now, we'll make the call and let the backend handle the logic.
+      const params: any = {
+        limit: 1000,
+      };
+      // Fetch finished goods from inventory items
+      const menuresponse = await menuItemServices.getMenuItems(params);
+      const inventoryresponse = await inventoryServices.getInventoryItems(params);
+
+      const items = menuresponse.data.data.menuItems || [];
+      setFinishedGoods(
+        items.map((item: any) => ({
+          _id: item._id,
+          name: item.name,
+        }))
+      );
+
+      const allItems = inventoryresponse.data.data.items || [];
+      setRawMaterials(allItems);
       
-      // Try to fetch with empty branch (backend should return items from all accessible branches)
-      try {
-        const response = await inventoryServices.getInventoryItems('', { limit: 1000 });
-        const allItems = response.data.data.items || [];
-        
-        setRawMaterials(allItems.filter((item: any) => item.type === 'raw_material'));
-        setFinishedGoods(allItems.filter((item: any) => item.type === 'finished_good'));
-      } catch (err) {
-        // If that fails, we'll just set empty arrays and show a warning
-        setRawMaterials([]);
-        setFinishedGoods([]);
-        toast({
-          title: "Warning",
-          description: "Could not fetch inventory items. Please ensure items exist in your branches.",
-          variant: "default",
-        });
-      }
-    } catch (error: any) {
-      console.error('Error fetching inventory items:', error);
+    } catch (err) {
+      // If that fails, we'll just set empty arrays and show a warning
+      setRawMaterials([]);
+      setFinishedGoods([]);
+      toast({
+        title: 'Warning',
+        description: 'Could not fetch inventory items. Please ensure items exist in your branches.',
+        variant: 'default',
+      });
     }
   };
 
@@ -175,7 +189,7 @@ export default function RecipeFormModal({
 
     // Auto-fill unit and cost when raw material is selected
     if (field === 'rawMaterial') {
-      const selectedItem = rawMaterials.find(item => item._id === value);
+      const selectedItem = rawMaterials.find((item) => item._id === value);
       if (selectedItem) {
         updatedIngredients[index].unit = selectedItem.unit;
         updatedIngredients[index].cost = selectedItem.costPrice || 0;
@@ -192,8 +206,8 @@ export default function RecipeFormModal({
         rawMaterial: '',
         quantity: 0,
         unit: '',
-        cost: 0
-      }
+        cost: 0,
+      },
     ]);
   };
 
@@ -214,8 +228,8 @@ export default function RecipeFormModal({
       ...preparationSteps,
       {
         stepNumber: preparationSteps.length + 1,
-        description: ''
-      }
+        description: '',
+      },
     ]);
   };
 
@@ -232,7 +246,7 @@ export default function RecipeFormModal({
 
   const calculateCostPerUnit = () => {
     const totalCost = ingredients.reduce((sum, ing) => {
-      return sum + (ing.quantity * (ing.cost || 0));
+      return sum + ing.quantity * (ing.cost || 0);
     }, 0);
     return formData.yieldQuantity > 0 ? totalCost / formData.yieldQuantity : 0;
   };
@@ -244,36 +258,36 @@ export default function RecipeFormModal({
   const validateForm = () => {
     if (!formData.name.trim()) {
       toast({
-        title: "Validation Error",
-        description: "Recipe name is required",
-        variant: "destructive",
+        title: 'Validation Error',
+        description: 'Recipe name is required',
+        variant: 'destructive',
       });
       return false;
     }
 
     if (!formData.finishedGood) {
       toast({
-        title: "Validation Error",
-        description: "Finished good is required",
-        variant: "destructive",
+        title: 'Validation Error',
+        description: 'Finished good is required',
+        variant: 'destructive',
       });
       return false;
     }
 
     if (formData.yieldQuantity <= 0) {
       toast({
-        title: "Validation Error",
-        description: "Yield quantity must be greater than 0",
-        variant: "destructive",
+        title: 'Validation Error',
+        description: 'Yield quantity must be greater than 0',
+        variant: 'destructive',
       });
       return false;
     }
 
-    if (ingredients.length === 0 || ingredients.every(ing => !ing.rawMaterial)) {
+    if (ingredients.length === 0 || ingredients.every((ing) => !ing.rawMaterial)) {
       toast({
-        title: "Validation Error",
-        description: "At least one ingredient is required",
-        variant: "destructive",
+        title: 'Validation Error',
+        description: 'At least one ingredient is required',
+        variant: 'destructive',
       });
       return false;
     }
@@ -283,9 +297,9 @@ export default function RecipeFormModal({
       if (ing.rawMaterial) {
         if (ing.quantity <= 0) {
           toast({
-            title: "Validation Error",
+            title: 'Validation Error',
             description: `Ingredient ${i + 1}: Quantity must be greater than 0`,
-            variant: "destructive",
+            variant: 'destructive',
           });
           return false;
         }
@@ -297,61 +311,62 @@ export default function RecipeFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
 
     try {
       setLoading(true);
-      
+
       const submitData = {
         name: formData.name.trim(),
         finishedGood: formData.finishedGood,
         ingredients: ingredients
-          .filter(ing => ing.rawMaterial)
-          .map(ing => ({
+          .filter((ing) => ing.rawMaterial)
+          .map((ing) => ({
             rawMaterial: ing.rawMaterial,
             quantity: ing.quantity,
-            unit: ing.unit
+            unit: ing.unit,
           })),
         yield: {
           quantity: formData.yieldQuantity,
-          unit: formData.yieldUnit
+          unit: formData.yieldUnit,
         },
         preparationSteps: preparationSteps
-          .filter(step => step.description.trim())
+          .filter((step) => step.description.trim())
           .map((step, index) => ({
             stepNumber: index + 1,
-            description: step.description.trim()
+            description: step.description.trim(),
           })),
         preparationTime: formData.preparationTime || undefined,
         cookingTime: formData.cookingTime || undefined,
-        notes: formData.notes.trim() || undefined
+        notes: formData.notes.trim() || undefined,
       };
 
       if (recipe) {
         await recipeServices.updateRecipe(recipe._id, submitData);
         toast({
-          title: "Success",
-          description: "Recipe updated successfully",
-          variant: "success",
+          title: 'Success',
+          description: 'Recipe updated successfully',
+          variant: 'success',
         });
       } else {
         await recipeServices.createRecipe(submitData);
         toast({
-          title: "Success",
-          description: "Recipe created successfully",
-          variant: "success",
+          title: 'Success',
+          description: 'Recipe created successfully',
+          variant: 'success',
         });
       }
-      
+
       onSuccess();
     } catch (error: any) {
       toast({
-        title: "Error",
-        description: error.response?.data?.message || `Failed to ${recipe ? 'update' : 'create'} recipe`,
-        variant: "destructive",
+        title: 'Error',
+        description:
+          error.response?.data?.message || `Failed to ${recipe ? 'update' : 'create'} recipe`,
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -411,7 +426,7 @@ export default function RecipeFormModal({
                   Add Ingredient
                 </Button>
               </div>
-              
+
               <div className="space-y-3 max-h-80 overflow-y-auto">
                 {ingredients.map((ingredient, index) => (
                   <div key={index} className="p-4 border rounded-lg space-y-3 bg-muted/30">
@@ -428,13 +443,15 @@ export default function RecipeFormModal({
                         </Button>
                       )}
                     </div>
-                    
+
                     <div className="grid grid-cols-4 gap-3">
                       <div className="col-span-2">
                         <Label>Raw Material *</Label>
                         <Select
                           value={ingredient.rawMaterial}
-                          onValueChange={(value) => handleIngredientChange(index, 'rawMaterial', value)}
+                          onValueChange={(value) =>
+                            handleIngredientChange(index, 'rawMaterial', value)
+                          }
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select raw material" />
@@ -448,7 +465,7 @@ export default function RecipeFormModal({
                           </SelectContent>
                         </Select>
                       </div>
-                      
+
                       <div>
                         <Label>Quantity *</Label>
                         <Input
@@ -456,11 +473,17 @@ export default function RecipeFormModal({
                           min="0"
                           step="0.01"
                           value={ingredient.quantity || ''}
-                          onChange={(e) => handleIngredientChange(index, 'quantity', parseFloat(e.target.value) || 0)}
+                          onChange={(e) =>
+                            handleIngredientChange(
+                              index,
+                              'quantity',
+                              parseFloat(e.target.value) || 0
+                            )
+                          }
                           placeholder="0"
                         />
                       </div>
-                      
+
                       <div>
                         <Label>Unit</Label>
                         <Input
@@ -470,7 +493,7 @@ export default function RecipeFormModal({
                           className="bg-muted"
                         />
                       </div>
-                      
+
                       <div className="col-span-4">
                         <Label>Cost (per unit)</Label>
                         <Input
@@ -497,7 +520,9 @@ export default function RecipeFormModal({
                     min="0.01"
                     step="0.01"
                     value={formData.yieldQuantity}
-                    onChange={(e) => setFormData({ ...formData, yieldQuantity: parseFloat(e.target.value) || 1 })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, yieldQuantity: parseFloat(e.target.value) || 1 })
+                    }
                     placeholder="1"
                     required
                   />
@@ -534,7 +559,7 @@ export default function RecipeFormModal({
                   Add Step
                 </Button>
               </div>
-              
+
               <div className="space-y-3 max-h-60 overflow-y-auto">
                 {preparationSteps.map((step, index) => (
                   <div key={index} className="flex items-start gap-3">
@@ -574,7 +599,9 @@ export default function RecipeFormModal({
                     type="number"
                     min="0"
                     value={formData.preparationTime || ''}
-                    onChange={(e) => setFormData({ ...formData, preparationTime: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, preparationTime: parseInt(e.target.value) || 0 })
+                    }
                     placeholder="0"
                   />
                 </div>
@@ -585,7 +612,9 @@ export default function RecipeFormModal({
                     type="number"
                     min="0"
                     value={formData.cookingTime || ''}
-                    onChange={(e) => setFormData({ ...formData, cookingTime: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, cookingTime: parseInt(e.target.value) || 0 })
+                    }
                     placeholder="0"
                   />
                 </div>
@@ -599,7 +628,9 @@ export default function RecipeFormModal({
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Cost Per Unit</Label>
-                  <p className="text-lg font-semibold text-primary">₹{calculateCostPerUnit().toFixed(2)}</p>
+                  <p className="text-lg font-semibold text-primary">
+                    ₹{calculateCostPerUnit().toFixed(2)}
+                  </p>
                 </div>
               </div>
             </div>

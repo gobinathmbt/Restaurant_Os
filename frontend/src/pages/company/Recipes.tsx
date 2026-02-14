@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { recipeServices, inventoryServices } from '@/api/services';
+import { recipeServices, inventoryServices, menuItemServices } from '@/api/services';
 import RecipeFormModal from '@/components/inventory/RecipeFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -67,7 +67,7 @@ export default function Recipes() {
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; recipe: Recipe | null }>({
     open: false,
-    recipe: null
+    recipe: null,
   });
 
   // Infinite scroll state
@@ -103,17 +103,17 @@ export default function Recipes() {
         page,
         limit: rowsPerPage,
         search: search || undefined,
-        finishedGood: finishedGoodFilter || undefined
+        finishedGood: finishedGoodFilter || undefined,
       });
 
       setRecipes(response.data.data.recipes || []);
       setTotalCount(response.data.data.pagination.total);
-      setTotalPages(response.data.data.pagination.totalPages);
+      setTotalPages(response.data.data.pagination.page);
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: 'Error',
         description: error.response?.data?.message || 'Failed to fetch recipes',
-        variant: "destructive",
+        variant: 'destructive',
       });
     } finally {
       setRecipesLoading(false);
@@ -132,7 +132,7 @@ export default function Recipes() {
         page: page,
         limit: 20, // Fixed batch size for infinite scroll
         search: search || undefined,
-        finishedGood: finishedGoodFilter || undefined
+        finishedGood: finishedGoodFilter || undefined,
       });
 
       const newRecipes = response.data.data.recipes || [];
@@ -141,17 +141,17 @@ export default function Recipes() {
       if (reset) {
         setRecipes(newRecipes);
       } else {
-        setRecipes(prev => [...prev, ...newRecipes]);
+        setRecipes((prev) => [...prev, ...newRecipes]);
       }
 
       setTotalCount(pagination.total);
-      setTotalPages(pagination.totalPages);
-      setHasMore(page < pagination.totalPages);
+      setTotalPages(pagination.page);
+      setHasMore(page < pagination.page);
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: 'Error',
         description: error.response?.data?.message || 'Failed to fetch recipes',
-        variant: "destructive",
+        variant: 'destructive',
       });
     } finally {
       setRecipesLoading(false);
@@ -169,16 +169,18 @@ export default function Recipes() {
 
   const fetchFinishedGoods = async () => {
     try {
-      // Fetch finished goods from inventory items
-      const response = await inventoryServices.getInventoryItems('', {
+      const params: any = {
         limit: 1000,
-        type: 'finished_good'
-      });
-      const items = response.data.data.items || [];
-      setFinishedGoods(items.map((item: any) => ({
-        _id: item._id,
-        name: item.name
-      })));
+      };
+      // Fetch finished goods from inventory items
+      const response = await menuItemServices.getMenuItems(params);
+      const items = response.data.data.menuItems || [];
+      setFinishedGoods(
+        items.map((item: any) => ({
+          _id: item._id,
+          name: item.name,
+        }))
+      );
     } catch (error: any) {
       // Silently fail for finished goods
     }
@@ -206,9 +208,9 @@ export default function Recipes() {
       setLoadingMessage('Deleting recipe...');
       await recipeServices.deleteRecipe(deleteDialog.recipe._id);
       toast({
-        title: "Success",
-        description: "Recipe deleted successfully",
-        variant: "success",
+        title: 'Success',
+        description: 'Recipe deleted successfully',
+        variant: 'success',
       });
       if (paginationEnabled) {
         fetchRecipes();
@@ -221,9 +223,9 @@ export default function Recipes() {
       setDeleteDialog({ open: false, recipe: null });
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: 'Error',
         description: error.response?.data?.message || 'Failed to delete recipe',
-        variant: "destructive",
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -259,9 +261,7 @@ export default function Recipes() {
   return (
     <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <DataTableLayout
-        statChips={[
-          { label: 'Total Recipes', value: totalCount, variant: 'default' },
-        ]}
+        statChips={[{ label: 'Total Recipes', value: totalCount, variant: 'default' }]}
         actionButtons={[
           {
             icon: <Plus className="h-4 w-4" />,
@@ -290,7 +290,7 @@ export default function Recipes() {
                 </SelectContent>
               </Select>
             </div>
-          )
+          ),
         }}
         tableHeaders={
           <>
@@ -309,67 +309,63 @@ export default function Recipes() {
           <>
             {recipes.map((recipe, index) => {
               // Calculate serial number based on pagination mode
-              const serialNumber = paginationEnabled 
+              const serialNumber = paginationEnabled
                 ? (page - 1) * rowsPerPage + index + 1
                 : index + 1;
-              
+
               return (
-              <TableRow key={recipe._id}>
-                <TableCell className="font-medium text-muted-foreground">
-                  {serialNumber}
-                </TableCell>
-                <TableCell>
-                  <p className="font-medium">{recipe.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Yield: {recipe.yield?.quantity} {recipe.yield?.unit}
-                  </p>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {recipe.finishedGood?.name || '-'}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-center">
-                  <Badge variant="secondary">
-                    {recipe.ingredients?.length || 0} items
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right font-medium">
-                  {formatCurrency(recipe.costPerUnit)}
-                </TableCell>
-                <TableCell className="text-center text-muted-foreground">
-                  {formatTime(recipe.preparationTime)}
-                </TableCell>
-                <TableCell className="text-center text-muted-foreground">
-                  {formatTime(recipe.cookingTime)}
-                </TableCell>
-                <TableCell className="text-center">
-                  <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                    v{recipe.version}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(recipe)}
-                      title="Edit recipe"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(recipe)}
-                      title="Delete recipe"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
+                <TableRow key={recipe._id}>
+                  <TableCell className="font-medium text-muted-foreground">
+                    {serialNumber}
+                  </TableCell>
+                  <TableCell>
+                    <p className="font-medium">{recipe.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Yield: {recipe.yield?.quantity} {recipe.yield?.unit}
+                    </p>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{recipe.finishedGood?.name || '-'}</Badge>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant="secondary">{recipe.ingredients?.length || 0} items</Badge>
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    {formatCurrency(recipe.costPerUnit)}
+                  </TableCell>
+                  <TableCell className="text-center text-muted-foreground">
+                    {formatTime(recipe.preparationTime)}
+                  </TableCell>
+                  <TableCell className="text-center text-muted-foreground">
+                    {formatTime(recipe.cookingTime)}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                      v{recipe.version}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(recipe)}
+                        title="Edit recipe"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(recipe)}
+                        title="Delete recipe"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
             })}
           </>
         }
@@ -377,18 +373,20 @@ export default function Recipes() {
         emptyState={
           recipes.length === 0
             ? {
-              icon: <Package className="h-12 w-12" />,
-              title: 'No recipes found',
-              description: search || finishedGoodFilter
-                ? 'Try adjusting your filters'
-                : 'Get started by adding your first recipe',
-              action: !search && !finishedGoodFilter ? (
-                <Button onClick={handleCreate}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Recipe
-                </Button>
-              ) : undefined,
-            }
+                icon: <Package className="h-12 w-12" />,
+                title: 'No recipes found',
+                description:
+                  search || finishedGoodFilter
+                    ? 'Try adjusting your filters'
+                    : 'Get started by adding your first recipe',
+                action:
+                  !search && !finishedGoodFilter ? (
+                    <Button onClick={handleCreate}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Recipe
+                    </Button>
+                  ) : undefined,
+              }
             : undefined
         }
         currentPage={page}
