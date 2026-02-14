@@ -23,6 +23,11 @@
     --emerald: 160 84% 39%;
     --emerald-glow: 160 100% 45%;
     --mint: 158 60% 82%;
+
+    /* Custom color variables (can be overridden by theme) */
+    --color-primary: 160 84% 39%;
+    --color-secondary: 0 0% 12%;
+    --color-tertiary: 0 0% 98%;
     
     /* Dark theme (default for POS) */
     --background: 0 0% 4%;
@@ -35,10 +40,10 @@
     --popover: 0 0% 7%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 160 84% 39%;
+    --primary: var(--color-primary);
     --primary-foreground: 0 0% 2%;
 
-    --secondary: 0 0% 12%;
+    --secondary: var(--color-secondary);
     --secondary-foreground: 0 0% 98%;
 
     --muted: 0 0% 15%;
@@ -58,30 +63,30 @@
 
     --border: 0 0% 14%;
     --input: 0 0% 14%;
-    --ring: 160 84% 39%;
+    --ring: var(--color-primary);
 
     --radius: 0.625rem;
 
     /* Sidebar */
     --sidebar-background: 0 0% 5%;
     --sidebar-foreground: 0 0% 70%;
-    --sidebar-primary: 160 84% 39%;
+    --sidebar-primary: var(--color-primary);
     --sidebar-primary-foreground: 0 0% 2%;
     --sidebar-accent: 152 60% 18%;
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 0 0% 12%;
-    --sidebar-ring: 160 84% 39%;
+    --sidebar-ring: var(--color-primary);
 
     /* Custom gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(160 84% 39%), hsl(152 81% 25%));
+    --gradient-primary: linear-gradient(135deg, hsl(var(--color-primary)), hsl(152 81% 25%));
     --gradient-card: linear-gradient(180deg, hsl(0 0% 8%), hsl(0 0% 6%));
-    --gradient-glow: radial-gradient(ellipse at top, hsl(160 84% 39% / 0.15), transparent 50%);
+    --gradient-glow: radial-gradient(ellipse at top, hsl(var(--color-primary) / 0.15), transparent 50%);
     
     /* Shadows */
     --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.3);
     --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.4), 0 2px 4px -2px hsl(0 0% 0% / 0.3);
     --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.5), 0 4px 6px -4px hsl(0 0% 0% / 0.4);
-    --shadow-glow: 0 0 20px hsl(160 84% 39% / 0.3);
+    --shadow-glow: 0 0 20px hsl(var(--color-primary) / 0.3);
   }
 
   .light {
@@ -91,9 +96,9 @@
     --card-foreground: 0 0% 8%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 8%;
-    --primary: 160 84% 32%;
+    --primary: var(--color-primary);
     --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 94%;
+    --secondary: var(--color-secondary);
     --secondary-foreground: 0 0% 12%;
     --muted: 0 0% 92%;
     --muted-foreground: 0 0% 40%;
@@ -101,7 +106,7 @@
     --accent-foreground: 152 81% 12%;
     --border: 0 0% 88%;
     --input: 0 0% 88%;
-    --ring: 160 84% 39%;
+    --ring: var(--color-primary);
   }
 }
 

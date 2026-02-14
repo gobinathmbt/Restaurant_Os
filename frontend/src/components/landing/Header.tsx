@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChefHat, Menu, X } from 'lucide-react';
+import { ThemeToggleDropdown } from '@/components/theme/ThemeToggleDropdown';
 
 const Header = () => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -74,6 +75,7 @@ const Header = () => {
 
           {/* Desktop Auth Buttons */}
           <div className="hidden md:flex items-center gap-4">
+            <ThemeToggleDropdown />
             <Link
               to="/auth?mode=login"
               className="text-foreground hover:text-primary transition-colors font-medium"

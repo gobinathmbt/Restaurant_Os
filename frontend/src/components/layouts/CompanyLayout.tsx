@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { ThemeToggleDropdown } from '@/components/theme/ThemeToggleDropdown';
 
 interface MenuItem {
   title: string;
@@ -207,19 +208,19 @@ export default function CompanyLayout() {
           sidebarCollapsed ? "lg:w-16" : "lg:w-64"
         )}
       >
-        <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-neutral-950 border-r border-border pb-4">
+        <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-secondary border-r border-border pb-4">
           {/* Logo */}
           <div className={cn(
             "flex h-16 shrink-0 items-center transition-all duration-300",
             sidebarCollapsed ? "justify-center px-2" : "px-6"
           )}>
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary-500 flex items-center justify-center shrink-0">
-                <span className="text-white font-bold text-lg">R</span>
+              <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
+                <span className="text-secondary-foreground font-bold text-lg">R</span>
               </div>
               {!sidebarCollapsed && (
                 <div className="overflow-hidden transition-all duration-300">
-                  <h1 className="text-white font-bold text-lg whitespace-nowrap">RestaurantOS</h1>
+                  <h1 className="text-secondary-foreground font-bold text-lg whitespace-nowrap">RestaurantOS</h1>
                   <p className="text-xs text-muted-foreground truncate max-w-[150px]">
                     {user?.companyName || 'Company'}
                   </p>
@@ -238,7 +239,7 @@ export default function CompanyLayout() {
               size="sm"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               className={cn(
-                "w-full text-gray-400 hover:text-white hover:bg-neutral-900 transition-all duration-300",
+                "w-full text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80 transition-all duration-300",
                 sidebarCollapsed && "justify-center px-0"
               )}
             >
@@ -279,8 +280,8 @@ export default function CompanyLayout() {
                                     className={cn(
                                       'w-full group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300 justify-center',
                                       isActive
-                                        ? 'bg-primary-500 text-white'
-                                        : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80'
                                     )}
                                   >
                                     <item.icon className="h-5 w-5 shrink-0" />
@@ -308,8 +309,8 @@ export default function CompanyLayout() {
                                   className={cn(
                                     'w-full group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300',
                                     isActive
-                                      ? 'bg-primary-500 text-white'
-                                      : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80'
                                   )}
                                 >
                                   <item.icon className="h-5 w-5 shrink-0" />
@@ -330,8 +331,8 @@ export default function CompanyLayout() {
                                             className={cn(
                                               'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
                                               isSubActive
-                                                ? 'bg-primary-500 text-white'
-                                                : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                                ? 'bg-primary text-primary-foreground'
+                                                : 'text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80'
                                             )}
                                           >
                                             <subItem.icon className="h-4 w-4 shrink-0" />
@@ -354,8 +355,8 @@ export default function CompanyLayout() {
                             className={cn(
                               'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-300',
                               isActive
-                                ? 'bg-primary-500 text-white'
-                                : 'text-gray-400 hover:text-white hover:bg-neutral-900',
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80',
                               sidebarCollapsed && 'justify-center'
                             )}
                           >
@@ -400,14 +401,14 @@ export default function CompanyLayout() {
         )}
       >
         <div className="fixed inset-0 bg-black/80" onClick={() => setSidebarOpen(false)} />
-        <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-neutral-950 border-r border-border">
+        <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-secondary border-r border-border">
           <div className="flex h-16 items-center justify-between px-6">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary-500 flex items-center justify-center">
-                <span className="text-white font-bold text-lg">R</span>
+              <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
+                <span className="text-secondary-foreground font-bold text-lg">R</span>
               </div>
               <div>
-                <h1 className="text-white font-bold text-lg">RestaurantOS</h1>
+                <h1 className="text-secondary-foreground font-bold text-lg">RestaurantOS</h1>
                 <p className="text-xs text-muted-foreground truncate max-w-[120px]">
                   {user?.companyName || 'Company'}
                 </p>
@@ -417,7 +418,7 @@ export default function CompanyLayout() {
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(false)}
-              className="text-gray-400 hover:text-white"
+              className="text-muted-foreground hover:text-secondary-foreground"
             >
               <X className="h-6 w-6" />
             </Button>
@@ -438,8 +439,8 @@ export default function CompanyLayout() {
                         className={cn(
                           'w-full group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
                           isActive
-                            ? 'bg-primary-500 text-white'
-                            : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80'
                         )}
                       >
                         <item.icon className="h-5 w-5 shrink-0" />
@@ -461,8 +462,8 @@ export default function CompanyLayout() {
                                   className={cn(
                                     'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
                                     isSubActive
-                                      ? 'bg-primary-500 text-white'
-                                      : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80'
                                   )}
                                 >
                                   <subItem.icon className="h-4 w-4 shrink-0" />
@@ -485,8 +486,8 @@ export default function CompanyLayout() {
                         className={cn(
                           'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-colors',
                           isActive
-                            ? 'bg-primary-500 text-white'
-                            : 'text-gray-400 hover:text-white hover:bg-neutral-900'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:text-secondary-foreground hover:bg-secondary/80'
                         )}
                       >
                         <item.icon className="h-5 w-5 shrink-0" />
@@ -534,13 +535,16 @@ export default function CompanyLayout() {
             {/* Notifications */}
             <NotificationBell />
 
+            {/* Theme Toggle */}
+            <ThemeToggleDropdown />
+
             {/* Profile dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-2">
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={user?.profilePicture} />
-                    <AvatarFallback className="bg-primary-500 text-white">
+                    <AvatarFallback className="bg-primary text-primary-foreground">
                       {user?.name?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
