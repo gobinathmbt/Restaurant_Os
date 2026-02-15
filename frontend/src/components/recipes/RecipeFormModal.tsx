@@ -154,33 +154,44 @@ export default function RecipeFormModal({
     }
   }, [isOpen]);
 
+  // Sync finishedGood in form AFTER finished goods are loaded
+  // This ensures Select sees both the value AND the matching item in the list atomically
+  useEffect(() => {
+    if (recipe && recipe.finishedGood && finishedGoods.length > 0) {
+      const fgId = typeof recipe.finishedGood === 'string' ? recipe.finishedGood : recipe.finishedGood._id || '';
+      setFormData((prev) => ({
+        ...prev,
+        finishedGood: fgId,
+      }));
+    }
+  }, [finishedGoods, recipe]);
+
   const fetchFinishedGoods = async () => {
     try {
       const response = await menuItemServices.getMenuItems({ limit: 1000 });
       const items = response.data.data.menuItems || [];
-      setFinishedGoods(items);
-      // If we're editing an existing recipe, ensure the finishedGood value is synced
+            // (in case it's not in the first 1000 items)
+      let finalItems = items;
       if (recipe && recipe.finishedGood) {
         const fgId = typeof recipe.finishedGood === 'string' ? recipe.finishedGood : recipe.finishedGood._id || '';
-        setFormData((prev) => ({
-          ...prev,
-          finishedGood: fgId,
-        }));
-
-        // If finished good isn't present in fetched list, fetch it individually and prepend
         const exists = items.some((it: any) => it._id === fgId);
+        
         if (!exists && fgId) {
           try {
             const single = await menuItemServices.getMenuItemById(fgId);
             const menuItem = single.data?.data?.menuItem;
-            if (menuItem) setFinishedGoods((prev) => [menuItem, ...prev]);
+            if (menuItem) {
+              finalItems = [menuItem, ...items];
+            }
           } catch (err) {
             // ignore fetch errors for single item
           }
         }
       }
+      
+      // Just update items; formData.finishedGood will be synced by separate useEffect after items load
+      setFinishedGoods(finalItems);
     } catch (error: any) {
-      console.error('Error fetching menu items:', error);
       toast({
         title: 'Warning',
         description: 'Could not fetch menu items',
@@ -194,7 +205,7 @@ export default function RecipeFormModal({
     if (recipe) {
       setFormData({
         name: recipe.name || '',
-        finishedGood: typeof recipe.finishedGood === 'string' ? recipe.finishedGood : recipe.finishedGood?._id || '',
+        finishedGood: '', // Will be set by second useEffect after finished goods load
         preparationSteps: recipe.preparationSteps || [],
         notes: recipe.notes || '',
       });
@@ -555,14 +566,16 @@ export default function RecipeFormModal({
 
                 {/* Finished Good */}
                 <div>
+                  
                   <Label htmlFor="finishedGood">Finished Good *</Label>
                   <Select
-                    value={formData.finishedGood}
+                    value={formData.finishedGood || ''}
                     onValueChange={(value) =>
                       setFormData({ ...formData, finishedGood: value })
                     }
                     disabled={loading}
                   >
+                    
                     <SelectTrigger id="finishedGood">
                       <SelectValue placeholder="Select finished good" />
                     </SelectTrigger>
