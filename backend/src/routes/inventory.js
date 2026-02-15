@@ -18,7 +18,9 @@ import {
   getStockTransfers,
   getStockTransferById,
   approveStockTransfer,
-  rejectStockTransfer
+  rejectStockTransfer,
+  getSuppliersForBranch,
+  getInventoryItemsForBranch as getInventoryItemsForBranchGRN
 } from '../controllers/inventoryController.js';
 import {
   createBranchConfig,
@@ -63,6 +65,10 @@ router.get('/branches/:branchId/items', getInventoryItemsForBranch);
 router.get('/branches/:branchId/items/:branchItemId', getInventoryItemBranchById);
 // Batch fetch multiple branch items by ids
 router.post('/branches/:branchId/items/batch', getInventoryItemBranchesByIds);
+
+// Branch-filtered endpoints for GRN creation
+router.get('/branches/:branchId/suppliers', getSuppliersForBranch);
+router.get('/branches/:branchId/inventory-items', getInventoryItemsForBranchGRN);
 
 // GRN (Goods Receipt Note) routes
 router.get('/grn', getGRNs);

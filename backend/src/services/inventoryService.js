@@ -1102,10 +1102,52 @@ export const generateGRNNumber = async (companyId, branchId) => {
  * @returns {Promise<Object>} Created GRN
  */
 export const createGRN = async (grnData, companyId, branchId, userId) => {
+  const companyDB = getCompanyDB(companyId);
+  
+  // Check if transactions are supported (replica set or mongos)
+  const supportsTransactions = companyDB.client?.topology?.description?.type !== 'Single';
+  
+  let session = null;
+  if (supportsTransactions) {
+    session = await companyDB.startSession();
+    session.startTransaction();
+  }
+
   try {
-    const companyDB = getCompanyDB(companyId);
     const GRN = getGRNModel(companyDB);
-    const InventoryItem = getInventoryItemModel(companyDB);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const { getSupplierModel } = await import('../models/company/Supplier.js');
+    const Supplier = getSupplierModel(companyDB);
+
+    // Validate supplier is provided
+    const supplierId = grnData.supplierId || grnData.supplier;
+    if (!supplierId) {
+      throw new Error('Supplier is required');
+    }
+
+    // Validate supplier exists and is associated with the selected branch
+    const supplierQuery = Supplier.findById(supplierId);
+    if (session) supplierQuery.session(session);
+    
+    const supplier = await supplierQuery;
+    
+    if (!supplier) {
+      throw new Error('Supplier not found');
+    }
+
+    if (!supplier.isActive) {
+      throw new Error('Supplier is not active');
+    }
+
+    // Check if supplier is associated with the selected branch
+    const hasSupplierBranchAccess = supplier.branchIds.some(
+      branchIdObj => branchIdObj.toString() === branchId.toString()
+    );
+
+    if (!hasSupplierBranchAccess) {
+      throw new Error('Supplier is not associated with the selected branch');
+    }
 
     // Validate line items
     if (!grnData.items || grnData.items.length === 0) {
@@ -1114,11 +1156,29 @@ export const createGRN = async (grnData, companyId, branchId, userId) => {
 
     // Validate each line item
     for (const item of grnData.items) {
-      if (!item.inventoryItem || !item.quantity || !item.unitPrice) {
+      if (!item.inventoryItem || !item.quantity || item.unitPrice === undefined || item.unitPrice === null) {
         throw new Error('Each line item must have inventoryItem, quantity, and unitPrice');
       }
-      if (item.quantity <= 0 || item.unitPrice < 0) {
-        throw new Error('Quantity must be positive and unit price cannot be negative');
+      if (item.quantity <= 0) {
+        throw new Error('Quantity must be positive for all line items');
+      }
+      if (item.unitPrice < 0) {
+        throw new Error('Unit price must be non-negative for all line items');
+      }
+    }
+
+    // Validate that all inventory items have InventoryItemBranch for this branch
+    for (const item of grnData.items) {
+      const inventoryItemBranchQuery = InventoryItemBranch.findOne({
+        inventoryItem: item.inventoryItem,
+        branch: branchId
+      });
+      if (session) inventoryItemBranchQuery.session(session);
+      
+      const inventoryItemBranch = await inventoryItemBranchQuery;
+      
+      if (!inventoryItemBranch) {
+        throw new Error(`Inventory item ${item.inventoryItem} is not available for this branch`);
       }
     }
 
@@ -1132,7 +1192,7 @@ export const createGRN = async (grnData, companyId, branchId, userId) => {
     }));
 
     // Create GRN (totalAmount will be calculated by pre-save hook)
-    const grn = new GRN({
+    const grnDoc = {
       grnNumber,
       branch: branchId,
       supplier: grnData.supplierId || grnData.supplier,
@@ -1144,44 +1204,73 @@ export const createGRN = async (grnData, companyId, branchId, userId) => {
       notes: grnData.notes,
       invoiceNumber: grnData.invoiceNumber,
       invoiceDate: grnData.invoiceDate
-    });
+    };
 
-    await grn.save();
+    let grn;
+    if (session) {
+      const grnArray = await GRN.create([grnDoc], { session });
+      grn = grnArray[0];
+    } else {
+      grn = await GRN.create(grnDoc);
+    }
 
-    // Update inventory for each line item
+    // Update branch-specific inventory for each line item
     for (const item of items) {
-      const inventoryItem = await InventoryItem.findById(item.inventoryItem);
+      const updateQuery = InventoryItemBranch.findOne({
+        inventoryItem: item.inventoryItem,
+        branch: branchId
+      });
+      if (session) updateQuery.session(session);
       
-      if (!inventoryItem) {
-        logger.warn(`Inventory item not found: ${item.inventoryItem}`);
-        continue;
+      const inventoryItemBranch = await updateQuery;
+      
+      if (!inventoryItemBranch) {
+        throw new Error(`Inventory item ${item.inventoryItem} is not available for this branch`);
       }
 
-      // Increase stock
-      inventoryItem.currentStock += item.quantity;
+      // Update quantity: currentStock + receivedQuantity
+      inventoryItemBranch.currentStock += item.quantity;
 
-      // Update cost price and purchase metadata
-      inventoryItem.costPrice = item.unitPrice;
-      inventoryItem.lastPurchaseDate = grn.receivedDate;
-      inventoryItem.lastPurchasePrice = item.unitPrice;
+      // Update lastPurchaseDate and lastPurchasePrice
+      inventoryItemBranch.lastPurchaseDate = grn.receivedDate;
+      inventoryItemBranch.lastPurchasePrice = item.unitPrice;
+
+      // Update costPrice
+      inventoryItemBranch.costPrice = item.unitPrice;
 
       // Update batch number if provided
       if (item.batchNumber) {
-        inventoryItem.batchNumber = item.batchNumber;
+        inventoryItemBranch.batchNumber = item.batchNumber;
       }
 
       // Update expiry date if provided
       if (item.expiryDate) {
-        inventoryItem.expiryDate = item.expiryDate;
+        inventoryItemBranch.expiryDate = item.expiryDate;
       }
 
-      await inventoryItem.save();
+      if (session) {
+        await inventoryItemBranch.save({ session });
+      } else {
+        await inventoryItemBranch.save();
+      }
     }
 
-    logger.info(`GRN created: ${grn._id} (${grnNumber}) for company: ${companyId}`);
+    // Commit transaction if using transactions
+    if (session) {
+      await session.commitTransaction();
+      session.endSession();
+    }
+
+    logger.info(`GRN created: ${grn._id} (${grnNumber}) for branch: ${branchId}, company: ${companyId}`);
 
     return grn;
   } catch (error) {
+    // Rollback transaction if using transactions
+    if (session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
+    
     logger.error('Error creating GRN:', error);
     throw error;
   }
@@ -1190,7 +1279,7 @@ export const createGRN = async (grnData, companyId, branchId, userId) => {
 /**
  * Get GRNs with filtering and pagination
  * @param {string} companyId - Company ID
- * @param {string} branchId - Branch ID
+ * @param {string|Array<string>} branchId - Branch ID, "all", or array of branch IDs
  * @param {Object} filters - Filter options
  * @returns {Promise<Object>} Paginated GRNs
  */
@@ -1212,8 +1301,15 @@ export const getGRNs = async (companyId, branchId, filters = {}) => {
     // Build query
     const query = {};
 
-    // Branch filter - only add if not "all"
-    if (branchId && branchId !== 'all') {
+    // Branch filter logic
+    if (branchId === 'all') {
+      // Super Admin viewing all branches - no branch filter
+      // query.branch is not set, so all GRNs are returned
+    } else if (Array.isArray(branchId)) {
+      // Company Admin with array of branch IDs
+      query.branch = { $in: branchId };
+    } else if (branchId) {
+      // Specific branch ID
       query.branch = branchId;
     }
 
@@ -1883,6 +1979,80 @@ export const getStockTransferById = async (transferId, companyId) => {
     return transfer;
   } catch (error) {
     logger.error('Error getting stock transfer by ID:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get suppliers for a specific branch
+ * @param {string} branchId - Branch ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Array>} Array of suppliers associated with the branch
+ */
+export const getSuppliersForBranch = async (branchId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Supplier = getSupplierModel(companyDB);
+
+    // Query suppliers that have the branch in their branchIds array
+    const suppliers = await Supplier.find({
+      branchIds: branchId,
+      isActive: true
+    })
+      .select('name contactPerson phone email')
+      .sort({ name: 1 })
+      .lean();
+
+    logger.info(`Found ${suppliers.length} suppliers for branch: ${branchId}`);
+
+    return suppliers;
+  } catch (error) {
+    logger.error('Error getting suppliers for branch:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get inventory items for a specific branch (wrapper for GRN usage)
+ * @param {string} branchId - Branch ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Array>} Array of inventory items available at the branch
+ */
+export const getInventoryItemsForBranch = async (branchId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+
+    // Query InventoryItemBranch to get items for this branch
+    const branchItems = await InventoryItemBranch.find({
+      branch: branchId,
+      isActive: true
+    })
+      .populate('inventoryItem', 'name type unit sku barcode')
+      .select('inventoryItem currentStock minimumStock maximumStock')
+      .sort({ 'inventoryItem.name': 1 })
+      .lean();
+
+    // Transform to include inventory item details at top level
+    const items = branchItems.map(item => ({
+      _id: item.inventoryItem._id,
+      name: item.inventoryItem.name,
+      type: item.inventoryItem.type,
+      unit: item.inventoryItem.unit,
+      sku: item.inventoryItem.sku,
+      barcode: item.inventoryItem.barcode,
+      currentStock: item.currentStock,
+      minimumStock: item.minimumStock,
+      maximumStock: item.maximumStock,
+      branchItemId: item._id
+    }));
+
+    logger.info(`Found ${items.length} inventory items for branch: ${branchId}`);
+
+    return items;
+  } catch (error) {
+    logger.error('Error getting inventory items for branch:', error);
     throw error;
   }
 };

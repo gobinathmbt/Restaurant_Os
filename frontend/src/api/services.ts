@@ -143,6 +143,18 @@ export const inventoryServices = {
   createGRN: (branchId: string, data: any) =>
     apiClient.post("/api/inventory/grn", { ...data, branchId }),
 
+  // Get suppliers for a specific branch
+  getSuppliersForBranch: (branchId: string) =>
+    apiClient.get("/api/suppliers", { params: { branchId, isActive: true } }),
+
+  // Get inventory items for a specific branch
+  getInventoryItemsForBranch: (branchId: string) =>
+    apiClient.get(`/api/inventory/branches/${branchId}/items`, { params: { isActive: true } }),
+
+  // Get stock levels for specific items in a branch
+  getStockLevelsForBranch: (branchId: string, itemIds: string[]) =>
+    apiClient.post(`/api/inventory/branches/${branchId}/stock-levels`, { itemIds }),
+
   // Stock Adjustments
   getStockAdjustments: (branchId: string, params?: { page?: number; limit?: number; search?: string; startDate?: string; endDate?: string; type?: string; reason?: string }) =>
     apiClient.get("/api/inventory/adjustments", { params: { branchId, ...params } }),

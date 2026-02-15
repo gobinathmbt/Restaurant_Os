@@ -592,9 +592,16 @@ export const createGRN = async (req, res, next) => {
   } catch (error) {
     logger.error('Create GRN error', error);
     
-    if (error.message.includes('must have at least one line item') ||
+    // Handle validation errors
+    if (error.message.includes('Supplier is required') ||
+        error.message.includes('Supplier not found') ||
+        error.message.includes('Supplier is not active') ||
+        error.message.includes('Supplier is not associated with the selected branch') ||
+        error.message.includes('must have at least one line item') ||
         error.message.includes('must have inventoryItem') ||
-        error.message.includes('Quantity must be positive')) {
+        error.message.includes('Quantity must be positive') ||
+        error.message.includes('Unit price must be non-negative') ||
+        error.message.includes('is not available for this branch')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -611,7 +618,7 @@ export const createGRN = async (req, res, next) => {
  */
 export const getGRNs = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { branchId, ...filters } = req.query;
 
     // Validate branchId is provided
@@ -622,8 +629,36 @@ export const getGRNs = async (req, res, next) => {
       });
     }
 
-    // Verify branch access (skip verification for "all" if user is super admin)
-    if (branchId !== 'all') {
+    // Determine effective branchId based on role and request
+    let effectiveBranchId = branchId;
+
+    // Check if user is Super Admin
+    const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+
+    if (branchId === 'all') {
+      if (isSuperAdmin) {
+        // Super Admin can view all branches - pass "all" to service
+        effectiveBranchId = 'all';
+      } else {
+        // Company Admin requesting "all" - get their assigned branches
+        let effectiveBranchIds = userBranchIds;
+        if (!effectiveBranchIds) {
+          const user = await CompanyUser.findById(userId).select('branchIds');
+          effectiveBranchIds = user?.branchIds || [];
+        }
+        
+        if (effectiveBranchIds.length === 0) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to any branches'
+          });
+        }
+        
+        // Pass array of branch IDs to service
+        effectiveBranchId = effectiveBranchIds;
+      }
+    } else {
+      // Specific branch requested - verify access
       const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
       if (!hasAccess) {
         return res.status(403).json({
@@ -631,19 +666,11 @@ export const getGRNs = async (req, res, next) => {
           message: 'You do not have access to this branch'
         });
       }
-    } else {
-      // Only super admins can use "all"
-      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
-      if (!isSuperAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: 'Only super admins can view all branches'
-        });
-      }
+      effectiveBranchId = branchId;
     }
 
-    // Get GRNs
-    const result = await inventoryService.getGRNs(companyId, branchId, filters);
+    // Get GRNs with effective branch filter
+    const result = await inventoryService.getGRNs(companyId, effectiveBranchId, filters);
 
     res.json({
       success: true,
@@ -1123,6 +1150,84 @@ export const rejectStockTransfer = async (req, res, next) => {
       });
     }
 
+    next(error);
+  }
+};
+
+/**
+ * Get suppliers for a specific branch
+ * GET /api/inventory/branches/:branchId/suppliers
+ */
+export const getSuppliersForBranch = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId } = req.params;
+
+    // Validate branchId is provided
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID is required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Get suppliers for branch
+    const suppliers = await inventoryService.getSuppliersForBranch(branchId, companyId);
+
+    res.json({
+      success: true,
+      data: { suppliers }
+    });
+  } catch (error) {
+    logger.error('Get suppliers for branch error', error);
+    next(error);
+  }
+};
+
+/**
+ * Get inventory items for a specific branch (for GRN creation)
+ * GET /api/inventory/branches/:branchId/inventory-items
+ */
+export const getInventoryItemsForBranch = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId } = req.params;
+
+    // Validate branchId is provided
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID is required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Get inventory items for branch
+    const items = await inventoryService.getInventoryItemsForBranch(branchId, companyId);
+
+    res.json({
+      success: true,
+      data: { items }
+    });
+  } catch (error) {
+    logger.error('Get inventory items for branch error', error);
     next(error);
   }
 };
