@@ -303,14 +303,54 @@ export default function Recipes() {
     setIsFormOpen(true);
   };
 
-  const handleEdit = (recipe: Recipe) => {
-    setSelectedRecipe(recipe);
-    setIsFormOpen(true);
+  const handleEdit = async (recipe: Recipe) => {
+    try {
+      setLoading(true);
+      setLoadingMessage('Loading recipe details...');
+      
+      // Fetch full recipe details with branch configurations
+      const response = await recipeServices.getRecipe(recipe._id, {
+        populateBranches: true
+      });
+      const recipeWithBranches = response.data.data.recipe;
+      
+      setSelectedRecipe(recipeWithBranches);
+      setIsFormOpen(true);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to load recipe details',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
   };
 
-  const handleConfigureBranch = (recipe: Recipe) => {
-    setSelectedRecipe(recipe);
-    setIsBranchConfigOpen(true);
+  const handleConfigureBranch = async (recipe: Recipe) => {
+    try {
+      setLoading(true);
+      setLoadingMessage('Loading recipe details...');
+      
+      // Fetch full recipe details with branch configurations
+      const response = await recipeServices.getRecipe(recipe._id, {
+        populateBranches: true
+      });
+      const recipeWithBranches = response.data.data.recipe;
+      
+      setSelectedRecipe(recipeWithBranches);
+      setIsBranchConfigOpen(true);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to load recipe details',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
   };
 
   const handleDelete = (recipe: Recipe) => {

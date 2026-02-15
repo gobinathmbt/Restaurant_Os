@@ -202,8 +202,8 @@ export const recipeServices = {
     apiClient.get("/api/recipes", { params }),
 
   // Get single recipe (with branch configurations)
-  getRecipe: (id: string) =>
-    apiClient.get(`/api/recipes/${id}`),
+  getRecipe: (id: string, params?: { populateBranches?: boolean; branch?: string }) =>
+    apiClient.get(`/api/recipes/${id}`, { params }),
 
   // Create recipe (global data only)
   createRecipe: (data: any) =>
