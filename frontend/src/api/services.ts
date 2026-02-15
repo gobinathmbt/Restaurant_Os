@@ -279,6 +279,17 @@ export const recipeBranchServices = {
     apiClient.post(`/api/recipes/${recipeId}/branches/${sourceBranchId}/copy`, { targetBranchIds }),
 };
 
+// Unit Conversion Services
+export const unitConversionServices = {
+  // Calculate smart conversions for recipe ingredients
+  calculateSmartConversions: (data: { ingredients: any[]; branchId: string }) =>
+    apiClient.post("/api/recipes/unit-conversion/calculate", data),
+
+  // Get conversion suggestion for specific ingredient
+  getConversionSuggestion: (data: { inventoryItemBranchId: string; targetUnit: string }) =>
+    apiClient.post("/api/recipes/unit-conversion/suggest", data),
+};
+
 // Supplier Services
 export const supplierServices = {
   // Get all suppliers
@@ -507,6 +518,7 @@ export default {
   inventoryItemBranches: inventoryItemBranchServices,
   recipes: recipeServices,
   recipeBranches: recipeBranchServices,
+  unitConversion: unitConversionServices,
   suppliers: supplierServices,
   categories: categoryServices,
   menuItems: menuItemServices,

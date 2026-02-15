@@ -28,16 +28,19 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Plus, Trash2, Check, ChevronsUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Trash2, Check, ChevronsUpDown, RefreshCw, TrendingUp, TrendingDown, Calculator } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { inventoryItemBranchServices, menuItemBranchServices, menuItemServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
+import UnitConversionModal from './UnitConversionModal';
 
 interface Ingredient {
   // can be stored as a branch-config id string or a populated object with _id
   inventoryItemBranch: string | { _id?: string };
   quantity: number;
   unit: string;
+  conversionFactor?: number;
+  overrideCostPerUnit?: number;
 }
 
 interface RecipeBranchConfig {
@@ -116,6 +119,10 @@ export default function RecipeBranchConfigModal({
   const [menuItemPrice, setMenuItemPrice] = useState<number | null>(null);
   const [isLoadingMenuPrice, setIsLoadingMenuPrice] = useState(false);
   const [priceSource, setPriceSource] = useState<'branch' | 'base' | null>(null);
+  
+  // Unit conversion modal state - for individual ingredient
+  const [showUnitConversionModal, setShowUnitConversionModal] = useState(false);
+  const [selectedIngredientIndex, setSelectedIngredientIndex] = useState<number | null>(null);
 
   // Fetch menu item price when modal opens
   useEffect(() => {
@@ -352,6 +359,7 @@ export default function RecipeBranchConfigModal({
   };
 
   const calculateCost = () => {
+    
     if (!localConfig.ingredients || localConfig.ingredients.length === 0) {
       return 0;
     }
@@ -361,17 +369,101 @@ export default function RecipeBranchConfigModal({
     }
 
     let totalCost = 0;
-    for (const ingredient of localConfig.ingredients) {
+    for (let i = 0; i < localConfig.ingredients.length; i++) {
+      const ingredient = localConfig.ingredients[i];
+      
+      // Check if override cost is set - this takes priority
+      if (ingredient.overrideCostPerUnit !== undefined && ingredient.overrideCostPerUnit !== null) {
+        const cost = ingredient.quantity * ingredient.overrideCostPerUnit;
+        totalCost += cost;
+        continue;
+      }
+
+      // Otherwise use inventory cost price
       const id = resolveBranchId(ingredient.inventoryItemBranch);
       const inventoryItem = availableInventoryItems.find(
         (item) => item.branchConfig._id === id
       );
+            
       if (inventoryItem && inventoryItem.branchConfig.costPrice) {
-        totalCost += ingredient.quantity * inventoryItem.branchConfig.costPrice;
+        let effectiveCostPerUnit = inventoryItem.branchConfig.costPrice;
+        const inventoryUnit = inventoryItem.unit.toLowerCase().trim();
+        const recipeUnit = ingredient.unit.toLowerCase().trim();
+        
+        // If conversion factor is set, apply it
+        if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
+          effectiveCostPerUnit = inventoryItem.branchConfig.costPrice / ingredient.conversionFactor;
+        } else if (inventoryUnit !== recipeUnit) {
+          // Weight conversions
+          if (inventoryUnit === 'kg' && recipeUnit === 'gram') {
+            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice / 1000;
+          } else if (inventoryUnit === 'gram' && recipeUnit === 'kg') {
+            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice * 1000;
+          }
+          // Volume conversions
+          else if (inventoryUnit === 'liter' && recipeUnit === 'ml') {
+            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice / 1000;
+          } else if (inventoryUnit === 'ml' && recipeUnit === 'liter') {
+            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice * 1000;
+          } else {
+          }
+        } else {
+        }
+        
+        const cost = ingredient.quantity * effectiveCostPerUnit;
+        totalCost += cost;
+      } else {
       }
     }
 
-    return totalCost / localConfig.yield.quantity;
+    const costPerUnit = totalCost / localConfig.yield.quantity;
+    return costPerUnit;
+  };
+
+  const handleUnitConversionApply = (conversionFactor?: number, overrideCost?: number) => {
+    if (selectedIngredientIndex === null) {
+      console.error('❌ No ingredient selected for conversion');
+      return;
+    }
+
+    setLocalConfig((prev) => {
+      const updatedIngredients = [...prev.ingredients];
+      const currentIngredient = { ...updatedIngredients[selectedIngredientIndex] };
+      
+      // Only set conversionFactor if it's a valid number
+      if (conversionFactor !== undefined && conversionFactor !== null && conversionFactor > 0) {
+        currentIngredient.conversionFactor = conversionFactor;
+      } else {
+        // Remove conversionFactor if it's being cleared
+        delete currentIngredient.conversionFactor;
+      }
+      
+      // Only set overrideCostPerUnit if it's a valid number
+      if (overrideCost !== undefined && overrideCost !== null && overrideCost >= 0) {
+        currentIngredient.overrideCostPerUnit = overrideCost;
+      } else {
+        // Remove overrideCostPerUnit if it's being cleared
+        delete currentIngredient.overrideCostPerUnit;
+      }
+      
+      updatedIngredients[selectedIngredientIndex] = currentIngredient;
+
+      return {
+        ...prev,
+        ingredients: updatedIngredients,
+      };
+    });
+
+    toast({
+      title: 'Conversion Applied',
+      description: 'Unit conversion has been applied to the ingredient',
+      variant: 'success',
+    });
+  };
+
+  const openConversionModal = (index: number) => {
+    setSelectedIngredientIndex(index);
+    setShowUnitConversionModal(true);
   };
 
   const getIngredientDetails = (inventoryItemBranchId: string | { _id?: string }) => {
@@ -459,16 +551,35 @@ export default function RecipeBranchConfigModal({
   };
 
   const handleSave = () => {
+    
     if (!validateForm()) {
+      console.error('❌ Validation failed');
       return;
     }
+    
     // Calculate and update cost before saving
-    const calculatedCost = calculateCost();    
+    const calculatedCost = calculateCost();
+    
     // Normalize inventoryItemBranch to id strings before returning
-    const normalizedIngredients = (localConfig.ingredients || []).map((ing) => ({
-      ...ing,
-      inventoryItemBranch: resolveBranchId(ing.inventoryItemBranch),
-    }));
+    const normalizedIngredients = (localConfig.ingredients || []).map((ing, index) => {
+      const normalized: any = {
+        inventoryItemBranch: resolveBranchId(ing.inventoryItemBranch),
+        quantity: ing.quantity,
+        unit: ing.unit,
+      };
+      
+      // Only include conversion factor if it's a valid number
+      if (ing.conversionFactor !== undefined && ing.conversionFactor !== null && ing.conversionFactor > 0) {
+        normalized.conversionFactor = ing.conversionFactor;
+      }
+      
+      // Only include override cost if it's a valid number
+      if (ing.overrideCostPerUnit !== undefined && ing.overrideCostPerUnit !== null && ing.overrideCostPerUnit >= 0) {
+        normalized.overrideCostPerUnit = ing.overrideCostPerUnit;
+      }
+      
+      return normalized;
+    });
 
     const configToSave = {
       ...localConfig,
@@ -484,7 +595,8 @@ export default function RecipeBranchConfigModal({
   const calculatedCost = calculateCost();
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <>
+      <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -583,15 +695,27 @@ export default function RecipeBranchConfigModal({
                           <span className="text-sm font-medium">
                             {itemDetails?.name || 'Unknown Item'}
                           </span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeIngredient(index)}
-                            disabled={!isEditable}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openConversionModal(index)}
+                              disabled={!isEditable}
+                              title="Smart Unit Conversion"
+                            >
+                              <Calculator className="h-4 w-4 text-blue-600" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeIngredient(index)}
+                              disabled={!isEditable}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-3 gap-3">
@@ -638,11 +762,38 @@ export default function RecipeBranchConfigModal({
                           <div>
                             <Label className="text-xs">Cost</Label>
                             <Input
-                              value={
-                                itemDetails?.branchConfig.costPrice
-                                  ? `₹${(ingredient.quantity * itemDetails.branchConfig.costPrice).toFixed(2)}`
-                                  : 'N/A'
-                              }
+                              value={(() => {
+                                // Calculate cost with proper unit conversion
+                                if (ingredient.overrideCostPerUnit !== undefined && ingredient.overrideCostPerUnit !== null) {
+                                  return `₹${(ingredient.quantity * ingredient.overrideCostPerUnit).toFixed(2)}`;
+                                }
+                                
+                                if (!itemDetails?.branchConfig.costPrice) {
+                                  return 'N/A';
+                                }
+                                
+                                let effectiveCostPerUnit = itemDetails.branchConfig.costPrice;
+                                const inventoryUnit = itemDetails.unit.toLowerCase().trim();
+                                const recipeUnit = ingredient.unit.toLowerCase().trim();
+                                
+                                // Apply conversion factor if set
+                                if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
+                                  effectiveCostPerUnit = itemDetails.branchConfig.costPrice / ingredient.conversionFactor;
+                                } else if (inventoryUnit !== recipeUnit) {
+                                  // Apply automatic conversion
+                                  if (inventoryUnit === 'kg' && recipeUnit === 'gram') {
+                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice / 1000;
+                                  } else if (inventoryUnit === 'gram' && recipeUnit === 'kg') {
+                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice * 1000;
+                                  } else if (inventoryUnit === 'liter' && recipeUnit === 'ml') {
+                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice / 1000;
+                                  } else if (inventoryUnit === 'ml' && recipeUnit === 'liter') {
+                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice * 1000;
+                                  }
+                                }
+                                
+                                return `₹${(ingredient.quantity * effectiveCostPerUnit).toFixed(2)}`;
+                              })()}
                               readOnly
                               className="bg-muted"
                             />
@@ -650,8 +801,23 @@ export default function RecipeBranchConfigModal({
                         </div>
 
                         {itemDetails?.branchConfig.costPrice && (
-                          <div className="text-xs text-muted-foreground">
-                            Cost per unit: ₹{itemDetails.branchConfig.costPrice.toFixed(2)}/{itemDetails.unit}
+                          <div className="text-xs text-muted-foreground space-y-1">
+                            <div className="flex justify-between">
+                              <span>Inventory cost:</span>
+                              <span>₹{itemDetails.branchConfig.costPrice.toFixed(2)}/{itemDetails.unit}</span>
+                            </div>
+                            {ingredient.conversionFactor && (
+                              <div className="flex justify-between text-blue-600 dark:text-blue-400">
+                                <span>Conversion factor:</span>
+                                <span>1 {itemDetails.unit} = {ingredient.conversionFactor} {ingredient.unit}</span>
+                              </div>
+                            )}
+                            {ingredient.overrideCostPerUnit !== undefined && ingredient.overrideCostPerUnit !== null && (
+                              <div className="flex justify-between text-amber-600 dark:text-amber-400 font-medium">
+                                <span>Override cost:</span>
+                                <span>₹{ingredient.overrideCostPerUnit.toFixed(2)}/{ingredient.unit}</span>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -782,17 +948,54 @@ export default function RecipeBranchConfigModal({
                     <div className="space-y-1">
                       {localConfig.ingredients.map((ingredient, index) => {
                         const itemDetails = getIngredientDetails(ingredient.inventoryItemBranch);
-                        const cost = itemDetails?.branchConfig.costPrice
-                          ? ingredient.quantity * itemDetails.branchConfig.costPrice
-                          : 0;
+                        let cost = 0;
+                        let costNote = '';
+                        
+                        // Calculate cost based on override or conversion
+                        if (ingredient.overrideCostPerUnit !== undefined && ingredient.overrideCostPerUnit !== null) {
+                          cost = ingredient.quantity * ingredient.overrideCostPerUnit;
+                          costNote = ' (Override)';
+                        } else if (itemDetails?.branchConfig.costPrice) {
+                          let effectiveCostPerUnit = itemDetails.branchConfig.costPrice;
+                          
+                          if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
+                            effectiveCostPerUnit = itemDetails.branchConfig.costPrice / ingredient.conversionFactor;
+                            costNote = ' (Manual Conv.)';
+                          } else if (itemDetails.unit !== ingredient.unit) {
+                            // Check for automatic conversion
+                            const invUnit = itemDetails.unit.toLowerCase();
+                            const recUnit = ingredient.unit.toLowerCase();
+                            if ((invUnit === 'kg' && recUnit === 'gram') || 
+                                (invUnit === 'liter' && recUnit === 'ml')) {
+                              effectiveCostPerUnit = itemDetails.branchConfig.costPrice / 1000;
+                              costNote = ' (Auto Conv.)';
+                            } else if ((invUnit === 'gram' && recUnit === 'kg') || 
+                                       (invUnit === 'ml' && recUnit === 'liter')) {
+                              effectiveCostPerUnit = itemDetails.branchConfig.costPrice * 1000;
+                              costNote = ' (Auto Conv.)';
+                            }
+                          }
+                          
+                          cost = ingredient.quantity * effectiveCostPerUnit;
+                        }
+                        
                         return (
                           <div key={index} className="flex justify-between text-sm">
                             <span>
                               {itemDetails?.name || 'Unknown'} ({ingredient.quantity}{' '}
                               {ingredient.unit})
+                              {costNote && (
+                                <span className={
+                                  costNote.includes('Override') 
+                                    ? 'text-amber-600 dark:text-amber-400 text-xs ml-1'
+                                    : 'text-blue-600 dark:text-blue-400 text-xs ml-1'
+                                }>
+                                  {costNote}
+                                </span>
+                              )}
                             </span>
                             <span>
-                              {itemDetails?.branchConfig.costPrice ? `₹${cost.toFixed(2)}` : 'N/A'}
+                              {itemDetails?.branchConfig.costPrice || ingredient.overrideCostPerUnit ? `₹${cost.toFixed(2)}` : 'N/A'}
                             </span>
                           </div>
                         );
@@ -1002,5 +1205,23 @@ export default function RecipeBranchConfigModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Unit Conversion Modal */}
+    {selectedIngredientIndex !== null && (
+      <UnitConversionModal
+        isOpen={showUnitConversionModal}
+        onClose={() => {
+          setShowUnitConversionModal(false);
+          setSelectedIngredientIndex(null);
+        }}
+        ingredient={localConfig.ingredients[selectedIngredientIndex]}
+        ingredientName={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItemBranch)?.name || 'Unknown'}
+        inventoryUnit={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItemBranch)?.unit || 'piece'}
+        inventoryPrice={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItemBranch)?.branchConfig.costPrice || 0}
+        branchId={branch._id}
+        onApply={handleUnitConversionApply}
+      />
+    )}
+    </>
   );
 }

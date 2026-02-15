@@ -35,6 +35,19 @@ const recipeBranchSchema = new mongoose.Schema({
       type: String,
       required: true,
       enum: ['kg', 'gram', 'liter', 'ml', 'piece', 'dozen', 'packet']
+    },
+    // Manual conversion factor (optional)
+    // If set, overrides automatic unit conversion
+    // Example: 1 kg tomato = 5 pieces, conversionFactor = 5
+    conversionFactor: {
+      type: Number,
+      min: 0
+    },
+    // Override cost per unit (optional)
+    // If set, uses this instead of calculated cost from inventory
+    overrideCostPerUnit: {
+      type: Number,
+      min: 0
     }
   }],
   
@@ -95,7 +108,7 @@ recipeBranchSchema.virtual('totalTime').get(function() {
 recipeBranchSchema.set('toJSON', { virtuals: true });
 recipeBranchSchema.set('toObject', { virtuals: true });
 
-// Method: calculateCost
+// Method: calculateCost with unit conversion support
 recipeBranchSchema.methods.calculateCost = async function() {
   // If no ingredients or no yield, cost is zero
   if (!this.ingredients || this.ingredients.length === 0 || 
@@ -104,15 +117,45 @@ recipeBranchSchema.methods.calculateCost = async function() {
     return this.costPerUnit;
   }
 
-  // Populate ingredient branch data to access costPrice
-  await this.populate('ingredients.inventoryItemBranch');
+  // Populate ingredient branch data to access costPrice and inventory item details
+  await this.populate({
+    path: 'ingredients.inventoryItemBranch',
+    populate: {
+      path: 'inventoryItem',
+      select: 'unit'
+    }
+  });
+
+  // Import unit conversion utility
+  const unitConversion = await import('../utils/unitConversion.js');
 
   let totalCost = 0;
   for (const ingredient of this.ingredients) {
-    // If ingredient has costPrice, add to total cost
-    // If costPrice is unavailable, treat as zero (Requirement 3.3)
+    // Check if override cost is set
+    if (ingredient.overrideCostPerUnit !== undefined && ingredient.overrideCostPerUnit !== null) {
+      // Use override cost directly
+      totalCost += ingredient.quantity * ingredient.overrideCostPerUnit;
+      continue;
+    }
+
+    // If ingredient has costPrice, calculate with unit conversion
     if (ingredient.inventoryItemBranch && ingredient.inventoryItemBranch.costPrice) {
-      totalCost += ingredient.quantity * ingredient.inventoryItemBranch.costPrice;
+      const inventoryPrice = ingredient.inventoryItemBranch.costPrice;
+      const inventoryUnit = ingredient.inventoryItemBranch.inventoryItem?.unit || ingredient.unit;
+      const recipeUnit = ingredient.unit;
+      const recipeQuantity = ingredient.quantity;
+      const manualConversionFactor = ingredient.conversionFactor;
+
+      // Calculate cost with unit conversion
+      const costCalc = unitConversion.calculateIngredientCost(
+        recipeQuantity,
+        recipeUnit,
+        inventoryPrice,
+        inventoryUnit,
+        manualConversionFactor
+      );
+
+      totalCost += costCalc.totalCost;
     }
   }
 

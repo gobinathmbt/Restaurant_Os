@@ -218,7 +218,11 @@ export const getRecipes = async (companyId, filters = {}) => {
       }
 
       const recipeBranches = await RecipeBranch.find(branchQuery)
-        .populate('branch', 'name code location', Branch)
+        .populate({
+          path: 'branch',
+          model: Branch,
+          select: 'name code location'
+        })
         .populate({
           path: 'ingredients.inventoryItemBranch',
           model: InventoryItemBranch,
@@ -302,6 +306,7 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
       const RecipeBranch = getRecipeBranchModel(companyDB);
       const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
       const InventoryItem = getInventoryItemModel(companyDB);
+      const Branch = getBranchModel(companyDB); // Ensure Branch model is registered
       
       const branchQuery = { recipe: recipeId, isActive: true };
       if (branch) {
@@ -309,7 +314,11 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
       }
 
       const recipeBranches = await RecipeBranch.find(branchQuery)
-        .populate('branch', 'name code location')
+        .populate({
+          path: 'branch',
+          model: Branch,
+          select: 'name code location'
+        })
         .populate({
           path: 'ingredients.inventoryItemBranch',
           model: InventoryItemBranch,

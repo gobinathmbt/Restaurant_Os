@@ -18,6 +18,10 @@ import {
   bulkUpsertRecipeBranches,
   copyRecipeBranchToTargets
 } from '../controllers/recipeBranchController.js';
+import {
+  calculateSmartConversions,
+  getConversionSuggestion
+} from '../controllers/unitConversionController.js';
 import { authenticate } from '../middlewares/auth.js';
 
 const router = express.Router();
@@ -43,5 +47,9 @@ router.get('/:recipeId/branches', getRecipeBranches);
 router.get('/:recipeId/branches/:branchId', getRecipeBranch);
 router.put('/:recipeId/branches/:branchId', updateRecipeBranch);
 router.delete('/:recipeId/branches/:branchId', deleteRecipeBranch);
+
+// Unit conversion routes
+router.post('/unit-conversion/calculate', calculateSmartConversions);
+router.post('/unit-conversion/suggest', getConversionSuggestion);
 
 export default router;

@@ -8,7 +8,42 @@ import { getRecipeModel } from '../models/company/Recipe.js';
 import { getRecipeBranchModel } from '../models/company/RecipeBranch.js';
 import { getBranchModel } from '../models/company/Branch.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
+import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { logger } from '../utils/logger.js';
+
+/**
+ * Helper function to populate recipe branch with proper model references
+ * @param {Object} recipeBranch - RecipeBranch document
+ * @param {Object} companyDB - Company database connection
+ * @returns {Promise<Object>} Populated recipe branch
+ */
+const populateRecipeBranch = async (recipeBranch, companyDB) => {
+  const Recipe = getRecipeModel(companyDB);
+  const Branch = getBranchModel(companyDB);
+  const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+  const InventoryItem = getInventoryItemModel(companyDB);
+
+  await recipeBranch.populate({
+    path: 'recipe',
+    model: Recipe
+  });
+  
+  await recipeBranch.populate({
+    path: 'branch',
+    model: Branch
+  });
+  
+  await recipeBranch.populate({
+    path: 'ingredients.inventoryItemBranch',
+    model: InventoryItemBranch,
+    populate: {
+      path: 'inventoryItem',
+      model: InventoryItem
+    }
+  });
+
+  return recipeBranch;
+};
 
 /**
  * Validate branch access based on user role
@@ -202,9 +237,7 @@ export const createRecipeBranch = async (recipeId, branchId, configData, company
     logger.info(`RecipeBranch created for recipe: ${recipeId}, branch: ${branchId}, company: ${companyId}`);
 
     // Populate and return
-    await recipeBranch.populate('recipe');
-    await recipeBranch.populate('branch');
-    await recipeBranch.populate('ingredients.inventoryItemBranch');
+    await populateRecipeBranch(recipeBranch, companyDB);
 
     return recipeBranch;
   } catch (error) {
@@ -249,10 +282,28 @@ export const getRecipeBranches = async (recipeId, filters = {}, companyId, userB
     }
 
     // Query RecipeBranch
+    const Recipe = getRecipeModel(companyDB);
+    const Branch = getBranchModel(companyDB);
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
+
     const recipeBranches = await RecipeBranch.find(query)
-      .populate('recipe')
-      .populate('branch')
-      .populate('ingredients.inventoryItemBranch')
+      .populate({
+        path: 'recipe',
+        model: Recipe
+      })
+      .populate({
+        path: 'branch',
+        model: Branch
+      })
+      .populate({
+        path: 'ingredients.inventoryItemBranch',
+        model: InventoryItemBranch,
+        populate: {
+          path: 'inventoryItem',
+          model: InventoryItem
+        }
+      })
       .lean();
 
     logger.info(`Retrieved ${recipeBranches.length} RecipeBranch configs for recipe: ${recipeId}, company: ${companyId}`);
@@ -282,13 +333,31 @@ export const getRecipeBranch = async (recipeId, branchId, companyId, userBranchI
       throw new Error('You do not have access to this branch');
     }
 
+    const Recipe = getRecipeModel(companyDB);
+    const Branch = getBranchModel(companyDB);
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
+
     const recipeBranch = await RecipeBranch.findOne({
       recipe: recipeId,
       branch: branchId
     })
-      .populate('recipe')
-      .populate('branch')
-      .populate('ingredients.inventoryItemBranch')
+      .populate({
+        path: 'recipe',
+        model: Recipe
+      })
+      .populate({
+        path: 'branch',
+        model: Branch
+      })
+      .populate({
+        path: 'ingredients.inventoryItemBranch',
+        model: InventoryItemBranch,
+        populate: {
+          path: 'inventoryItem',
+          model: InventoryItem
+        }
+      })
       .lean();
 
     if (!recipeBranch) {
@@ -317,6 +386,7 @@ export const updateRecipeBranch = async (recipeId, branchId, updateData, company
     const RecipeBranch = getRecipeBranchModel(companyDB);
 
     logger.info(`Updating RecipeBranch - recipe: ${recipeId}, branch: ${branchId}, company: ${companyId}`);
+    console.log('📝 Update data received:', JSON.stringify(updateData, null, 2));
 
     // Validate branch access
     if (!validateBranchAccess(branchId, userBranchIds)) {
@@ -333,9 +403,23 @@ export const updateRecipeBranch = async (recipeId, branchId, updateData, company
       throw new Error('RecipeBranch configuration not found');
     }
 
+    console.log('📦 Existing config:', JSON.stringify(recipeBranch.toObject(), null, 2));
+
     // Validate ingredients if being updated
     if (updateData.ingredients) {
+      console.log('🔍 Validating ingredients...');
       validateIngredients(updateData.ingredients);
+      
+      // Log each ingredient with conversion data
+      updateData.ingredients.forEach((ing, index) => {
+        console.log(`Ingredient ${index}:`, {
+          inventoryItemBranch: ing.inventoryItemBranch,
+          quantity: ing.quantity,
+          unit: ing.unit,
+          conversionFactor: ing.conversionFactor,
+          overrideCostPerUnit: ing.overrideCostPerUnit,
+        });
+      });
       
       // Validate each ingredient belongs to the branch
       for (const ingredient of updateData.ingredients) {
@@ -345,6 +429,7 @@ export const updateRecipeBranch = async (recipeId, branchId, updateData, company
 
     // Validate yield if being updated
     if (updateData.yield) {
+      console.log('📊 Validating yield:', updateData.yield);
       validateYield(updateData.yield);
     }
 
@@ -352,15 +437,17 @@ export const updateRecipeBranch = async (recipeId, branchId, updateData, company
     Object.assign(recipeBranch, updateData);
     await recipeBranch.save();
 
+    console.log('✅ Recipe branch updated successfully');
     logger.info(`RecipeBranch updated successfully for recipe: ${recipeId}, branch: ${branchId}`);
 
     // Populate and return
-    await recipeBranch.populate('recipe');
-    await recipeBranch.populate('branch');
-    await recipeBranch.populate('ingredients.inventoryItemBranch');
+    await populateRecipeBranch(recipeBranch, companyDB);
+
+    console.log('📤 Returning updated config:', JSON.stringify(recipeBranch.toObject(), null, 2));
 
     return recipeBranch;
   } catch (error) {
+    console.error('❌ Error updating RecipeBranch:', error);
     logger.error('Error updating RecipeBranch:', error);
     throw error;
   }
@@ -478,9 +565,7 @@ export const bulkUpsertRecipeBranches = async (recipeId, branchConfigs, companyI
       }
 
       // Populate before adding to results
-      await recipeBranch.populate('recipe');
-      await recipeBranch.populate('branch');
-      await recipeBranch.populate('ingredients.inventoryItemBranch');
+      await populateRecipeBranch(recipeBranch, companyDB);
 
       results.push(recipeBranch);
     }
@@ -511,8 +596,12 @@ export const mapIngredientsToTargetBranch = async (sourceIngredients, targetBran
 
     for (const ingredient of sourceIngredients) {
       // Get the source inventory item branch to find the base inventory item
+      const InventoryItem = getInventoryItemModel(companyDB);
       const sourceItemBranch = await InventoryItemBranch.findById(ingredient.inventoryItemBranch)
-        .populate('inventoryItem');
+        .populate({
+          path: 'inventoryItem',
+          model: InventoryItem
+        });
 
       if (!sourceItemBranch) {
         logger.warn(`Source inventory item branch not found: ${ingredient.inventoryItemBranch}`);
