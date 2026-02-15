@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Package } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -13,6 +13,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { recipeServices, menuItemServices, branchServices } from '@/api/services';
 import RecipeFormModal from '@/components/recipes/RecipeFormModal';
+import RecipeBranchConfigModal from '@/components/recipes/RecipeBranchConfigModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,24 +32,8 @@ interface Recipe {
     _id: string;
     name: string;
   };
-  ingredients?: Array<{
-    rawMaterial: {
-      _id: string;
-      name: string;
-    };
-    quantity: number;
-    unit: string;
-  }>;
-  yield?: {
-    quantity: number;
-    unit: string;
-  };
-  preparationTime?: number;
-  cookingTime?: number;
-  costPerUnit?: number;
   version: number;
   isActive: boolean;
-  totalTime?: number;
   preparationSteps: Array<{
     stepNumber: number;
     description: string;
@@ -127,11 +112,13 @@ export default function Recipes() {
   const [branchFilter, setBranchFilter] = useState('');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([]);
+  const [finishedGoodSearch, setFinishedGoodSearch] = useState('');
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isBranchConfigOpen, setIsBranchConfigOpen] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; recipe: Recipe | null }>({
     open: false,
@@ -178,7 +165,7 @@ export default function Recipes() {
   // Fetch finished goods for filter
   useEffect(() => {
     fetchFinishedGoods();
-  }, []);
+  }, [finishedGoodSearch]);
 
   const fetchBranches = async () => {
     try {
@@ -295,6 +282,7 @@ export default function Recipes() {
     try {
       const params: any = {
         limit: 1000,
+        search: finishedGoodSearch || undefined,
       };
       // Fetch finished goods from inventory items
       const response = await menuItemServices.getMenuItems(params);
@@ -318,6 +306,11 @@ export default function Recipes() {
   const handleEdit = (recipe: Recipe) => {
     setSelectedRecipe(recipe);
     setIsFormOpen(true);
+  };
+
+  const handleConfigureBranch = (recipe: Recipe) => {
+    setSelectedRecipe(recipe);
+    setIsBranchConfigOpen(true);
   };
 
   const handleDelete = (recipe: Recipe) => {
@@ -417,11 +410,27 @@ export default function Recipes() {
                   </SelectContent>
                 </Select>
               )}
-              <Select value={finishedGoodFilter} onValueChange={setFinishedGoodFilter}>
+              <Select 
+                value={finishedGoodFilter} 
+                onValueChange={(value) => {
+                  setFinishedGoodFilter(value);
+                  setFinishedGoodSearch(''); // Reset search when selecting
+                }}
+              >
                 <SelectTrigger className="w-48 h-9">
                   <SelectValue placeholder="All finished goods" />
                 </SelectTrigger>
                 <SelectContent>
+                  <div className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Search finished goods..."
+                      className="w-full px-2 py-1 text-sm border rounded"
+                      value={finishedGoodSearch}
+                      onChange={(e) => setFinishedGoodSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
                   <SelectItem value="all">All finished goods</SelectItem>
                   {finishedGoods.map((item) => (
                     <SelectItem key={item._id} value={item._id}>
@@ -464,11 +473,11 @@ export default function Recipes() {
                     costPerUnit: recipe.branchConfig.costPerUnit,
                   }
                 : {
-                    ingredients: recipe.ingredients || [],
-                    yield: recipe.yield,
-                    preparationTime: recipe.preparationTime,
-                    cookingTime: recipe.cookingTime,
-                    costPerUnit: recipe.costPerUnit,
+                    ingredients: [], // Global recipes don't have ingredients
+                    yield: undefined,
+                    preparationTime: undefined,
+                    cookingTime: undefined,
+                    costPerUnit: undefined,
                   };
 
               return (
@@ -483,21 +492,42 @@ export default function Recipes() {
                         Yield: {displayData.yield.quantity} {displayData.yield.unit}
                       </p>
                     )}
+                    {branchFilter === 'all' && (
+                      <p className="text-xs text-muted-foreground italic">
+                        Select a branch to view details
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{recipe.finishedGood?.name || '-'}</Badge>
                   </TableCell>
                   <TableCell className="text-center">
-                    <Badge variant="secondary">{displayData.ingredients.length || 0} items</Badge>
+                    {branchFilter && branchFilter !== 'all' ? (
+                      <Badge variant="secondary">{displayData.ingredients.length || 0} items</Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatCurrency(displayData.costPerUnit)}
+                    {branchFilter && branchFilter !== 'all' ? (
+                      formatCurrency(displayData.costPerUnit)
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-center text-muted-foreground">
-                    {formatTime(displayData.preparationTime)}
+                    {branchFilter && branchFilter !== 'all' ? (
+                      formatTime(displayData.preparationTime)
+                    ) : (
+                      <span className="text-xs">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-center text-muted-foreground">
-                    {formatTime(displayData.cookingTime)}
+                    {branchFilter && branchFilter !== 'all' ? (
+                      formatTime(displayData.cookingTime)
+                    ) : (
+                      <span className="text-xs">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-center">
                     <Badge variant="outline" className="bg-blue-50 text-blue-700">
@@ -514,6 +544,16 @@ export default function Recipes() {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
+                      {branchFilter && branchFilter !== 'all' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleConfigureBranch(recipe)}
+                          title="Configure branch settings"
+                        >
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -587,6 +627,38 @@ export default function Recipes() {
         branches={branches}
         userBranchIds={isSuperAdmin ? null : user?.branchIds || []}
       />
+
+      {/* Branch Configuration Modal */}
+      {isBranchConfigOpen && selectedRecipe && branchFilter && branchFilter !== 'all' && (
+        <RecipeBranchConfigModal
+          isOpen={isBranchConfigOpen}
+          onClose={() => {
+            setIsBranchConfigOpen(false);
+            setSelectedRecipe(null);
+          }}
+          branch={branches.find(b => b._id === branchFilter)!}
+          config={{
+            ingredients: selectedRecipe.branchConfig?.ingredients?.map(ing => ({
+              inventoryItemBranch: typeof ing.inventoryItemBranch === 'string' 
+                ? ing.inventoryItemBranch 
+                : ing.inventoryItemBranch._id,
+              quantity: ing.quantity,
+              unit: ing.unit
+            })) || [],
+            yield: selectedRecipe.branchConfig?.yield || { quantity: 0, unit: 'piece' },
+            preparationTime: selectedRecipe.branchConfig?.preparationTime || 0,
+            cookingTime: selectedRecipe.branchConfig?.cookingTime || 0,
+            costPerUnit: selectedRecipe.branchConfig?.costPerUnit || 0,
+            isActive: selectedRecipe.branchConfig?.isActive ?? true,
+            notes: selectedRecipe.branchConfig?.notes || ''
+          }}
+          onChange={(config) => {
+            // Handle config change - you'll need to implement the API call
+            console.log('Branch config updated:', config);
+          }}
+          isEditable={true}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       <DeleteConfirmDialog

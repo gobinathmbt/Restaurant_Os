@@ -7,6 +7,8 @@ import { getCompanyDB } from '../config/database.js';
 import { getRecipeModel } from '../models/company/Recipe.js';
 import { getRecipeBranchModel } from '../models/company/RecipeBranch.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
+import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
+import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -143,7 +145,7 @@ export const getRecipes = async (companyId, filters = {}) => {
       limit = 10,
       search = '',
       finishedGood = '',
-      branch = '',
+      branchId = '',
       populateBranches = false
     } = filters;
 
@@ -158,15 +160,15 @@ export const getRecipes = async (companyId, filters = {}) => {
     }
 
     // Finished good filter
-    if (finishedGood) {
+    if (finishedGood && finishedGood !== 'all') {
       query.finishedGood = finishedGood;
     }
 
     // If branch filter is provided, we need to filter recipes that have RecipeBranch for that branch
-    if (branch) {
+    if (branchId && branchId !== 'all') {
       const RecipeBranch = getRecipeBranchModel(companyDB);
       const recipeBranches = await RecipeBranch.find({ 
-        branch, 
+        branch: branchId, 
         isActive: true 
       }).select('recipe').lean();
       
@@ -177,57 +179,69 @@ export const getRecipes = async (companyId, filters = {}) => {
     // Calculate pagination
     const skip = (page - 1) * limit;
 
-    // Execute query
-    let recipeQuery = Recipe.find(query)
-      .populate('finishedGood', 'name category price')
-      .sort({ name: 1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+    // Register MenuItem model for populate
+    const MenuItem = getMenuItemModel(companyDB);
 
-    // Optionally populate branch configurations
-    if (populateBranches) {
-      recipeQuery = recipeQuery.lean();
-    }
-
+    // Execute query - populate only finishedGood for global recipes
     const [recipes, total] = await Promise.all([
-      recipeQuery.lean(),
+      Recipe.find(query)
+        .populate({
+          path: 'finishedGood',
+          model: MenuItem,
+          select: 'name category price'
+        })
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
       Recipe.countDocuments(query)
     ]);
 
     // If branch filter is provided, populate branch-specific data
-    if (branch && recipes.length > 0) {
+    if (branchId && branchId !== 'all' && recipes.length > 0) {
       const RecipeBranch = getRecipeBranchModel(companyDB);
+      const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+      const InventoryItem = getInventoryItemModel(companyDB);
+      
       const recipeIds = recipes.map(r => r._id);
       
       const recipeBranches = await RecipeBranch.find({
         recipe: { $in: recipeIds },
-        branch,
+        branch: branchId,
         isActive: true
       })
       .populate({
         path: 'ingredients.inventoryItemBranch',
+        model: InventoryItemBranch,
         select: 'inventoryItem currentStock costPrice',
         populate: {
           path: 'inventoryItem',
+          model: InventoryItem,
           select: 'name unit'
         }
       })
       .lean();
 
       // Map branch data to recipes
-      const branchDataMap = {};
+      const branchConfigMap = {};
       recipeBranches.forEach(rb => {
-        branchDataMap[rb.recipe.toString()] = {
-          ...rb,
+        branchConfigMap[rb.recipe.toString()] = {
+          ingredients: rb.ingredients || [],
+          yield: rb.yield,
+          preparationTime: rb.preparationTime,
+          cookingTime: rb.cookingTime,
+          costPerUnit: rb.costPerUnit,
+          isActive: rb.isActive,
+          notes: rb.notes,
           totalTime: (rb.preparationTime || 0) + (rb.cookingTime || 0)
         };
       });
 
-      // Merge branch data with recipes
+      // Merge branch config with recipes
       recipes.forEach(recipe => {
-        const branchData = branchDataMap[recipe._id.toString()];
-        if (branchData) {
-          recipe.branchData = branchData;
+        const branchConfig = branchConfigMap[recipe._id.toString()];
+        if (branchConfig) {
+          recipe.branchConfig = branchConfig;
         }
       });
     }
@@ -235,6 +249,9 @@ export const getRecipes = async (companyId, filters = {}) => {
     // If populateBranches is true, populate all branch configurations
     if (populateBranches && recipes.length > 0) {
       const RecipeBranch = getRecipeBranchModel(companyDB);
+      const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+      const InventoryItem = getInventoryItemModel(companyDB);
+      
       const recipeIds = recipes.map(r => r._id);
       
       const recipeBranches = await RecipeBranch.find({
@@ -242,6 +259,16 @@ export const getRecipes = async (companyId, filters = {}) => {
         isActive: true
       })
       .populate('branch', 'name code')
+      .populate({
+        path: 'ingredients.inventoryItemBranch',
+        model: InventoryItemBranch,
+        select: 'inventoryItem currentStock costPrice',
+        populate: {
+          path: 'inventoryItem',
+          model: InventoryItem,
+          select: 'name unit'
+        }
+      })
       .lean();
 
       // Group branches by recipe
@@ -289,11 +316,16 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
+    const MenuItem = getMenuItemModel(companyDB);
 
     const { populateBranches = false, branch = null } = options;
 
     const recipe = await Recipe.findById(recipeId)
-      .populate('finishedGood', 'name category price description')
+      .populate({
+        path: 'finishedGood',
+        model: MenuItem,
+        select: 'name category price description'
+      })
       .lean();
 
     if (!recipe) {
@@ -303,6 +335,8 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
     // Populate branch configurations if requested
     if (populateBranches) {
       const RecipeBranch = getRecipeBranchModel(companyDB);
+      const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+      const InventoryItem = getInventoryItemModel(companyDB);
       
       const branchQuery = { recipe: recipeId, isActive: true };
       if (branch) {
@@ -313,9 +347,11 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
         .populate('branch', 'name code location')
         .populate({
           path: 'ingredients.inventoryItemBranch',
+          model: InventoryItemBranch,
           select: 'inventoryItem currentStock costPrice isActive',
           populate: {
             path: 'inventoryItem',
+            model: InventoryItem,
             select: 'name unit type category'
           }
         })

@@ -61,17 +61,17 @@ export const getRecipes = async (req, res, next) => {
 
     // If user has limited branch access and no branch filter is specified, 
     // default to their accessible branches
-    if (userBranchIds && !filters.branch) {
+    if (userBranchIds && !filters.branchId) {
       // For single-branch users, automatically filter by their branch
       if (userBranchIds.length === 1) {
-        filters.branch = userBranchIds[0];
+        filters.branchId = userBranchIds[0];
       }
       // For multi-branch users, don't auto-filter but they can only see their branches
     }
 
     // If branch filter is specified, validate user has access to that branch
-    if (filters.branch && userBranchIds) {
-      if (!userBranchIds.includes(filters.branch)) {
+    if (filters.branchId && filters.branchId !== 'all' && userBranchIds) {
+      if (!userBranchIds.includes(filters.branchId)) {
         return res.status(403).json({
           success: false,
           message: 'You do not have permission to access this branch'
