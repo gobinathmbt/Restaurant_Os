@@ -15,7 +15,8 @@ import {
   getRecipeBranch,
   updateRecipeBranch,
   deleteRecipeBranch,
-  bulkUpsertRecipeBranches
+  bulkUpsertRecipeBranches,
+  copyRecipeBranchToTargets
 } from '../controllers/recipeBranchController.js';
 import { authenticate } from '../middlewares/auth.js';
 
@@ -37,6 +38,7 @@ router.patch('/:id/toggle-status', toggleRecipeStatus); // Toggle active status
 // RecipeBranch routes (branch-specific configurations)
 router.post('/:recipeId/branches', createRecipeBranch);
 router.post('/:recipeId/branches/bulk', bulkUpsertRecipeBranches);
+router.post('/:recipeId/branches/:sourceBranchId/copy', copyRecipeBranchToTargets); // Copy config to target branches
 router.get('/:recipeId/branches', getRecipeBranches);
 router.get('/:recipeId/branches/:branchId', getRecipeBranch);
 router.put('/:recipeId/branches/:branchId', updateRecipeBranch);

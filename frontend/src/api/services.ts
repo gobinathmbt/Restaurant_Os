@@ -274,9 +274,9 @@ export const recipeBranchServices = {
   bulkUpdateRecipeBranches: (recipeId: string, branchConfigs: any[]) =>
     apiClient.post(`/api/recipes/${recipeId}/branches/bulk`, { branchConfigs }),
 
-  // Copy recipe branch configuration to other branches
+  // Copy recipe branch configuration to other branches with ingredient mapping
   copyRecipeBranchConfig: (recipeId: string, sourceBranchId: string, targetBranchIds: string[]) =>
-    apiClient.post(`/api/recipes/${recipeId}/branches/copy`, { sourceBranchId, targetBranchIds }),
+    apiClient.post(`/api/recipes/${recipeId}/branches/${sourceBranchId}/copy`, { targetBranchIds }),
 };
 
 // Supplier Services

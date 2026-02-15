@@ -384,3 +384,99 @@ export const bulkUpsertRecipeBranches = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Copy branch configuration to target branches with ingredient mapping
+ * POST /api/recipes/:recipeId/branches/:sourceBranchId/copy
+ */
+export const copyRecipeBranchToTargets = async (req, res, next) => {
+  try {
+    const { companyId, userId, role, branchIds } = req.user;
+    const { recipeId, sourceBranchId } = req.params;
+    const { targetBranchIds } = req.body;
+
+    if (!targetBranchIds || !Array.isArray(targetBranchIds) || targetBranchIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'targetBranchIds array is required and must not be empty'
+      });
+    }
+
+    // Determine user's accessible branches
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null // Super admins have access to all branches
+      : branchIds; // Company admins only have access to their assigned branches
+
+    // Get source branch configuration
+    const sourceBranch = await recipeBranchService.getRecipeBranch(
+      recipeId,
+      sourceBranchId,
+      companyId,
+      userBranchIds
+    );
+
+    // Prepare branch configs for bulk upsert with mapped ingredients
+    const branchConfigs = [];
+    
+    for (const targetBranchId of targetBranchIds) {
+      // Map ingredients from source to target branch
+      const mappedIngredients = await recipeBranchService.mapIngredientsToTargetBranch(
+        sourceBranch.ingredients,
+        targetBranchId,
+        companyId
+      );
+
+      branchConfigs.push({
+        branchId: targetBranchId,
+        ingredients: mappedIngredients,
+        yield: sourceBranch.yield,
+        preparationTime: sourceBranch.preparationTime,
+        cookingTime: sourceBranch.cookingTime,
+        isActive: sourceBranch.isActive,
+        notes: sourceBranch.notes
+      });
+    }
+
+    // Bulk upsert with mapped configurations
+    const result = await recipeBranchService.bulkUpsertRecipeBranches(
+      recipeId,
+      branchConfigs,
+      companyId,
+      userBranchIds
+    );
+
+    logger.info('Recipe branch config copied to target branches via API', { 
+      recipeId,
+      sourceBranchId,
+      targetBranchIds,
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: `Configuration copied to ${targetBranchIds.length} branch${targetBranchIds.length !== 1 ? 'es' : ''}`,
+      data: { recipeBranches: result }
+    });
+  } catch (error) {
+    logger.error('Copy recipe branch config error', error);
+    
+    // Handle authorization errors (403)
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    // Handle not found errors (404)
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};

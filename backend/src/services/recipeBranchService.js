@@ -495,6 +495,76 @@ export const bulkUpsertRecipeBranches = async (recipeId, branchConfigs, companyI
 };
 
 /**
+ * Map ingredients from source branch to target branch
+ * Finds corresponding inventory item branch IDs for the target branch
+ * @param {Array} sourceIngredients - Ingredients from source branch
+ * @param {string} targetBranchId - Target branch ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Array>} Mapped ingredients for target branch
+ */
+export const mapIngredientsToTargetBranch = async (sourceIngredients, targetBranchId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+
+    const mappedIngredients = [];
+
+    for (const ingredient of sourceIngredients) {
+      // Get the source inventory item branch to find the base inventory item
+      const sourceItemBranch = await InventoryItemBranch.findById(ingredient.inventoryItemBranch)
+        .populate('inventoryItem');
+
+      if (!sourceItemBranch) {
+        logger.warn(`Source inventory item branch not found: ${ingredient.inventoryItemBranch}`);
+        continue;
+      }
+
+      // Find the corresponding inventory item branch for the target branch
+      let targetItemBranch = await InventoryItemBranch.findOne({
+        inventoryItem: sourceItemBranch.inventoryItem._id,
+        branch: targetBranchId
+      });
+
+      // If not found, create it (auto-assign)
+      if (!targetItemBranch) {
+        logger.info(`Auto-creating inventory item branch for item ${sourceItemBranch.inventoryItem._id} in branch ${targetBranchId}`);
+        
+        targetItemBranch = new InventoryItemBranch({
+          inventoryItem: sourceItemBranch.inventoryItem._id,
+          branch: targetBranchId,
+          currentStock: 0,
+          minimumStock: sourceItemBranch.minimumStock || 0,
+          maximumStock: sourceItemBranch.maximumStock || 0,
+          reorderPoint: sourceItemBranch.reorderPoint || 0,
+          reorderQuantity: sourceItemBranch.reorderQuantity || 0,
+          costPrice: sourceItemBranch.costPrice || 0,
+          isAvailable: true,
+          isActive: true
+        });
+
+        await targetItemBranch.save();
+      }
+
+      // Map the ingredient with the target branch's inventory item branch ID
+      mappedIngredients.push({
+        inventoryItemBranch: targetItemBranch._id.toString(),
+        quantity: ingredient.quantity,
+        unit: ingredient.unit,
+        conversionFactor: ingredient.conversionFactor,
+        overrideCostPerUnit: ingredient.overrideCostPerUnit
+      });
+    }
+
+    logger.info(`Mapped ${mappedIngredients.length} ingredients from source to target branch ${targetBranchId}`);
+
+    return mappedIngredients;
+  } catch (error) {
+    logger.error('Error mapping ingredients to target branch:', error);
+    throw error;
+  }
+};
+
+/**
  * Calculate and update recipe cost for a branch
  * @param {string} recipeBranchId - RecipeBranch ID
  * @param {string} companyId - Company ID
