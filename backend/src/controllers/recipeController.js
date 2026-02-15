@@ -125,11 +125,18 @@ export const getRecipeById = async (req, res, next) => {
 
     const recipe = await recipeService.getRecipeById(id, companyId, options);
 
-    // Filter branches based on user access if populated
+    // Mark branches as editable/read-only based on user access
     if (recipe.branches && userBranchIds) {
-      recipe.branches = recipe.branches.filter(rb => 
-        userBranchIds.includes(rb.branch._id?.toString() || rb.branch.toString())
-      );
+      recipe.branches = recipe.branches.map(rb => ({
+        ...rb,
+        isEditable: userBranchIds.includes(rb.branch._id?.toString() || rb.branch.toString())
+      }));
+    } else if (recipe.branches) {
+      // Super admin - all branches are editable
+      recipe.branches = recipe.branches.map(rb => ({
+        ...rb,
+        isEditable: true
+      }));
     }
 
     res.json({

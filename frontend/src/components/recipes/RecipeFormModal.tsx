@@ -82,6 +82,7 @@ interface Recipe {
     costPerUnit?: number;
     isActive: boolean;
     notes?: string;
+    isEditable?: boolean; // Added to indicate if user can edit this branch
   }>;
 }
 
@@ -143,6 +144,15 @@ export default function RecipeFormModal({
   const canEditBranch = (branchId: string): boolean => {
     // Super admin (null userBranchIds) can edit all branches
     if (userBranchIds === null) return true;
+    
+    // Check if backend marked this branch as editable (for existing recipes)
+    if (recipe?.branches) {
+      const branchConfig = recipe.branches.find(b => b.branch._id === branchId);
+      if (branchConfig && branchConfig.isEditable !== undefined) {
+        return branchConfig.isEditable;
+      }
+    }
+    
     // Branch managers can only edit their assigned branches
     return userBranchIds.includes(branchId);
   };

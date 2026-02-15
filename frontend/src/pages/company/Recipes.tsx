@@ -65,6 +65,7 @@ interface Recipe {
     costPerUnit?: number;
     isActive: boolean;
     notes?: string;
+    isEditable?: boolean; // Added to indicate if user can edit this branch
   }>;
   branchConfig?: {
     ingredients: Array<{
