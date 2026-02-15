@@ -161,7 +161,6 @@ export default function MenuItemsTab({
   // Modal states
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState<MergedMenuItem | null>(null);
-  console.log(selectedMenuItem)
   const [isBranchConfigModalOpen, setIsBranchConfigModalOpen] = useState(false);
   const [isImageGalleryOpen, setIsImageGalleryOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -901,14 +900,7 @@ export default function MenuItemsTab({
           (b) => b.branch._id === selectedBranch
         );
         const menuItemBranchId = menuItemBranch?._id;
-        
-        console.log('BranchConfigModal props:', {
-          menuItemId: selectedMenuItem._id,
-          branchId: selectedBranch,
-          menuItemBranchId: menuItemBranchId,
-          branch: branch
-        });
-        
+
         return (
           <BranchConfigModal
             isOpen={isBranchConfigModalOpen}
@@ -919,19 +911,9 @@ export default function MenuItemsTab({
             branch={branch}
             config={selectedMenuItem.branchConfig}
             onChange={async (config) => {
-              console.log('=== MenuItemsTab onChange called ===');
-              console.log('Config received:', config);
-              console.log('Config.modifiers:', config.modifiers);
-              console.log('Config.addOns:', config.addOns);
-              
               // Update the branch configuration IMMEDIATELY
               try {
-                console.log('Calling updateBranchConfig with:', {
-                  menuItemId: selectedMenuItem._id,
-                  branchId: selectedBranch,
-                  config: config
-                });
-                
+
                 setLoading(true);
                 setLoadingMessage('Saving branch configuration...');
                 
@@ -940,8 +922,6 @@ export default function MenuItemsTab({
                   selectedBranch,
                   config
                 );
-                
-                console.log('updateBranchConfig successful, response:', response);
                 
                 toast({
                   title: 'Success',

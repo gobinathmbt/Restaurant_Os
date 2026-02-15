@@ -130,10 +130,6 @@ export default function BranchConfigModal({
   // Initialize localConfig only when modal opens or branch changes
   useEffect(() => {
     if (isOpen) {
-      console.log('=== Modal opened, initializing config ===');
-      console.log('Initial config:', config);
-      console.log('isEditingRef.current:', isEditingRef.current);
-      
       // Only reset config if we're not in the middle of editing
       if (!isEditingRef.current) {
         setLocalConfig(config);
@@ -143,10 +139,8 @@ export default function BranchConfigModal({
           const firstAddOn = config.addOns[0];
           // Check if addOns are populated objects (not just IDs)
           if (typeof firstAddOn === 'object' && firstAddOn && '_id' in firstAddOn) {
-            console.log('Initializing selectedAddOns from populated addOns:', config.addOns);
             setSelectedAddOns(config.addOns as any[]);
           } else {
-            console.log('AddOns are IDs, will load when dropdown opens');
             setSelectedAddOns([]);
           }
         } else {
@@ -154,8 +148,6 @@ export default function BranchConfigModal({
         }
       }
     } else {
-      // Reset when modal closes
-      console.log('=== Modal closed, resetting state ===');
       setSelectedAddOns([]);
       setAvailableAddOns([]);
       setAddOnSearchTerm('');
@@ -241,12 +233,6 @@ export default function BranchConfigModal({
   }, [addOnSearchTerm]);
 
   const handleSave = () => {
-    console.log('=== handleSave called ===');
-    console.log('localConfig being saved:', localConfig);
-    console.log('localConfig.modifiers:', localConfig.modifiers);
-    console.log('localConfig.addOns:', localConfig.addOns);
-    
-    // Validate modifiers
     if (localConfig.modifiers && localConfig.modifiers.length > 0) {
       for (const modifier of localConfig.modifiers) {
         if (!modifier.name || modifier.name.trim() === '') {
@@ -296,8 +282,7 @@ export default function BranchConfigModal({
         typeof addOn === 'string' ? addOn : addOn._id
       ) || []
     };
-    
-    console.log('Validation passed, calling onChange with:', configToSave);
+
     onChange(configToSave);
     onClose();
   };
@@ -443,17 +428,11 @@ export default function BranchConfigModal({
 
   // Add-on management functions
   const handleAddOnSelect = (addOn: AddOnMenuItem) => {
-    console.log('=== handleAddOnSelect called ===');
-    console.log('Selected addOn:', addOn);
-    console.log('Current selectedAddOns:', selectedAddOns);
-    console.log('Current localConfig.addOns:', localConfig.addOns);
-    
     // Mark that we're editing
     isEditingRef.current = true;
     
     // Prevent self-reference
     if (menuItemId && addOn._id === menuItemId) {
-      console.log('Self-reference detected, aborting');
       toast({
         title: 'Invalid Selection',
         description: 'A menu item cannot be added as an add-on to itself',
@@ -461,19 +440,14 @@ export default function BranchConfigModal({
       });
       return;
     }
-    
     // Check if already selected
     const isAlreadySelected = selectedAddOns.some(a => a._id === addOn._id);
-    console.log('Is already selected?', isAlreadySelected);
     
     if (!isAlreadySelected) {
       // Update both selectedAddOns and localConfig
       const newSelectedAddOns = [...selectedAddOns, addOn];
       const newAddOnIds = newSelectedAddOns.map(a => a._id);
       
-      console.log('New selectedAddOns:', newSelectedAddOns);
-      console.log('New addOn IDs:', newAddOnIds);
-
       setSelectedAddOns(newSelectedAddOns);
       
       // Use functional update to ensure we have the latest state
@@ -482,11 +456,8 @@ export default function BranchConfigModal({
           ...prevConfig,
           addOns: newAddOnIds,
         };
-        console.log('Updated localConfig:', updated);
         return updated;
       });
-      
-      console.log('State updated');
       
       toast({
         title: 'Add-on Added',
@@ -494,16 +465,11 @@ export default function BranchConfigModal({
         variant: 'success',
       });
     } else {
-      console.log('Add-on already selected, skipping');
     }
     // Don't close the dropdown - allow multi-select
   };
 
   const handleAddOnRemove = (addOnId: string) => {
-    console.log('=== handleAddOnRemove called ===');
-    console.log('Removing addOn ID:', addOnId);
-    console.log('Current selectedAddOns:', selectedAddOns);
-    
     // Mark that we're editing
     isEditingRef.current = true;
     
@@ -512,10 +478,7 @@ export default function BranchConfigModal({
     // Update both selectedAddOns and localConfig
     const newSelectedAddOns = selectedAddOns.filter(a => a._id !== addOnId);
     const newAddOnIds = newSelectedAddOns.map(a => a._id);
-    
-    console.log('New selectedAddOns:', newSelectedAddOns);
-    console.log('New addOn IDs:', newAddOnIds);
-    
+
     setSelectedAddOns(newSelectedAddOns);
     
     // Use functional update to ensure we have the latest state
@@ -524,7 +487,6 @@ export default function BranchConfigModal({
         ...prevConfig,
         addOns: newAddOnIds,
       };
-      console.log('Updated localConfig after remove:', updated);
       return updated;
     });
     

@@ -379,8 +379,6 @@ export default function SupplierFormModal({
         submitData.bankDetails = bankDetails;
       }
 
-      console.log('Submitting supplier data:', JSON.stringify(submitData, null, 2));
-
       let response;
       if (supplier) {
         response = await supplierServices.updateSupplier(supplier._id, submitData);

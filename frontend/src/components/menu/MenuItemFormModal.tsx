@@ -408,17 +408,6 @@ export default function MenuItemFormModal({
             branchId,
             ...branchConfigs.get(branchId),
           }));
-          
-          console.log('=== Updating branch configurations ===');
-          console.log('branchConfigsArray:', branchConfigsArray);
-          branchConfigsArray.forEach((config, index) => {
-            console.log(`Branch ${index} config:`, {
-              branchId: config.branchId,
-              modifiers: config.modifiers,
-              addOns: config.addOns
-            });
-          });
-          
           await menuItemBranchServices.updateMenuItemBranches(menuItem._id, branchConfigsArray);
         }
         
@@ -433,16 +422,6 @@ export default function MenuItemFormModal({
           branchId,
           ...branchConfigs.get(branchId),
         }));
-
-        console.log('=== Creating menu item with branch configurations ===');
-        console.log('branchConfigsArray:', branchConfigsArray);
-        branchConfigsArray.forEach((config, index) => {
-          console.log(`Branch ${index} config:`, {
-            branchId: config.branchId,
-            modifiers: config.modifiers,
-            addOns: config.addOns
-          });
-        });
 
         await menuItemServices.createMenuItemWithBranches({
           menuItemData: formData,

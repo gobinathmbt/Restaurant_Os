@@ -59,7 +59,6 @@ export default function Menu() {
     try {
       const response = await branchServices.getBranches({ limit: 100, isActive: true });
       const allBranches = response.data.data.branches || [];
-      console.log(allBranches)
       // Filter branches based on user role
       let availableBranches = allBranches;
       if (isMultiBranchAdmin || isSingleBranchAdmin) {
