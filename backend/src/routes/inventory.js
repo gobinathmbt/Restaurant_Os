@@ -24,6 +24,8 @@ import {
   createBranchConfig,
   getBranchConfig,
   updateBranchConfig,
+  getInventoryItemBranchById,
+  getInventoryItemBranchesByIds,
   deleteBranchConfig,
   bulkUpdateBranchConfigs,
   getInventoryItemsForBranch,
@@ -57,6 +59,10 @@ router.put('/items/:inventoryItemId/branches', bulkUpdateBranchConfigs);
 
 // Get inventory items for a specific branch
 router.get('/branches/:branchId/items', getInventoryItemsForBranch);
+// Get a specific branch item by its id
+router.get('/branches/:branchId/items/:branchItemId', getInventoryItemBranchById);
+// Batch fetch multiple branch items by ids
+router.post('/branches/:branchId/items/batch', getInventoryItemBranchesByIds);
 
 // GRN (Goods Receipt Note) routes
 router.get('/grn', getGRNs);

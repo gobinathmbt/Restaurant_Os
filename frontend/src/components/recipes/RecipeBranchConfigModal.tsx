@@ -34,7 +34,8 @@ import { inventoryItemBranchServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
 
 interface Ingredient {
-  inventoryItemBranch: string;
+  // can be stored as a branch-config id string or a populated object with _id
+  inventoryItemBranch: string | { _id?: string };
   quantity: number;
   unit: string;
 }
@@ -116,6 +117,56 @@ export default function RecipeBranchConfigModal({
     }
   }, [isOpen, config]);
 
+  // Helper to resolve inventoryItemBranch id whether stored as string or object
+  const resolveBranchId = (val: string | { _id?: string } | undefined | null) => {
+    if (!val) return '';
+    return typeof val === 'string' ? val : (val as any)._id || '';
+  };
+
+  // When modal opens, ensure we have details for ingredients that may not be in the paged list
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const fetchMissingIngredients = async () => {
+      if (!localConfig || !localConfig.ingredients || localConfig.ingredients.length === 0) return;
+
+      const missingIds = localConfig.ingredients
+        .map((ing) => resolveBranchId(ing.inventoryItemBranch))
+        .filter(Boolean)
+        .filter((id) => !availableInventoryItems.some(item => item.branchConfig && item.branchConfig._id === id));
+
+      if (missingIds.length === 0) return;
+
+      try {
+        // Fetch all missing ids in a single batch request
+        const resp = await inventoryItemBranchServices.getInventoryItemBranchesByIds(branch._id, missingIds);
+        const items = resp.data?.data?.items || [];
+        const fetched: InventoryItemWithBranch[] = items.map((item: any) => ({
+          _id: item.inventoryItem?._id || item._id,
+          name: item.inventoryItem?.name || '',
+          unit: item.inventoryItem?.unit || 'piece',
+          type: item.inventoryItem?.type || 'raw_material',
+          branchConfig: {
+            _id: item._id,
+            currentStock: item.currentStock || 0,
+            minimumStock: item.minimumStock || 0,
+            costPrice: item.costPrice,
+            isAvailable: item.isAvailable || false,
+            isActive: item.isActive || false,
+          },
+          isActive: item.inventoryItem?.isActive ?? true,
+        }));
+
+        if (fetched.length > 0) setAvailableInventoryItems((prev) => [...fetched, ...prev]);
+      } catch (err) {
+        // noop
+      }
+    };
+
+    fetchMissingIngredients();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   // Recalculate cost when ingredients or yield change
   useEffect(() => {
     if (isOpen && availableInventoryItems.length > 0) {
@@ -169,6 +220,16 @@ export default function RecipeBranchConfigModal({
     }
   }, [showInventorySearch]);
 
+  // Fetch inventory items when modal opens so existing ingredients can be resolved
+  useEffect(() => {
+    if (isOpen && branch._id) {
+      // Only fetch if we don't already have items or if config refers to items
+      if (availableInventoryItems.length === 0) {
+        fetchAvailableInventoryItems();
+      }
+    }
+  }, [isOpen, branch._id]);
+
   // Debounced search for inventory items
   useEffect(() => {
     if (showInventorySearch && branch._id) {
@@ -182,7 +243,7 @@ export default function RecipeBranchConfigModal({
   const handleInventoryItemSelect = (item: InventoryItemWithBranch) => {
     // Check if already added
     const isAlreadyAdded = localConfig.ingredients.some(
-      (ing) => ing.inventoryItemBranch === item.branchConfig._id
+      (ing) => resolveBranchId(ing.inventoryItemBranch) === item.branchConfig._id
     );
 
     if (isAlreadyAdded) {
@@ -239,8 +300,9 @@ export default function RecipeBranchConfigModal({
 
     let totalCost = 0;
     for (const ingredient of localConfig.ingredients) {
+      const id = resolveBranchId(ingredient.inventoryItemBranch);
       const inventoryItem = availableInventoryItems.find(
-        (item) => item.branchConfig._id === ingredient.inventoryItemBranch
+        (item) => item.branchConfig._id === id
       );
       if (inventoryItem && inventoryItem.branchConfig.costPrice) {
         totalCost += ingredient.quantity * inventoryItem.branchConfig.costPrice;
@@ -250,8 +312,9 @@ export default function RecipeBranchConfigModal({
     return totalCost / localConfig.yield.quantity;
   };
 
-  const getIngredientDetails = (inventoryItemBranchId: string) => {
-    return availableInventoryItems.find((item) => item.branchConfig._id === inventoryItemBranchId);
+  const getIngredientDetails = (inventoryItemBranchId: string | { _id?: string }) => {
+    const id = resolveBranchId(inventoryItemBranchId as any);
+    return availableInventoryItems.find((item) => item.branchConfig._id === id);
   };
 
   const handleRecalculateCost = async () => {
@@ -340,10 +403,17 @@ export default function RecipeBranchConfigModal({
 
     // Calculate and update cost before saving
     const calculatedCost = calculateCost();
+    // Normalize inventoryItemBranch to id strings before returning
+    const normalizedIngredients = (localConfig.ingredients || []).map((ing) => ({
+      ...ing,
+      inventoryItemBranch: resolveBranchId(ing.inventoryItemBranch),
+    }));
+
     const configToSave = {
       ...localConfig,
+      ingredients: normalizedIngredients,
       costPerUnit: calculatedCost,
-    };
+    } as RecipeBranchConfig;
 
     onChange(configToSave);
     onClose();

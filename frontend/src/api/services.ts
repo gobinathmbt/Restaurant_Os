@@ -169,6 +169,12 @@ export const inventoryItemBranchServices = {
   // Get inventory items for a specific branch (merged with global data)
   getInventoryItemsForBranch: (branchId: string, params?: { page?: number; limit?: number; search?: string; type?: string; category?: string; subcategory?: string; isActive?: boolean }) =>
     apiClient.get(`/api/inventory/branches/${branchId}/items`, { params }),
+  // Get a specific branch-config (InventoryItemBranch) by its id
+  getInventoryItemBranchById: (branchId: string, branchItemId: string) =>
+    apiClient.get(`/api/inventory/branches/${branchId}/items/${branchItemId}`),
+  // Get multiple branch-config items by their IDs in a single request
+  getInventoryItemBranchesByIds: (branchId: string, ids: string[]) =>
+    apiClient.post(`/api/inventory/branches/${branchId}/items/batch`, { ids }),
 
   // Create branch configuration
   createBranchConfig: (inventoryItemId: string, branchId: string, config: any) =>

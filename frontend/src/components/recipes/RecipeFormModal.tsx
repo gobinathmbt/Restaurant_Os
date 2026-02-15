@@ -38,7 +38,8 @@ interface PreparationStep {
 }
 
 interface Ingredient {
-  inventoryItemBranch: string;
+  // may be a branch-config id string or a populated object when coming from API
+  inventoryItemBranch: string | { _id?: string };
   quantity: number;
   unit: string;
 }
@@ -158,6 +159,26 @@ export default function RecipeFormModal({
       const response = await menuItemServices.getMenuItems({ limit: 1000 });
       const items = response.data.data.menuItems || [];
       setFinishedGoods(items);
+      // If we're editing an existing recipe, ensure the finishedGood value is synced
+      if (recipe && recipe.finishedGood) {
+        const fgId = typeof recipe.finishedGood === 'string' ? recipe.finishedGood : recipe.finishedGood._id || '';
+        setFormData((prev) => ({
+          ...prev,
+          finishedGood: fgId,
+        }));
+
+        // If finished good isn't present in fetched list, fetch it individually and prepend
+        const exists = items.some((it: any) => it._id === fgId);
+        if (!exists && fgId) {
+          try {
+            const single = await menuItemServices.getMenuItemById(fgId);
+            const menuItem = single.data?.data?.menuItem;
+            if (menuItem) setFinishedGoods((prev) => [menuItem, ...prev]);
+          } catch (err) {
+            // ignore fetch errors for single item
+          }
+        }
+      }
     } catch (error: any) {
       console.error('Error fetching menu items:', error);
       toast({
@@ -187,10 +208,19 @@ export default function RecipeFormModal({
         setSelectedBranches(accessibleBranchIds);
         
         // But store configs for ALL branches (for display purposes)
+        // Normalize ingredient.inventoryItemBranch to the branch-specific id string
         const configs = new Map<string, RecipeBranchConfig>();
         recipe.branches.forEach(branchConfig => {
+          const normalizedIngredients = (branchConfig.ingredients || []).map((ing: any) => ({
+            inventoryItemBranch: typeof ing.inventoryItemBranch === 'string'
+              ? ing.inventoryItemBranch
+              : ing.inventoryItemBranch?._id || ing.inventoryItemBranch?.branchConfig?._id || '',
+            quantity: ing.quantity,
+            unit: ing.unit,
+          }));
+
           configs.set(branchConfig.branch._id, {
-            ingredients: branchConfig.ingredients || [],
+            ingredients: normalizedIngredients,
             yield: branchConfig.yield || { quantity: 1, unit: 'piece' },
             preparationTime: branchConfig.preparationTime,
             cookingTime: branchConfig.cookingTime,
@@ -782,8 +812,8 @@ export default function RecipeFormModal({
             }}
             branch={branch}
             config={config}
-            onChange={(config) => handleBranchConfigChange(selectedBranchForConfig, config)}
-            isEditable={canEditBranch(selectedBranchForConfig)}
+            onChange={(config) => handleBranchConfigChange(selectedBranchForConfig!, config)}
+            isEditable={canEditBranch(selectedBranchForConfig!)}
           />
         );
       })()}

@@ -9,6 +9,7 @@ import { getRecipeBranchModel } from '../models/company/RecipeBranch.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
+import { getCategoryModel } from '../models/company/Category.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -180,6 +181,8 @@ export const getRecipes = async (companyId, filters = {}) => {
     const skip = (page - 1) * limit;
 
     // Register MenuItem model for populate
+    // Ensure Category model is registered on this connection so nested populates work
+    getCategoryModel(companyDB);
     const MenuItem = getMenuItemModel(companyDB);
 
     // Execute query - populate only finishedGood for global recipes
@@ -197,96 +200,56 @@ export const getRecipes = async (companyId, filters = {}) => {
       Recipe.countDocuments(query)
     ]);
 
-    // If branch filter is provided, populate branch-specific data
-    if (branchId && branchId !== 'all' && recipes.length > 0) {
+    // Populate branch configurations (with inventory item details) for returned recipes
+    if (recipes.length > 0) {
       const RecipeBranch = getRecipeBranchModel(companyDB);
       const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
       const InventoryItem = getInventoryItemModel(companyDB);
-      
+
       const recipeIds = recipes.map(r => r._id);
-      
-      const recipeBranches = await RecipeBranch.find({
-        recipe: { $in: recipeIds },
-        branch: branchId,
-        isActive: true
-      })
-      .populate({
-        path: 'ingredients.inventoryItemBranch',
-        model: InventoryItemBranch,
-        select: 'inventoryItem currentStock costPrice',
-        populate: {
-          path: 'inventoryItem',
-          model: InventoryItem,
-          select: 'name unit'
-        }
-      })
-      .lean();
 
-      // Map branch data to recipes
-      const branchConfigMap = {};
-      recipeBranches.forEach(rb => {
-        branchConfigMap[rb.recipe.toString()] = {
-          ingredients: rb.ingredients || [],
-          yield: rb.yield,
-          preparationTime: rb.preparationTime,
-          cookingTime: rb.cookingTime,
-          costPerUnit: rb.costPerUnit,
-          isActive: rb.isActive,
-          notes: rb.notes,
-          totalTime: (rb.preparationTime || 0) + (rb.cookingTime || 0)
-        };
-      });
-
-      // Merge branch config with recipes
-      recipes.forEach(recipe => {
-        const branchConfig = branchConfigMap[recipe._id.toString()];
-        if (branchConfig) {
-          recipe.branchConfig = branchConfig;
-        }
-      });
-    }
-
-    // If populateBranches is true, populate all branch configurations
-    if (populateBranches && recipes.length > 0) {
-      const RecipeBranch = getRecipeBranchModel(companyDB);
-      const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
-      const InventoryItem = getInventoryItemModel(companyDB);
-      
-      const recipeIds = recipes.map(r => r._id);
-      
-      const recipeBranches = await RecipeBranch.find({
+      // Build query: optionally filter by branchId if provided
+      const branchQuery = {
         recipe: { $in: recipeIds },
         isActive: true
-      })
-      .populate('branch', 'name code')
-      .populate({
-        path: 'ingredients.inventoryItemBranch',
-        model: InventoryItemBranch,
-        select: 'inventoryItem currentStock costPrice',
-        populate: {
-          path: 'inventoryItem',
-          model: InventoryItem,
-          select: 'name unit'
-        }
-      })
-      .lean();
+      };
+      if (branchId && branchId !== 'all') {
+        branchQuery.branch = branchId;
+      }
 
-      // Group branches by recipe
+      const recipeBranches = await RecipeBranch.find(branchQuery)
+        .populate('branch', 'name code location')
+        .populate({
+          path: 'ingredients.inventoryItemBranch',
+          model: InventoryItemBranch,
+          select: 'inventoryItem currentStock costPrice isActive',
+          populate: {
+            path: 'inventoryItem',
+            model: InventoryItem,
+            select: 'name unit type category'
+          }
+        })
+        .lean();
+
+      // Group branches by recipe id
       const branchesMap = {};
       recipeBranches.forEach(rb => {
-        const recipeId = rb.recipe.toString();
-        if (!branchesMap[recipeId]) {
-          branchesMap[recipeId] = [];
-        }
-        branchesMap[recipeId].push({
+        const rId = rb.recipe.toString();
+        if (!branchesMap[rId]) branchesMap[rId] = [];
+        branchesMap[rId].push({
           ...rb,
           totalTime: (rb.preparationTime || 0) + (rb.cookingTime || 0)
         });
       });
 
-      // Add branches to recipes
+      // Attach branches array and, if branch filter applied, a branchConfig shortcut
       recipes.forEach(recipe => {
-        recipe.branches = branchesMap[recipe._id.toString()] || [];
+        const rId = recipe._id.toString();
+        recipe.branches = branchesMap[rId] || [];
+        if (branchId && branchId !== 'all') {
+          // if filtered by a single branch, expose branchConfig for convenience
+          recipe.branchConfig = recipe.branches.length > 0 ? recipe.branches[0] : null;
+        }
       });
     }
 
@@ -316,6 +279,8 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
+    // Ensure Category model is registered on this connection so nested populates work
+    getCategoryModel(companyDB);
     const MenuItem = getMenuItemModel(companyDB);
 
     const { populateBranches = false, branch = null } = options;

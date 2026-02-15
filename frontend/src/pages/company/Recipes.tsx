@@ -334,11 +334,19 @@ export default function Recipes() {
       setLoadingMessage('Loading recipe details...');
       
       // Fetch full recipe details with branch configurations
-      const response = await recipeServices.getRecipe(recipe._id, {
-        populateBranches: true
-      });
+      // Pass the currently selected branch so the API returns the single branch config
+      const params: any = { populateBranches: true };
+      if (branchFilter && branchFilter !== 'all') params.branch = branchFilter;
+
+      const response = await recipeServices.getRecipe(recipe._id, params);
       const recipeWithBranches = response.data.data.recipe;
-      
+
+      // Ensure we expose a convenient `branchConfig` when a single branch was requested
+      if (branchFilter && branchFilter !== 'all') {
+        const matched = recipeWithBranches.branches?.find((b: any) => b.branch?._id === branchFilter || b.branch === branchFilter);
+        recipeWithBranches.branchConfig = matched || null;
+      }
+
       setSelectedRecipe(recipeWithBranches);
       setIsBranchConfigOpen(true);
     } catch (error: any) {

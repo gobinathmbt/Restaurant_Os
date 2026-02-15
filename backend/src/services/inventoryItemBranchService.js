@@ -5,6 +5,7 @@
 
 import { getCompanyDB } from '../config/database.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
+import { getCategoryModel } from '../models/company/Category.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
 import { getBranchModel } from '../models/company/Branch.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
@@ -117,6 +118,10 @@ const validateExpiryDate = (expiryDate) => {
 export const getInventoryItemsForBranch = async (branchId, companyId, filters = {}, userBranchIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
+    // Ensure InventoryItem and Category models are registered on this connection
+    getInventoryItemModel(companyDB);
+    getCategoryModel(companyDB);
+
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
 
@@ -288,6 +293,96 @@ export const getInventoryItemsForBranch = async (branchId, companyId, filters = 
     };
   } catch (error) {
     logger.error('Error getting inventory items for branch:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get a single InventoryItemBranch (branch-specific inventory item) by its ID
+ * @param {string} branchItemId - InventoryItemBranch document ID
+ * @param {string} branchId - Branch ID (for validation)
+ * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Object>} InventoryItemBranch document populated
+ */
+export const getInventoryItemBranchById = async (branchItemId, branchId, companyId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
+
+    // Validate access if needed
+    if (userBranchIds !== null && userBranchIds !== undefined) {
+      if (!userBranchIds.includes(branchId)) {
+        throw new Error('You do not have access to this branch');
+      }
+    }
+
+    const branchConfig = await InventoryItemBranch.findById(branchItemId)
+      .populate({
+        path: 'inventoryItem',
+        populate: [
+          { path: 'category', select: 'name description color icon' },
+          { path: 'subcategory', select: 'name description color icon' }
+        ]
+      })
+      .populate({ path: 'supplier', select: 'name contactPerson phone email' })
+      .lean();
+
+    if (!branchConfig) {
+      throw new Error('Inventory item branch config not found');
+    }
+
+    // Ensure it belongs to the requested branch
+    if (branchConfig.branch && branchConfig.branch.toString() !== branchId.toString()) {
+      throw new Error('Inventory item does not belong to the requested branch');
+    }
+
+    return branchConfig;
+  } catch (error) {
+    logger.error('Error getting inventory item branch by id:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get multiple InventoryItemBranch documents by their IDs for a branch
+ * @param {Array<string>} branchItemIds - Array of InventoryItemBranch document IDs
+ * @param {string} branchId - Branch ID
+ * @param {string} companyId - Company ID
+ * @param {Array} userBranchIds - User's accessible branch IDs (null for super admin)
+ * @returns {Promise<Array>} Array of InventoryItemBranch documents populated
+ */
+export const getInventoryItemBranchesByIds = async (branchItemIds, branchId, companyId, userBranchIds = null) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
+
+    // Validate access if needed
+    if (userBranchIds !== null && userBranchIds !== undefined) {
+      if (!userBranchIds.includes(branchId)) {
+        throw new Error('You do not have access to this branch');
+      }
+    }
+
+    const docs = await InventoryItemBranch.find({
+      _id: { $in: branchItemIds },
+      branch: branchId
+    })
+      .populate({
+        path: 'inventoryItem',
+        populate: [
+          { path: 'category', select: 'name description color icon' },
+          { path: 'subcategory', select: 'name description color icon' }
+        ]
+      })
+      .populate({ path: 'supplier', select: 'name contactPerson phone email' })
+      .lean();
+
+    return docs;
+  } catch (error) {
+    logger.error('Error getting inventory item branches by ids:', error);
     throw error;
   }
 };

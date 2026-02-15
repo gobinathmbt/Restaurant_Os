@@ -330,6 +330,74 @@ export const getInventoryItemsForBranch = async (req, res, next) => {
 };
 
 /**
+ * Get a single InventoryItemBranch by its ID
+ * GET /api/inventory/branches/:branchId/items/:branchItemId
+ */
+export const getInventoryItemBranchById = async (req, res, next) => {
+  try {
+    const { companyId, role, branchIds } = req.user;
+    const { branchId, branchItemId } = req.params;
+
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null
+      : branchIds;
+
+    const branchConfig = await inventoryItemBranchService.getInventoryItemBranchById(
+      branchItemId,
+      branchId,
+      companyId,
+      userBranchIds
+    );
+
+    res.json({ success: true, data: { item: branchConfig } });
+  } catch (error) {
+    logger.error('Get inventory item branch by id error', error);
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({ success: false, message: error.message });
+    }
+    if (error.message.includes('not found') || error.message.includes('does not belong')) {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
+/**
+ * Get multiple InventoryItemBranch documents by IDs for a branch
+ * POST /api/inventory/branches/:branchId/items/batch
+ */
+export const getInventoryItemBranchesByIds = async (req, res, next) => {
+  try {
+    const { companyId, role, branchIds } = req.user;
+    const { branchId } = req.params;
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'ids array is required' });
+    }
+
+    const userBranchIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+      ? null
+      : branchIds;
+
+    const items = await inventoryItemBranchService.getInventoryItemBranchesByIds(
+      ids,
+      branchId,
+      companyId,
+      userBranchIds
+    );
+
+    res.json({ success: true, data: { items } });
+  } catch (error) {
+    logger.error('Get inventory item branches by ids error', error);
+    if (error.message.includes('do not have access')) {
+      return res.status(403).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
+/**
  * Create inventory item with branch assignments
  * POST /api/inventory/items/with-branches
  */
