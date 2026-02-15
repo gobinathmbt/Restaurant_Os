@@ -5,6 +5,8 @@ import {
   getRecipeById,
   updateRecipe,
   deleteRecipe,
+  permanentlyDeleteRecipe,
+  toggleRecipeStatus,
   createRecipeWithBranches
 } from '../controllers/recipeController.js';
 import {
@@ -28,7 +30,9 @@ router.post('/', createRecipe);
 router.post('/with-branches', createRecipeWithBranches);
 router.get('/:id', getRecipeById);
 router.put('/:id', updateRecipe);
-router.delete('/:id', deleteRecipe);
+router.delete('/:id', deleteRecipe); // Soft delete (sets isActive = false)
+router.delete('/:id/permanent', permanentlyDeleteRecipe); // Permanent delete with branch configs
+router.patch('/:id/toggle-status', toggleRecipeStatus); // Toggle active status
 
 // RecipeBranch routes (branch-specific configurations)
 router.post('/:recipeId/branches', createRecipeBranch);

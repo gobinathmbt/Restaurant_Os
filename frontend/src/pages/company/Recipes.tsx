@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Package, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, Settings, Power, PowerOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TableCell, TableHead, TableRow } from '@/components/ui/table';
@@ -308,13 +308,13 @@ export default function Recipes() {
     try {
       setLoading(true);
       setLoadingMessage('Loading recipe details...');
-      
+
       // Fetch full recipe details with branch configurations
       const response = await recipeServices.getRecipe(recipe._id, {
         populateBranches: true
       });
       const recipeWithBranches = response.data.data.recipe;
-      
+
       setSelectedRecipe(recipeWithBranches);
       setIsFormOpen(true);
     } catch (error: any) {
@@ -333,7 +333,7 @@ export default function Recipes() {
     try {
       setLoading(true);
       setLoadingMessage('Loading recipe details...');
-      
+
       // Fetch full recipe details with branch configurations
       // Pass the currently selected branch so the API returns the single branch config
       const params: any = { populateBranches: true };
@@ -371,11 +371,11 @@ export default function Recipes() {
 
     try {
       setLoading(true);
-      setLoadingMessage('Deleting recipe...');
-      await recipeServices.deleteRecipe(deleteDialog.recipe._id);
+      setLoadingMessage('Deleting recipe permanently...');
+      await recipeServices.permanentlyDeleteRecipe(deleteDialog.recipe._id);
       toast({
         title: 'Success',
-        description: 'Recipe deleted successfully',
+        description: 'Recipe permanently deleted successfully',
         variant: 'success',
       });
       if (paginationEnabled) {
@@ -391,6 +391,35 @@ export default function Recipes() {
       toast({
         title: 'Error',
         description: error.response?.data?.message || 'Failed to delete recipe',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleStatus = async (recipe: Recipe) => {
+    try {
+      setLoading(true);
+      setLoadingMessage(`${recipe.isActive ? 'Disabling' : 'Enabling'} recipe...`);
+      await recipeServices.toggleRecipeStatus(recipe._id);
+      toast({
+        title: 'Success',
+        description: `Recipe ${recipe.isActive ? 'disabled' : 'enabled'} successfully`,
+        variant: 'success',
+      });
+      if (paginationEnabled) {
+        fetchRecipes();
+      } else {
+        setRecipes([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchRecipesInfinite(1, true);
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to toggle recipe status',
         variant: 'destructive',
       });
     } finally {
@@ -459,8 +488,8 @@ export default function Recipes() {
                   </SelectContent>
                 </Select>
               )}
-              <Select 
-                value={finishedGoodFilter} 
+              <Select
+                value={finishedGoodFilter}
                 onValueChange={(value) => {
                   setFinishedGoodFilter(value);
                   setFinishedGoodSearch(''); // Reset search when selecting
@@ -496,6 +525,7 @@ export default function Recipes() {
             <TableHead className="w-16">S.No</TableHead>
             <TableHead>Name</TableHead>
             <TableHead>Finished Good</TableHead>
+            <TableHead className="text-center">Status</TableHead>
             <TableHead className="text-center">Ingredients</TableHead>
             <TableHead className="text-right">Cost Per Unit</TableHead>
             <TableHead className="text-center">Prep Time</TableHead>
@@ -515,19 +545,19 @@ export default function Recipes() {
               // Determine which data to display based on branch filter
               const displayData = branchFilter && branchFilter !== 'all' && recipe.branchConfig
                 ? {
-                    ingredients: recipe.branchConfig.ingredients || [],
-                    yield: recipe.branchConfig.yield,
-                    preparationTime: recipe.branchConfig.preparationTime,
-                    cookingTime: recipe.branchConfig.cookingTime,
-                    costPerUnit: recipe.branchConfig.costPerUnit,
-                  }
+                  ingredients: recipe.branchConfig.ingredients || [],
+                  yield: recipe.branchConfig.yield,
+                  preparationTime: recipe.branchConfig.preparationTime,
+                  cookingTime: recipe.branchConfig.cookingTime,
+                  costPerUnit: recipe.branchConfig.costPerUnit,
+                }
                 : {
-                    ingredients: [], // Global recipes don't have ingredients
-                    yield: undefined,
-                    preparationTime: undefined,
-                    cookingTime: undefined,
-                    costPerUnit: undefined,
-                  };
+                  ingredients: [], // Global recipes don't have ingredients
+                  yield: undefined,
+                  preparationTime: undefined,
+                  cookingTime: undefined,
+                  costPerUnit: undefined,
+                };
 
               return (
                 <TableRow key={recipe._id}>
@@ -549,6 +579,14 @@ export default function Recipes() {
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{recipe.finishedGood?.name || '-'}</Badge>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge
+                      variant={recipe.isActive ? 'default' : 'secondary'}
+                      className={recipe.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}
+                    >
+                      {recipe.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-center">
                     {branchFilter && branchFilter !== 'all' ? (
@@ -588,6 +626,15 @@ export default function Recipes() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        onClick={() => handleToggleStatus(recipe)}
+                        title={recipe.isActive ? 'Disable recipe' : 'Enable recipe'}
+                        className={recipe.isActive ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-500'}
+                      >
+                        <Power className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleEdit(recipe)}
                         title="Edit recipe"
                       >
@@ -607,7 +654,8 @@ export default function Recipes() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDelete(recipe)}
-                        title="Delete recipe"
+                        title="Delete recipe permanently"
+                        className="text-red-600 hover:text-red-700"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -622,20 +670,20 @@ export default function Recipes() {
         emptyState={
           recipes.length === 0
             ? {
-                icon: <Package className="h-12 w-12" />,
-                title: 'No recipes found',
-                description:
-                  search || finishedGoodFilter || (branchFilter && branchFilter !== 'all')
-                    ? 'Try adjusting your filters'
-                    : 'Get started by adding your first recipe',
-                action:
-                  !search && !finishedGoodFilter && (!branchFilter || branchFilter === 'all') ? (
-                    <Button onClick={handleCreate}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Recipe
-                    </Button>
-                  ) : undefined,
-              }
+              icon: <Package className="h-12 w-12" />,
+              title: 'No recipes found',
+              description:
+                search || finishedGoodFilter || (branchFilter && branchFilter !== 'all')
+                  ? 'Try adjusting your filters'
+                  : 'Get started by adding your first recipe',
+              action:
+                !search && !finishedGoodFilter && (!branchFilter || branchFilter === 'all') ? (
+                  <Button onClick={handleCreate}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Recipe
+                  </Button>
+                ) : undefined,
+            }
             : undefined
         }
         currentPage={page}
@@ -688,8 +736,8 @@ export default function Recipes() {
           branch={branches.find(b => b._id === branchFilter)!}
           config={{
             ingredients: selectedRecipe.branchConfig?.ingredients?.map(ing => ({
-              inventoryItemBranch: typeof ing.inventoryItemBranch === 'string' 
-                ? ing.inventoryItemBranch 
+              inventoryItemBranch: typeof ing.inventoryItemBranch === 'string'
+                ? ing.inventoryItemBranch
                 : ing.inventoryItemBranch._id,
               quantity: ing.quantity,
               unit: ing.unit
@@ -703,11 +751,11 @@ export default function Recipes() {
           }}
           onChange={async (config) => {
             if (!selectedRecipe || !branchFilter || branchFilter === 'all') return;
-            
+
             try {
               setLoading(true);
               setLoadingMessage('Updating branch configuration...');
-              
+
               // Prepare the config for API call
               const updatePayload = {
                 ingredients: config.ingredients || [],
@@ -718,20 +766,20 @@ export default function Recipes() {
                 isActive: config.isActive !== undefined ? config.isActive : true,
                 notes: config.notes || ''
               };
-              
+
               // Call the API to update the branch configuration
               await recipeBranchServices.updateRecipeBranch(
                 selectedRecipe._id,
                 branchFilter,
                 updatePayload
               );
-              
+
               toast({
                 title: 'Success',
                 description: 'Branch configuration updated successfully',
                 variant: 'success',
               });
-              
+
               // Refresh the recipe data to show updated configuration
               const response = await recipeServices.getRecipe(selectedRecipe._id, {
                 populateBranches: true,
@@ -740,7 +788,7 @@ export default function Recipes() {
               const updatedRecipe = response.data.data.recipe;
               const matched = updatedRecipe.branches?.find((b: any) => b.branch?._id === branchFilter || b.branch === branchFilter);
               updatedRecipe.branchConfig = matched || null;
-              
+
               setSelectedRecipe(updatedRecipe);
             } catch (error: any) {
               toast({
@@ -762,8 +810,21 @@ export default function Recipes() {
         open={deleteDialog.open}
         onClose={() => setDeleteDialog({ open: false, recipe: null })}
         onConfirm={confirmDelete}
-        title="Delete Recipe"
-        description={`Are you sure you want to delete the recipe "${deleteDialog.recipe?.name}"? This action cannot be undone.`}
+        title="Permanently Delete Recipe"
+        description={
+          <div className="space-y-2">
+            <p>
+              Are you sure you want to permanently delete the recipe <strong>"{deleteDialog.recipe?.name}"</strong>?
+            </p>
+            <p>This will permanently remove:</p>
+            <ul className="list-disc list-inside space-y-1 ml-2">
+              <li>The recipe and all its data</li>
+              <li>All branch configurations</li>
+              <li>All associated settings</li>
+            </ul>
+            <p className="text-red-600 font-semibold">This action cannot be undone.</p>
+          </div>
+        }
       />
     </div>
   );

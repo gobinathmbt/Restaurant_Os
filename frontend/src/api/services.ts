@@ -219,9 +219,17 @@ export const recipeServices = {
   updateRecipe: (id: string, data: any) =>
     apiClient.put(`/api/recipes/${id}`, data),
 
-  // Delete recipe (cascade deletes RecipeBranch records)
+  // Delete recipe (soft delete - sets isActive = false)
   deleteRecipe: (id: string) =>
     apiClient.delete(`/api/recipes/${id}`),
+
+  // Permanently delete recipe (hard delete with all branch configs)
+  permanentlyDeleteRecipe: (id: string) =>
+    apiClient.delete(`/api/recipes/${id}/permanent`),
+
+  // Toggle recipe active status
+  toggleRecipeStatus: (id: string) =>
+    apiClient.patch(`/api/recipes/${id}/toggle-status`),
 
   // Create recipe with branch configurations in one request
   createRecipeWithBranches: (data: { recipeData: any; branchConfigs: any[] }) =>

@@ -239,6 +239,80 @@ export const deleteRecipe = async (req, res, next) => {
 };
 
 /**
+ * Permanently delete recipe (hard delete with all branch configs)
+ * DELETE /api/recipes/:id/permanent
+ */
+export const permanentlyDeleteRecipe = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { id } = req.params;
+
+    // Permanently delete recipe and all branch configurations
+    await recipeService.permanentlyDeleteRecipe(id, companyId);
+
+    logger.info('Recipe permanently deleted via API', { 
+      recipeId: id, 
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: 'Recipe and all branch configurations permanently deleted'
+    });
+  } catch (error) {
+    logger.error('Permanently delete recipe error', error);
+    
+    if (error.message === 'Recipe not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Toggle recipe active status
+ * PATCH /api/recipes/:id/toggle-status
+ */
+export const toggleRecipeStatus = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { id } = req.params;
+
+    // Toggle recipe status
+    const recipe = await recipeService.toggleRecipeStatus(id, companyId);
+
+    logger.info('Recipe status toggled via API', { 
+      recipeId: id,
+      newStatus: recipe.isActive,
+      companyId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: `Recipe ${recipe.isActive ? 'enabled' : 'disabled'} successfully`,
+      data: { recipe }
+    });
+  } catch (error) {
+    logger.error('Toggle recipe status error', error);
+    
+    if (error.message === 'Recipe not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
  * Create recipe with branch configurations in one request
  * POST /api/recipes/with-branches
  */

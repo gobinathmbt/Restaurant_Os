@@ -152,9 +152,7 @@ export const getRecipes = async (companyId, filters = {}) => {
     } = filters;
 
     // Build query - only return active recipes
-    const query = {
-      isActive: true
-    };
+    const query = {};
 
     // Search filter
     if (search) {
@@ -420,6 +418,68 @@ export const deleteRecipe = async (recipeId, companyId) => {
     return recipe;
   } catch (error) {
     logger.error('Error deleting recipe:', error);
+    throw error;
+  }
+};
+
+/**
+ * Permanently delete recipe and all branch configurations
+ * @param {string} recipeId - Recipe ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<void>}
+ */
+export const permanentlyDeleteRecipe = async (recipeId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Recipe = getRecipeModel(companyDB);
+    const RecipeBranch = getRecipeBranchModel(companyDB);
+
+    // Get recipe first to verify it exists
+    const recipe = await Recipe.findById(recipeId);
+    if (!recipe) {
+      throw new Error('Recipe not found');
+    }
+
+    // Delete all branch configurations first
+    await RecipeBranch.deleteMany({ recipe: recipeId });
+    logger.info(`Deleted all branch configurations for recipe: ${recipeId}`);
+
+    // Permanently delete the recipe
+    await Recipe.findByIdAndDelete(recipeId);
+
+    logger.info(`Recipe permanently deleted: ${recipeId} for company: ${companyId}`);
+  } catch (error) {
+    logger.error('Error permanently deleting recipe:', error);
+    throw error;
+  }
+};
+
+/**
+ * Toggle recipe active status
+ * @param {string} recipeId - Recipe ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Updated recipe
+ */
+export const toggleRecipeStatus = async (recipeId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const Recipe = getRecipeModel(companyDB);
+
+    // Get recipe
+    const recipe = await Recipe.findById(recipeId);
+    if (!recipe) {
+      throw new Error('Recipe not found');
+    }
+
+    // Toggle isActive status
+    recipe.isActive = !recipe.isActive;
+    await recipe.save();
+
+    logger.info(`Recipe status toggled: ${recipeId}, new status: ${recipe.isActive}, company: ${companyId}`);
+
+    return recipe;
+  } catch (error) {
+    logger.error('Error toggling recipe status:', error);
     throw error;
   }
 };
