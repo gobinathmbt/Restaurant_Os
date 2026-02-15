@@ -121,7 +121,7 @@ recipeBranchSchema.methods.calculateCost = async function() {
   return this.costPerUnit;
 };
 
-// Pre-save hook: Validate ingredient branches
+// Pre-save hook: Validate ingredient branches and auto-assign if needed
 recipeBranchSchema.pre('save', async function(next) {
   if (this.isModified('ingredients') && this.ingredients.length > 0) {
     const InventoryItemBranch = this.constructor.db.model('InventoryItemBranch');
@@ -136,11 +136,35 @@ recipeBranchSchema.pre('save', async function(next) {
         throw new Error(`InventoryItemBranch ${ingredient.inventoryItemBranch} not found`);
       }
       
-      // Validate that ingredient belongs to the same branch
+      // Check if ingredient belongs to the same branch
       if (inventoryItemBranch.branch.toString() !== this.branch.toString()) {
-        throw new Error(
-          `Ingredient ${ingredient.inventoryItemBranch} does not belong to branch ${this.branch}`
-        );
+        // Instead of throwing error, auto-assign the inventory item to the branch
+        console.log(`Auto-assigning inventory item ${inventoryItemBranch.inventoryItem} to branch ${this.branch}`);
+        
+        // Check if this inventory item already has a branch config for the target branch
+        const existingBranchConfig = await InventoryItemBranch.findOne({
+          inventoryItem: inventoryItemBranch.inventoryItem,
+          branch: this.branch
+        });
+
+        if (!existingBranchConfig) {
+          // Create new branch configuration for this inventory item
+          const newBranchConfig = new InventoryItemBranch({
+            inventoryItem: inventoryItemBranch.inventoryItem,
+            branch: this.branch,
+            quantity: 0, // Start with 0 quantity
+            minStockLevel: inventoryItemBranch.minStockLevel || 0,
+            maxStockLevel: inventoryItemBranch.maxStockLevel || 0,
+            reorderPoint: inventoryItemBranch.reorderPoint || 0,
+            reorderQuantity: inventoryItemBranch.reorderQuantity || 0,
+            costPrice: inventoryItemBranch.costPrice || 0,
+            isAvailable: true,
+            isActive: true
+          });
+
+          await newBranchConfig.save();
+          console.log(`Created new branch config for inventory item ${inventoryItemBranch.inventoryItem} in branch ${this.branch}`);
+        }
       }
     }
   }

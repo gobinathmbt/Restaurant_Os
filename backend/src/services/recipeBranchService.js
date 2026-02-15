@@ -27,7 +27,7 @@ const validateBranchAccess = (branchId, userBranchIds) => {
 };
 
 /**
- * Validate ingredient branch reference
+ * Validate ingredient branch reference and auto-assign if needed
  * @param {string} inventoryItemBranchId - InventoryItemBranch ID
  * @param {string} branchId - Expected branch ID
  * @param {string} companyId - Company ID
@@ -46,11 +46,39 @@ export const validateIngredientBranch = async (inventoryItemBranchId, branchId, 
       throw new Error(`InventoryItemBranch ${inventoryItemBranchId} not found`);
     }
 
-    // Validate that ingredient belongs to the same branch
+    // Check if ingredient belongs to the same branch
     if (inventoryItemBranch.branch.toString() !== branchId.toString()) {
-      throw new Error(
-        `Ingredient ${inventoryItemBranchId} does not belong to branch ${branchId}`
-      );
+      // Instead of throwing error, auto-assign the inventory item to the branch
+      logger.info(`Auto-assigning inventory item ${inventoryItemBranch.inventoryItem} to branch ${branchId}`);
+      
+      // Check if this inventory item already has a branch config for the target branch
+      const existingBranchConfig = await InventoryItemBranch.findOne({
+        inventoryItem: inventoryItemBranch.inventoryItem,
+        branch: branchId
+      });
+
+      if (existingBranchConfig) {
+        // Branch config already exists, just log it
+        logger.info(`Inventory item ${inventoryItemBranch.inventoryItem} already assigned to branch ${branchId}`);
+        return true;
+      }
+
+      // Create new branch configuration for this inventory item
+      const newBranchConfig = new InventoryItemBranch({
+        inventoryItem: inventoryItemBranch.inventoryItem,
+        branch: branchId,
+        quantity: 0, // Start with 0 quantity
+        minStockLevel: inventoryItemBranch.minStockLevel || 0,
+        maxStockLevel: inventoryItemBranch.maxStockLevel || 0,
+        reorderPoint: inventoryItemBranch.reorderPoint || 0,
+        reorderQuantity: inventoryItemBranch.reorderQuantity || 0,
+        costPrice: inventoryItemBranch.costPrice || 0,
+        isAvailable: true,
+        isActive: true
+      });
+
+      await newBranchConfig.save();
+      logger.info(`Created new branch config for inventory item ${inventoryItemBranch.inventoryItem} in branch ${branchId}`);
     }
 
     return true;
