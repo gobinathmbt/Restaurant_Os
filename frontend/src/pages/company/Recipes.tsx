@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { recipeServices, menuItemServices, branchServices } from '@/api/services';
+import { recipeServices, menuItemServices, branchServices, recipeBranchServices } from '@/api/services';
 import RecipeFormModal from '@/components/recipes/RecipeFormModal';
 import RecipeBranchConfigModal from '@/components/recipes/RecipeBranchConfigModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
@@ -700,9 +700,57 @@ export default function Recipes() {
             isActive: selectedRecipe.branchConfig?.isActive ?? true,
             notes: selectedRecipe.branchConfig?.notes || ''
           }}
-          onChange={(config) => {
-            // Handle config change - you'll need to implement the API call
-            console.log('Branch config updated:', config);
+          onChange={async (config) => {
+            if (!selectedRecipe || !branchFilter || branchFilter === 'all') return;
+            
+            try {
+              setLoading(true);
+              setLoadingMessage('Updating branch configuration...');
+              
+              // Prepare the config for API call
+              const updatePayload = {
+                ingredients: config.ingredients || [],
+                yield: config.yield || { quantity: 0, unit: 'piece' },
+                preparationTime: config.preparationTime || 0,
+                cookingTime: config.cookingTime || 0,
+                costPerUnit: config.costPerUnit || 0,
+                isActive: config.isActive !== undefined ? config.isActive : true,
+                notes: config.notes || ''
+              };
+              
+              // Call the API to update the branch configuration
+              await recipeBranchServices.updateRecipeBranch(
+                selectedRecipe._id,
+                branchFilter,
+                updatePayload
+              );
+              
+              toast({
+                title: 'Success',
+                description: 'Branch configuration updated successfully',
+                variant: 'success',
+              });
+              
+              // Refresh the recipe data to show updated configuration
+              const response = await recipeServices.getRecipe(selectedRecipe._id, {
+                populateBranches: true,
+                branch: branchFilter
+              });
+              const updatedRecipe = response.data.data.recipe;
+              const matched = updatedRecipe.branches?.find((b: any) => b.branch?._id === branchFilter || b.branch === branchFilter);
+              updatedRecipe.branchConfig = matched || null;
+              
+              setSelectedRecipe(updatedRecipe);
+            } catch (error: any) {
+              toast({
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to update branch configuration',
+                variant: 'destructive',
+              });
+            } finally {
+              setLoading(false);
+              setLoadingMessage('');
+            }
           }}
           isEditable={true}
         />

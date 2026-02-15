@@ -10,6 +10,7 @@ import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getCategoryModel } from '../models/company/Category.js';
+import { getBranchModel } from '../models/company/Branch.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -205,6 +206,7 @@ export const getRecipes = async (companyId, filters = {}) => {
       const RecipeBranch = getRecipeBranchModel(companyDB);
       const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
       const InventoryItem = getInventoryItemModel(companyDB);
+      const Branch = getBranchModel(companyDB);
 
       const recipeIds = recipes.map(r => r._id);
 
@@ -218,7 +220,7 @@ export const getRecipes = async (companyId, filters = {}) => {
       }
 
       const recipeBranches = await RecipeBranch.find(branchQuery)
-        .populate('branch', 'name code location')
+        .populate('branch', 'name code location', Branch)
         .populate({
           path: 'ingredients.inventoryItemBranch',
           model: InventoryItemBranch,
