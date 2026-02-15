@@ -168,7 +168,9 @@ export default function RecipeBranchConfigModal({
     if (isOpen) {
       setLocalConfig(config);
     }
-  }, [isOpen, config]);
+  }, [isOpen]); // Only reset when modal opens, not when config changes
+
+
 
   // Helper to resolve inventoryItemBranch id whether stored as string or object
   const resolveBranchId = (val: string | { _id?: string } | undefined | null) => {
@@ -253,7 +255,7 @@ export default function RecipeBranchConfigModal({
       const items = response.data.data.items || [];
       setAvailableInventoryItems(items);
     } catch (error: any) {
-      console.error('Error fetching inventory items:', error);
+      console.error('❌ Error fetching inventory items:', error);
       toast({
         title: 'Error',
         description: error.response?.data?.message || 'Failed to load inventory items',
@@ -315,10 +317,15 @@ export default function RecipeBranchConfigModal({
       unit: item.unit,
     };
 
-    setLocalConfig({
-      ...localConfig,
-      ingredients: [...localConfig.ingredients, newIngredient],
+    // Use functional update to ensure state is updated correctly
+    setLocalConfig((prev) => {
+      const newState = {
+        ...prev,
+        ingredients: [...prev.ingredients, newIngredient],
+      };
+      return newState;
     });
+
 
     toast({
       title: 'Ingredient Added',
@@ -330,15 +337,17 @@ export default function RecipeBranchConfigModal({
   };
 
   const handleIngredientChange = (index: number, field: keyof Ingredient, value: any) => {
-    const updatedIngredients = [...localConfig.ingredients];
-    updatedIngredients[index] = { ...updatedIngredients[index], [field]: value };
-    setLocalConfig({ ...localConfig, ingredients: updatedIngredients });
+    setLocalConfig((prev) => {
+      const updatedIngredients = [...prev.ingredients];
+      updatedIngredients[index] = { ...updatedIngredients[index], [field]: value };
+      return { ...prev, ingredients: updatedIngredients };
+    });
   };
 
   const removeIngredient = (index: number) => {
-    setLocalConfig({
-      ...localConfig,
-      ingredients: localConfig.ingredients.filter((_, i) => i !== index),
+    setLocalConfig((prev) => {
+      const newIngredients = prev.ingredients.filter((_, i) => i !== index);
+      return { ...prev, ingredients: newIngredients };
     });
   };
 
@@ -375,10 +384,10 @@ export default function RecipeBranchConfigModal({
     await fetchAvailableInventoryItems();
     
     const newCost = calculateCost();
-    setLocalConfig({
-      ...localConfig,
+    setLocalConfig((prev) => ({
+      ...prev,
       costPerUnit: newCost,
-    });
+    }));
 
     toast({
       title: 'Cost Recalculated',
@@ -453,9 +462,8 @@ export default function RecipeBranchConfigModal({
     if (!validateForm()) {
       return;
     }
-
     // Calculate and update cost before saving
-    const calculatedCost = calculateCost();
+    const calculatedCost = calculateCost();    
     // Normalize inventoryItemBranch to id strings before returning
     const normalizedIngredients = (localConfig.ingredients || []).map((ing) => ({
       ...ing,
@@ -666,13 +674,13 @@ export default function RecipeBranchConfigModal({
                     step="0.01"
                     value={localConfig.yield.quantity || ''}
                     onChange={(e) =>
-                      setLocalConfig({
-                        ...localConfig,
+                      setLocalConfig((prev) => ({
+                        ...prev,
                         yield: {
-                          ...localConfig.yield,
+                          ...prev.yield,
                           quantity: parseFloat(e.target.value) || 0,
                         },
-                      })
+                      }))
                     }
                     disabled={!isEditable}
                   />
@@ -682,10 +690,10 @@ export default function RecipeBranchConfigModal({
                   <Select
                     value={localConfig.yield.unit}
                     onValueChange={(value) =>
-                      setLocalConfig({
-                        ...localConfig,
-                        yield: { ...localConfig.yield, unit: value },
-                      })
+                      setLocalConfig((prev) => ({
+                        ...prev,
+                        yield: { ...prev.yield, unit: value },
+                      }))
                     }
                     disabled={!isEditable}
                   >
@@ -716,10 +724,10 @@ export default function RecipeBranchConfigModal({
                     min="0"
                     value={localConfig.preparationTime || ''}
                     onChange={(e) =>
-                      setLocalConfig({
-                        ...localConfig,
+                      setLocalConfig((prev) => ({
+                        ...prev,
                         preparationTime: parseInt(e.target.value) || 0,
-                      })
+                      }))
                     }
                     placeholder="0"
                     disabled={!isEditable}
@@ -733,10 +741,10 @@ export default function RecipeBranchConfigModal({
                     min="0"
                     value={localConfig.cookingTime || ''}
                     onChange={(e) =>
-                      setLocalConfig({
-                        ...localConfig,
+                      setLocalConfig((prev) => ({
+                        ...prev,
                         cookingTime: parseInt(e.target.value) || 0,
-                      })
+                      }))
                     }
                     placeholder="0"
                     disabled={!isEditable}
@@ -953,10 +961,10 @@ export default function RecipeBranchConfigModal({
                   id="isActive"
                   checked={localConfig.isActive}
                   onCheckedChange={(checked) =>
-                    setLocalConfig({
-                      ...localConfig,
+                    setLocalConfig((prev) => ({
+                      ...prev,
                       isActive: checked as boolean,
-                    })
+                    }))
                   }
                   disabled={!isEditable}
                 />
@@ -972,10 +980,10 @@ export default function RecipeBranchConfigModal({
               <Input
                 value={localConfig.notes || ''}
                 onChange={(e) =>
-                  setLocalConfig({
-                    ...localConfig,
+                  setLocalConfig((prev) => ({
+                    ...prev,
                     notes: e.target.value,
-                  })
+                  }))
                 }
                 placeholder="Branch-specific notes..."
                 disabled={!isEditable}
