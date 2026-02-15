@@ -837,6 +837,7 @@ export default function RecipeFormModal({
             config={config}
             onChange={(config) => handleBranchConfigChange(selectedBranchForConfig!, config)}
             isEditable={canEditBranch(selectedBranchForConfig!)}
+            menuItemId={formData.finishedGood || undefined}
           />
         );
       })()}

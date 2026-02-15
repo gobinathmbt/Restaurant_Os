@@ -28,9 +28,9 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { Plus, Trash2, Check, ChevronsUpDown, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Check, ChevronsUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { inventoryItemBranchServices } from '@/api/services';
+import { inventoryItemBranchServices, menuItemBranchServices, menuItemServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
 
 interface Ingredient {
@@ -82,6 +82,7 @@ interface RecipeBranchConfigModalProps {
   config: RecipeBranchConfig;
   onChange: (config: RecipeBranchConfig) => void;
   isEditable?: boolean;
+  menuItemId?: string; // ID of the finished good (menu item)
 }
 
 const UNIT_OPTIONS = [
@@ -102,6 +103,7 @@ export default function RecipeBranchConfigModal({
   config,
   onChange,
   isEditable = true,
+  menuItemId,
 }: RecipeBranchConfigModalProps) {
   const { toast } = useToast();
   const [localConfig, setLocalConfig] = useState<RecipeBranchConfig>(config);
@@ -109,6 +111,57 @@ export default function RecipeBranchConfigModal({
   const [inventorySearchTerm, setInventorySearchTerm] = useState('');
   const [isLoadingInventory, setIsLoadingInventory] = useState(false);
   const [showInventorySearch, setShowInventorySearch] = useState(false);
+  
+  // Menu item pricing state
+  const [menuItemPrice, setMenuItemPrice] = useState<number | null>(null);
+  const [isLoadingMenuPrice, setIsLoadingMenuPrice] = useState(false);
+  const [priceSource, setPriceSource] = useState<'branch' | 'base' | null>(null);
+
+  // Fetch menu item price when modal opens
+  useEffect(() => {
+    if (isOpen && menuItemId && branch._id) {
+      fetchMenuItemPrice();
+    }
+  }, [isOpen, menuItemId, branch._id]);
+
+  const fetchMenuItemPrice = async () => {
+    if (!menuItemId || !branch._id) return;
+
+    try {
+      setIsLoadingMenuPrice(true);
+      
+      // First try to get branch-specific price
+      try {
+        const branchResponse = await menuItemBranchServices.getMenuItemsForBranch(branch._id, {
+          limit: 1000,
+        });
+        const items = branchResponse.data.data.menuItems || [];
+        const menuItem = items.find((item: any) => item._id === menuItemId);
+        
+        if (menuItem && menuItem.branchConfig && menuItem.branchConfig.price) {
+          setMenuItemPrice(menuItem.branchConfig.price);
+          setPriceSource('branch');
+          return;
+        }
+      } catch (error) {
+        // If branch-specific fetch fails, fall through to base price
+      }
+
+      // If no branch-specific price, get base price
+      const response = await menuItemServices.getMenuItemById(menuItemId);
+      const menuItem = response.data.data.menuItem;
+      
+      if (menuItem && menuItem.basePrice) {
+        setMenuItemPrice(menuItem.basePrice);
+        setPriceSource('base');
+      }
+    } catch (error: any) {
+      console.error('Error fetching menu item price:', error);
+      // Don't show error toast, just silently fail
+    } finally {
+      setIsLoadingMenuPrice(false);
+    }
+  };
 
   // Initialize localConfig when modal opens
   useEffect(() => {
@@ -695,10 +748,10 @@ export default function RecipeBranchConfigModal({
               </div>
             </div>
 
-            {/* Cost Display */}
+            {/* Cost Breakdown & Profit Analysis */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-sm">Cost Breakdown</h3>
+                <h3 className="font-semibold text-sm">Cost Breakdown & Profit Analysis</h3>
                 <Button
                   type="button"
                   variant="outline"
@@ -711,7 +764,8 @@ export default function RecipeBranchConfigModal({
                 </Button>
               </div>
 
-              <div className="border rounded-lg p-4 space-y-3 bg-primary/5">
+              <div className="border rounded-lg p-4 space-y-4 bg-primary/5">
+                {/* Ingredient Costs */}
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Ingredient Costs:</Label>
                   {localConfig.ingredients.length === 0 ? (
@@ -739,9 +793,10 @@ export default function RecipeBranchConfigModal({
                   )}
                 </div>
 
+                {/* Total Cost & Yield */}
                 <div className="border-t pt-3 space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="font-medium">Total Cost:</span>
+                    <span className="font-medium">Total Ingredient Cost:</span>
                     <span className="font-medium">
                       ₹
                       {localConfig.ingredients
@@ -765,6 +820,128 @@ export default function RecipeBranchConfigModal({
                     </span>
                   </div>
                 </div>
+
+                {/* Profit/Loss Analysis */}
+                {menuItemPrice !== null && calculatedCost > 0 && (
+                  <div className="border-t pt-3 space-y-3">
+                    <Label className="text-xs text-muted-foreground">
+                      Profit/Loss Analysis:
+                    </Label>
+                    
+                    {/* Menu Item Price */}
+                    <div className="bg-background rounded-lg p-3 space-y-2 border">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="font-medium">Menu Item Price:</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-lg">₹{menuItemPrice.toFixed(2)}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {priceSource === 'branch' ? 'Branch Price' : 'Base Price'}
+                          </Badge>
+                        </div>
+                      </div>
+                      
+                      {priceSource === 'base' && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          Using base price. Branch-specific price not set.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Profit/Loss Calculation */}
+                    {(() => {
+                      const profit = menuItemPrice - calculatedCost;
+                      const profitPercentage = (profit / menuItemPrice) * 100;
+                      const isProfit = profit > 0;
+                      
+                      return (
+                        <div className={`rounded-lg p-4 border-2 ${
+                          isProfit 
+                            ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800' 
+                            : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800'
+                        }`}>
+                          <div className="space-y-3">
+                            {/* Profit/Loss Amount */}
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                {isProfit ? (
+                                  <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                ) : (
+                                  <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />
+                                )}
+                                <span className={`font-semibold ${
+                                  isProfit 
+                                    ? 'text-green-700 dark:text-green-300' 
+                                    : 'text-red-700 dark:text-red-300'
+                                }`}>
+                                  {isProfit ? 'Profit' : 'Loss'} Per Unit:
+                                </span>
+                              </div>
+                              <span className={`text-2xl font-bold ${
+                                isProfit 
+                                  ? 'text-green-700 dark:text-green-300' 
+                                  : 'text-red-700 dark:text-red-300'
+                              }`}>
+                                {isProfit ? '+' : ''}₹{profit.toFixed(2)}
+                              </span>
+                            </div>
+
+                            {/* Profit/Loss Percentage */}
+                            <div className="flex justify-between items-center">
+                              <span className={`font-medium ${
+                                isProfit 
+                                  ? 'text-green-700 dark:text-green-300' 
+                                  : 'text-red-700 dark:text-red-300'
+                              }`}>
+                                {isProfit ? 'Profit' : 'Loss'} Margin:
+                              </span>
+                              <span className={`text-xl font-bold ${
+                                isProfit 
+                                  ? 'text-green-700 dark:text-green-300' 
+                                  : 'text-red-700 dark:text-red-300'
+                              }`}>
+                                {isProfit ? '+' : ''}{profitPercentage.toFixed(2)}%
+                              </span>
+                            </div>
+
+                            {/* Breakdown */}
+                            <div className="border-t border-current/20 pt-2 space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Selling Price:</span>
+                                <span className="font-medium">₹{menuItemPrice.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Cost Price:</span>
+                                <span className="font-medium">₹{calculatedCost.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between font-semibold">
+                                <span>{isProfit ? 'Net Profit:' : 'Net Loss:'}</span>
+                                <span>{isProfit ? '+' : ''}₹{profit.toFixed(2)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Loading state for menu price */}
+                {isLoadingMenuPrice && (
+                  <div className="border-t pt-3">
+                    <p className="text-sm text-muted-foreground text-center">
+                      Loading menu item price...
+                    </p>
+                  </div>
+                )}
+
+                {/* No menu price available */}
+                {!isLoadingMenuPrice && menuItemPrice === null && menuItemId && (
+                  <div className="border-t pt-3">
+                    <p className="text-sm text-amber-600 dark:text-amber-400 text-center">
+                      Menu item price not available. Profit/loss analysis cannot be calculated.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
