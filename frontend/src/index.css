@@ -15,7 +15,7 @@
     --primary-green: #22c55e;
     --primary-black: #0a0a0a;
     --primary-white: #ffffff;
-    
+
     /* Core brand colors - Forest Green palette */
     --forest: 152 81% 12%;
     --forest-light: 152 60% 18%;
@@ -28,7 +28,7 @@
     --color-primary: 160 84% 39%;
     --color-secondary: 0 0% 12%;
     --color-tertiary: 0 0% 98%;
-    
+
     /* Dark theme (default for POS) */
     --background: 0 0% 4%;
     --foreground: 0 0% 98%;
@@ -80,8 +80,12 @@
     /* Custom gradients */
     --gradient-primary: linear-gradient(135deg, hsl(var(--color-primary)), hsl(152 81% 25%));
     --gradient-card: linear-gradient(180deg, hsl(0 0% 8%), hsl(0 0% 6%));
-    --gradient-glow: radial-gradient(ellipse at top, hsl(var(--color-primary) / 0.15), transparent 50%);
-    
+    --gradient-glow: radial-gradient(
+      ellipse at top,
+      hsl(var(--color-primary) / 0.15),
+      transparent 50%
+    );
+
     /* Shadows */
     --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.3);
     --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.4), 0 2px 4px -2px hsl(0 0% 0% / 0.3);
@@ -107,7 +111,7 @@
     --border: 0 0% 88%;
     --input: 0 0% 88%;
     --ring: var(--color-primary);
-    
+
     /* Light sidebar */
     --sidebar-background: 0 0% 96%;
     --sidebar-foreground: 0 0% 30%;
@@ -116,10 +120,14 @@
     --sidebar-accent: 152 40% 92%;
     --sidebar-accent-foreground: 152 81% 12%;
     --sidebar-border: 0 0% 88%;
-    
+
     /* Light theme gradients */
     --gradient-card: linear-gradient(180deg, hsl(0 0% 100%), hsl(0 0% 97%));
-    --gradient-glow: radial-gradient(ellipse at top, hsl(var(--color-primary) / 0.1), transparent 50%);
+    --gradient-glow: radial-gradient(
+      ellipse at top,
+      hsl(var(--color-primary) / 0.1),
+      transparent 50%
+    );
   }
 }
 
@@ -130,20 +138,29 @@
 
   html {
     @apply antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     font-size: 15px; /* Reduced from default 16px */
   }
 
   /* Responsive font sizing */
+  /* Mobile */
   @media (max-width: 640px) {
     html {
-      font-size: 12px; /* Even smaller on mobile */
+      font-size: 12px;
     }
   }
 
+  /* Tablet / Small desktop */
+  @media (min-width: 641px) and (max-width: 1919px) {
+    html {
+      font-size: 14px;
+    }
+  }
+
+  /* Large screens */
   @media (min-width: 1920px) {
     html {
-      font-size: 18px; /* Slightly larger on very large screens */
+      font-size: 18px;
     }
   }
 
@@ -269,28 +286,28 @@
   }
 
   /* Input and form improvements */
-  input[type="text"],
-  input[type="email"],
-  input[type="password"],
-  input[type="number"],
+  input[type='text'],
+  input[type='email'],
+  input[type='password'],
+  input[type='number'],
   textarea,
   select {
     @apply transition-colors;
   }
 
-  .light input[type="text"],
-  .light input[type="email"],
-  .light input[type="password"],
-  .light input[type="number"],
+  .light input[type='text'],
+  .light input[type='email'],
+  .light input[type='password'],  
+  .light input[type='number'],
   .light textarea,
   .light select {
     @apply border-border bg-background text-foreground;
   }
 
-  .light input[type="text"]:focus,
-  .light input[type="email"]:focus,
-  .light input[type="password"]:focus,
-  .light input[type="number"]:focus,
+  .light input[type='text']:focus,
+  .light input[type='email']:focus,
+  .light input[type='password']:focus,
+  .light input[type='number']:focus,
   .light textarea:focus,
   .light select:focus {
     @apply border-primary ring-primary;
@@ -298,9 +315,9 @@
   }
 
   /* Dropdown and menu improvements */
-  .light [role="menu"],
-  .light [role="listbox"],
-  .light [role="dialog"] {
+  .light [role='menu'],
+  .light [role='listbox'],
+  .light [role='dialog'] {
     @apply border border-border;
   }
 }
