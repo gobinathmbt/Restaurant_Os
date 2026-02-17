@@ -113,20 +113,20 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
     }
   }, [open]);
 
-  // Auto-select branch for single-branch admins or use provided branchId
+  // Fetch branches first, then auto-select
   useEffect(() => {
-    if (open) {
-      if (branchId) {
+    if (open && branches.length > 0) {
+      if (branchId && branchId !== 'all') {
         setSelectedBranch(branchId);
       } else if (isSingleBranchAdmin && user?.branchIds && user.branchIds.length === 1) {
         setSelectedBranch(user.branchIds[0]);
       }
     }
-  }, [open, branchId, isSingleBranchAdmin, user?.branchIds]);
+  }, [open, branches, branchId, isSingleBranchAdmin, user?.branchIds]);
 
   const resetForm = () => {
     setActiveTab('basic');
-    setSelectedBranch(branchId || '');
+    // Don't reset selectedBranch here - let the useEffect handle it
     setInventoryItemsCache(new Map());
     setFormData({
       supplierId: '',

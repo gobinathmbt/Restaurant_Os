@@ -34,6 +34,11 @@ interface GRN {
     _id: string;
     name: string;
   };
+  receivedBy?: {
+    _id: string;
+    name: string;
+    email?: string;
+  };
   receivedDate: string;
   totalAmount: number;
   status: string;
@@ -75,6 +80,15 @@ export default function GRNTab({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [paginationEnabled, setPaginationEnabled] = useState(true);
+
+  // Set default branch to "all" for super admin and multi-branch admin
+  useEffect(() => {
+    if (!selectedBranch && branches.length > 0) {
+      if (isSuperAdmin || isMultiBranchAdmin) {
+        onBranchChange('all');
+      }
+    }
+  }, [branches, selectedBranch, isSuperAdmin, isMultiBranchAdmin]);
 
   useEffect(() => {
     if (selectedBranch) {
@@ -244,7 +258,7 @@ export default function GRNTab({
                     <SelectValue placeholder="Select branch" />
                   </SelectTrigger>
                   <SelectContent>
-                    {isSuperAdmin && (
+                    {(isSuperAdmin || isMultiBranchAdmin) && (
                       <SelectItem value="all">All Branches</SelectItem>
                     )}
                     {branches.map((branch) => (
@@ -263,6 +277,7 @@ export default function GRNTab({
             <TableHead className="w-16">S.No</TableHead>
             <TableHead>GRN Number</TableHead>
             <TableHead>Supplier</TableHead>
+            <TableHead>Received By</TableHead>
             <TableHead>Received Date</TableHead>
             <TableHead className="text-right">Total Amount</TableHead>
             <TableHead>Status</TableHead>
@@ -285,6 +300,7 @@ export default function GRNTab({
                     <p className="font-medium">{grn.grnNumber}</p>
                   </TableCell>
                   <TableCell>{grn.supplier?.name || '-'}</TableCell>
+                  <TableCell>{grn.receivedBy?.name || '-'}</TableCell>
                   <TableCell>{formatDate(grn.receivedDate)}</TableCell>
                   <TableCell className="text-right font-medium">
                     {formatCurrency(grn.totalAmount)}

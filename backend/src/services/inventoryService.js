@@ -1300,9 +1300,21 @@ export const createGRN = async (grnData, companyId, branchId, userId) => {
         const populatedGRN = await GRN.findById(grn._id)
           .populate('branch', 'name code address')
           .populate('supplier', 'name contactPerson phone email')
-          .populate('receivedBy', 'name email')
           .populate('items.inventoryItem', 'name')
           .lean();
+
+        // Manually populate receivedBy from platform database
+        if (populatedGRN.receivedBy) {
+          const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+          const user = await CompanyUser.findById(populatedGRN.receivedBy).select('name email').lean();
+          if (user) {
+            populatedGRN.receivedBy = {
+              _id: user._id,
+              name: user.name,
+              email: user.email
+            };
+          }
+        }
 
         // Import and call notification service
         const notificationService = (await import('./notificationService.js')).default;
@@ -1396,13 +1408,35 @@ export const getGRNs = async (companyId, branchId, filters = {}) => {
     const [grns, total] = await Promise.all([
       GRN.find(query)
         .populate('supplier', 'name contactPerson phone email')
-        .populate('receivedBy', 'name email')
         .sort({ receivedDate: -1 })
         .skip(skip)
         .limit(parseInt(limit))
         .lean(),
       GRN.countDocuments(query)
     ]);
+
+    // Manually populate receivedBy from platform database
+    const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+    const userIds = [...new Set(grns.map(grn => grn.receivedBy?.toString()).filter(Boolean))];
+    
+    if (userIds.length > 0) {
+      const users = await CompanyUser.find({ _id: { $in: userIds } }).select('name email').lean();
+      const userMap = new Map(users.map(user => [user._id.toString(), user]));
+      
+      // Attach user data to GRNs
+      grns.forEach(grn => {
+        if (grn.receivedBy) {
+          const user = userMap.get(grn.receivedBy.toString());
+          if (user) {
+            grn.receivedBy = {
+              _id: user._id,
+              name: user.name,
+              email: user.email
+            };
+          }
+        }
+      });
+    }
 
     return {
       grns,
@@ -1434,12 +1468,24 @@ export const getGRNById = async (grnId, companyId) => {
 
     const grn = await GRN.findById(grnId)
       .populate('supplier', 'name contactPerson phone email address gstNumber')
-      .populate('receivedBy', 'name email')
       .populate('items.inventoryItem', 'name type unit sku')
       .lean();
 
     if (!grn) {
       throw new Error('GRN not found');
+    }
+
+    // Manually populate receivedBy from platform database
+    if (grn.receivedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(grn.receivedBy).select('name email').lean();
+      if (user) {
+        grn.receivedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
     }
 
     return grn;
@@ -1467,7 +1513,6 @@ export const getGRNDetails = async (grnId, companyId, branchId) => {
     const grn = await GRN.findById(grnId)
       .populate('branch', 'name code address city state pincode')
       .populate('supplier', 'name contactPerson phone email address city state pincode gstNumber')
-      .populate('receivedBy', 'name email')
       .populate('items.inventoryItem', 'name type unit sku')
       .lean();
 
@@ -1478,6 +1523,19 @@ export const getGRNDetails = async (grnId, companyId, branchId) => {
     // Verify branch matches
     if (grn.branch._id.toString() !== branchId) {
       throw new Error('GRN does not belong to the specified branch');
+    }
+
+    // Manually populate receivedBy from platform database
+    if (grn.receivedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(grn.receivedBy).select('name email').lean();
+      if (user) {
+        grn.receivedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
     }
 
     return grn;
@@ -2165,12 +2223,24 @@ export const resendGRNInAppNotifications = async (grnId, companyId) => {
     const grn = await GRN.findById(grnId)
       .populate('branch', 'name code address')
       .populate('supplier', 'name contactPerson phone email')
-      .populate('receivedBy', 'name email')
       .populate('items.inventoryItem', 'name')
       .lean();
 
     if (!grn) {
       throw new Error('GRN not found');
+    }
+
+    // Manually populate receivedBy from platform database
+    if (grn.receivedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(grn.receivedBy).select('name email').lean();
+      if (user) {
+        grn.receivedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
     }
 
     // Import and call notification service
@@ -2205,12 +2275,24 @@ export const resendGRNEmailNotifications = async (grnId, companyId, includeSuppl
     const grn = await GRN.findById(grnId)
       .populate('branch', 'name code address')
       .populate('supplier', 'name contactPerson phone email')
-      .populate('receivedBy', 'name email')
       .populate('items.inventoryItem', 'name')
       .lean();
 
     if (!grn) {
       throw new Error('GRN not found');
+    }
+
+    // Manually populate receivedBy from platform database
+    if (grn.receivedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(grn.receivedBy).select('name email').lean();
+      if (user) {
+        grn.receivedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
     }
 
     // Import and call notification service
