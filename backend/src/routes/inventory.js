@@ -12,6 +12,8 @@ import {
   getGRNs,
   getGRNById,
   getGRNDetails,
+  resendGRNInAppNotifications,
+  resendGRNEmailNotifications,
   createStockAdjustment,
   getStockAdjustments,
   getStockAdjustmentById,
@@ -75,6 +77,8 @@ router.get('/branches/:branchId/inventory-items', getInventoryItemsForBranchGRN)
 router.get('/grn', getGRNs);
 router.post('/grn', createGRN);
 router.get('/grn/:branchId/:grnId', getGRNDetails);
+router.post('/grn/:branchId/:grnId/resend-inapp-notifications', resendGRNInAppNotifications);
+router.post('/grn/:branchId/:grnId/resend-email-notifications', resendGRNEmailNotifications);
 router.get('/grn/:id', getGRNById);
 
 // Stock Adjustment routes

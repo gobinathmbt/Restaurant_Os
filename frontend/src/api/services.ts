@@ -143,6 +143,12 @@ export const inventoryServices = {
   getGRNDetails: (branchId: string, grnId: string) =>
     apiClient.get(`/api/inventory/grn/${branchId}/${grnId}`),
 
+  resendGRNInAppNotifications: (branchId: string, grnId: string) =>
+    apiClient.post(`/api/inventory/grn/${branchId}/${grnId}/resend-inapp-notifications`),
+
+  resendGRNEmailNotifications: (branchId: string, grnId: string, includeSupplier: boolean = false) =>
+    apiClient.post(`/api/inventory/grn/${branchId}/${grnId}/resend-email-notifications`, { includeSupplier }),
+
   createGRN: (branchId: string, data: any) =>
     apiClient.post("/api/inventory/grn", { ...data, branchId }),
 

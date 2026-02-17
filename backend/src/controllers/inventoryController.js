@@ -1294,3 +1294,120 @@ export const getInventoryItemsForBranch = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Resend GRN in-app notifications
+ * POST /api/inventory/grn/:branchId/:grnId/resend-inapp-notifications
+ */
+export const resendGRNInAppNotifications = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId, grnId } = req.params;
+
+    // Validate branchId and grnId are provided
+    if (!branchId || !grnId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID and GRN ID are required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Resend in-app notifications
+    const result = await inventoryService.resendGRNInAppNotifications(grnId, companyId);
+
+    logger.info('GRN in-app notifications resent via API', { 
+      grnId, 
+      companyId, 
+      branchId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    logger.error('Resend GRN in-app notifications error', error);
+    
+    if (error.message === 'GRN not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Resend GRN email notifications
+ * POST /api/inventory/grn/:branchId/:grnId/resend-email-notifications
+ */
+export const resendGRNEmailNotifications = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId, grnId } = req.params;
+    const { includeSupplier = false } = req.body;
+
+    // Validate branchId and grnId are provided
+    if (!branchId || !grnId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID and GRN ID are required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Resend email notifications
+    const result = await inventoryService.resendGRNEmailNotifications(grnId, companyId, includeSupplier);
+
+    logger.info('GRN email notifications resent via API', { 
+      grnId, 
+      companyId, 
+      branchId, 
+      userId,
+      includeSupplier 
+    });
+
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    logger.error('Resend GRN email notifications error', error);
+    
+    if (error.message === 'GRN not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message === 'Failed to generate PDF receipt') {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};

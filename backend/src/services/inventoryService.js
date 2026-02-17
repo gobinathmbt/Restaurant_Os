@@ -1294,29 +1294,27 @@ export const createGRN = async (grnData, companyId, branchId, userId) => {
 
     // Send notifications to super admins (async, don't wait)
     // Wrap in try-catch to ensure notification failures don't affect GRN creation
-    try {
-      // Populate GRN details for notification
-      const populatedGRN = await GRN.findById(grn._id)
-        .populate('branch', 'name code address')
-        .populate('supplier', 'name contactPerson phone email')
-        .populate('receivedBy', 'name email')
-        .populate('items.inventoryItem', 'name')
-        .lean();
+    setImmediate(async () => {
+      try {
+        // Populate GRN details for notification
+        const populatedGRN = await GRN.findById(grn._id)
+          .populate('branch', 'name code address')
+          .populate('supplier', 'name contactPerson phone email')
+          .populate('receivedBy', 'name email')
+          .populate('items.inventoryItem', 'name')
+          .lean();
 
-      // Import and call notification service
-      const notificationService = (await import('./notificationService.js')).default;
-      
-      // Fire and forget - don't await to avoid blocking GRN creation response
-      notificationService.notifyGRNCreation(companyId, populatedGRN)
-        .catch(error => {
-          logger.error('Failed to send GRN notifications:', error);
-        });
-
-      logger.info(`GRN notification triggered for ${grnNumber}`);
-    } catch (notificationError) {
-      // Log but don't throw - notification failures shouldn't affect GRN creation
-      logger.error('Error triggering GRN notification:', notificationError);
-    }
+        // Import and call notification service
+        const notificationService = (await import('./notificationService.js')).default;
+        
+        // Send notifications
+        await notificationService.notifyGRNCreation(companyId, populatedGRN);
+        logger.info(`GRN notifications sent successfully for ${grnNumber}`);
+      } catch (notificationError) {
+        // Log but don't throw - notification failures shouldn't affect GRN creation
+        logger.error('Error sending GRN notifications:', notificationError);
+      }
+    });
 
     return grn;
   } catch (error) {
@@ -1432,6 +1430,7 @@ export const getGRNById = async (grnId, companyId) => {
     const companyDB = getCompanyDB(companyId);
     const GRN = getGRNModel(companyDB);
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
+    const InventoryItem = getInventoryItemModel(companyDB); // Register InventoryItem model
 
     const grn = await GRN.findById(grnId)
       .populate('supplier', 'name contactPerson phone email address gstNumber')
@@ -1463,6 +1462,7 @@ export const getGRNDetails = async (grnId, companyId, branchId) => {
     const GRN = getGRNModel(companyDB);
     const Branch = getBranchModel(companyDB); // Register Branch model
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
+    const InventoryItem = getInventoryItemModel(companyDB); // Register InventoryItem model
 
     const grn = await GRN.findById(grnId)
       .populate('branch', 'name code address city state pincode')
@@ -2145,6 +2145,85 @@ export const getInventoryItemsForBranch = async (branchId, companyId) => {
     return items;
   } catch (error) {
     logger.error('Error getting inventory items for branch:', error);
+    throw error;
+  }
+};
+
+/**
+ * Resend GRN in-app notifications
+ * @param {string} grnId - GRN ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>}
+ */
+export const resendGRNInAppNotifications = async (grnId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const GRN = getGRNModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB); // Register InventoryItem model
+
+    // Get GRN with populated details
+    const grn = await GRN.findById(grnId)
+      .populate('branch', 'name code address')
+      .populate('supplier', 'name contactPerson phone email')
+      .populate('receivedBy', 'name email')
+      .populate('items.inventoryItem', 'name')
+      .lean();
+
+    if (!grn) {
+      throw new Error('GRN not found');
+    }
+
+    // Import and call notification service
+    const notificationService = (await import('./notificationService.js')).default;
+    
+    // Send in-app notifications
+    const result = await notificationService.notifyGRNCreationInApp(companyId, grn);
+    
+    logger.info(`GRN in-app notifications resent successfully for ${grn.grnNumber}`);
+    
+    return result;
+  } catch (error) {
+    logger.error('Error resending GRN in-app notifications:', error);
+    throw error;
+  }
+};
+
+/**
+ * Resend GRN email notifications
+ * @param {string} grnId - GRN ID
+ * @param {string} companyId - Company ID
+ * @param {boolean} includeSupplier - Whether to send email to supplier
+ * @returns {Promise<Object>}
+ */
+export const resendGRNEmailNotifications = async (grnId, companyId, includeSupplier = false) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const GRN = getGRNModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB); // Register InventoryItem model
+
+    // Get GRN with populated details
+    const grn = await GRN.findById(grnId)
+      .populate('branch', 'name code address')
+      .populate('supplier', 'name contactPerson phone email')
+      .populate('receivedBy', 'name email')
+      .populate('items.inventoryItem', 'name')
+      .lean();
+
+    if (!grn) {
+      throw new Error('GRN not found');
+    }
+
+    // Import and call notification service
+    const notificationService = (await import('./notificationService.js')).default;
+    
+    // Send email notifications
+    const result = await notificationService.notifyGRNCreationEmail(companyId, grn, includeSupplier);
+    
+    logger.info(`GRN email notifications resent successfully for ${grn.grnNumber}`);
+    
+    return result;
+  } catch (error) {
+    logger.error('Error resending GRN email notifications:', error);
     throw error;
   }
 };

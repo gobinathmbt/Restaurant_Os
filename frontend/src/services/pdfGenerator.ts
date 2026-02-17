@@ -7,7 +7,13 @@ interface GRNDetails {
     _id: string;
     name: string;
     code: string;
-    address?: string;
+    address?: string | {
+      street?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+      country?: string;
+    };
     city?: string;
     state?: string;
     pincode?: string;
@@ -18,7 +24,13 @@ interface GRNDetails {
     contactPerson?: string;
     phone?: string;
     email?: string;
-    address?: string;
+    address?: string | {
+      street?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+      country?: string;
+    };
     city?: string;
     state?: string;
     pincode?: string;

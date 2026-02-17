@@ -17,7 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Printer, Download, Loader2, Package, Building2, User, Calendar, FileText } from 'lucide-react';
+import { Printer, Download, Loader2, Package, Building2, FileText, Mail, Bell } from 'lucide-react';
 import api from '@/api/services';
 import pdfGenerator from '@/services/pdfGenerator';
 
@@ -99,6 +99,8 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
   const [grnDetails, setGrnDetails] = useState<GRNDetails | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [resendingInApp, setResendingInApp] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
 
   useEffect(() => {
     if (open && grnId && branchId) {
@@ -160,6 +162,51 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
       });
     } finally {
       setPrinting(false);
+    }
+  };
+
+  const handleResendInAppNotifications = async () => {
+    if (!grnDetails) return;
+    
+    setResendingInApp(true);
+    try {
+      const response = await api.inventory.resendGRNInAppNotifications(branchId, grnId);
+      toast({
+        title: 'Success',
+        description: response.data.message || 'In-app notifications sent successfully',
+      });
+    } catch (error: any) {
+      console.error('Error resending in-app notifications:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to resend in-app notifications',
+        variant: 'destructive',
+      });
+    } finally {
+      setResendingInApp(false);
+    }
+  };
+
+  const handleResendEmailNotifications = async () => {
+    if (!grnDetails) return;
+    
+    setResendingEmail(true);
+    try {
+      // Always include supplier (true by default)
+      const response = await api.inventory.resendGRNEmailNotifications(branchId, grnId, true);
+      toast({
+        title: 'Success',
+        description: response.data.message || 'Email notifications sent successfully',
+      });
+    } catch (error: any) {
+      console.error('Error resending email notifications:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to resend email notifications',
+        variant: 'destructive',
+      });
+    } finally {
+      setResendingEmail(false);
     }
   };
 
@@ -376,45 +423,83 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
           )}
         </DialogBody>
 
-        <DialogFooter className="flex flex-col sm:flex-row gap-2">
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handlePrint}
-              disabled={!grnDetails || printing}
-            >
-              {printing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Printing...
-                </>
-              ) : (
-                <>
-                  <Printer className="mr-2 h-4 w-4" />
-                  Print Receipt
-                </>
-              )}
+        <DialogFooter className="flex flex-col sm:flex-row gap-2 justify-between w-full">
+            <Button variant="outline" onClick={onClose}>
+              Close
             </Button>
-            <Button
-              onClick={handleDownload}
-              disabled={!grnDetails || downloading}
-            >
-              {downloading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Downloading...
-                </>
-              ) : (
-                <>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download Receipt
-                </>
-              )}
-            </Button>
-          </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={handleResendInAppNotifications}
+                disabled={!grnDetails || resendingInApp}
+                size="sm"
+              >
+                {resendingInApp ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Bell className="mr-2 h-4 w-4" />
+                    Send In-App
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleResendEmailNotifications}
+                disabled={!grnDetails || resendingEmail}
+                size="sm"
+              >
+                {resendingEmail ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Send Email
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handlePrint}
+                disabled={!grnDetails || printing}
+                size="sm"
+              >
+                {printing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Printing...
+                  </>
+                ) : (
+                  <>
+                    <Printer className="mr-2 h-4 w-4" />
+                    Print
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleDownload}
+                disabled={!grnDetails || downloading}
+                size="sm"
+              >
+                {downloading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Downloading...
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download
+                  </>
+                )}
+              </Button>
+            </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
