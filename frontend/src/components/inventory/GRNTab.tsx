@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import GRNFormModal from '@/components/inventory/GRNFormModal';
+import GRNViewModal from '@/components/inventory/GRNViewModal';
 
 interface Branch {
   _id: string;
@@ -24,6 +25,11 @@ interface Branch {
 interface GRN {
   _id: string;
   grnNumber: string;
+  branch: string | {
+    _id: string;
+    name: string;
+    code: string;
+  };
   supplier: {
     _id: string;
     name: string;
@@ -60,6 +66,9 @@ export default function GRNTab({
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [isGrnFormOpen, setIsGrnFormOpen] = useState(false);
+  const [isGrnViewOpen, setIsGrnViewOpen] = useState(false);
+  const [selectedGrnId, setSelectedGrnId] = useState<string>('');
+  const [selectedGrnBranchId, setSelectedGrnBranchId] = useState<string>('');
 
   // Infinite scroll
   const [infiniteScrollPage, setInfiniteScrollPage] = useState(1);
@@ -155,6 +164,12 @@ export default function GRNTab({
 
   const handleCreateGRN = () => {
     setIsGrnFormOpen(true);
+  };
+
+  const handleViewGRN = (grnId: string, branchId: string) => {
+    setSelectedGrnId(grnId);
+    setSelectedGrnBranchId(branchId);
+    setIsGrnViewOpen(true);
   };
 
   const handleGrnFormSuccess = () => {
@@ -280,6 +295,10 @@ export default function GRNTab({
                       variant="ghost"
                       size="sm"
                       title="View GRN details"
+                      onClick={() => {
+                        const branchId = typeof grn.branch === 'string' ? grn.branch : grn.branch._id;
+                        handleViewGRN(grn._id, branchId);
+                      }}
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
@@ -330,6 +349,13 @@ export default function GRNTab({
         onClose={() => setIsGrnFormOpen(false)}
         branchId={selectedBranch !== 'all' ? selectedBranch : undefined}
         onSuccess={handleGrnFormSuccess}
+      />
+
+      <GRNViewModal
+        open={isGrnViewOpen}
+        onClose={() => setIsGrnViewOpen(false)}
+        grnId={selectedGrnId}
+        branchId={selectedGrnBranchId}
       />
     </div>
   );

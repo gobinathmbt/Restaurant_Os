@@ -11,6 +11,7 @@ import {
   createGRN,
   getGRNs,
   getGRNById,
+  getGRNDetails,
   createStockAdjustment,
   getStockAdjustments,
   getStockAdjustmentById,
@@ -73,6 +74,7 @@ router.get('/branches/:branchId/inventory-items', getInventoryItemsForBranchGRN)
 // GRN (Goods Receipt Note) routes
 router.get('/grn', getGRNs);
 router.post('/grn', createGRN);
+router.get('/grn/:branchId/:grnId', getGRNDetails);
 router.get('/grn/:id', getGRNById);
 
 // Stock Adjustment routes

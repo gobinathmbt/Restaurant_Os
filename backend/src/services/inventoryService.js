@@ -1104,6 +1104,35 @@ export const generateGRNNumber = async (companyId, branchId) => {
 export const createGRN = async (grnData, companyId, branchId, userId) => {
   const companyDB = getCompanyDB(companyId);
   
+  // Validate line items before starting transaction
+  if (!grnData.items || grnData.items.length === 0) {
+    throw new Error('GRN must have at least one line item');
+  }
+
+  // Convert quantities to numbers to prevent string concatenation
+  grnData.items = grnData.items.map(item => ({
+    ...item,
+    quantity: Number(item.quantity) || 0,
+    unitPrice: Number(item.unitPrice) || 0,
+    totalPrice: Number(item.totalPrice) || 0
+  }));
+
+  // Validate capacity BEFORE starting database transaction
+  const CapacityValidator = (await import('./capacityValidator.js')).default;
+  const capacityValidator = new CapacityValidator(companyDB);
+  
+  const capacityValidation = await capacityValidator.validateGRNCapacity(
+    branchId,
+    grnData.items
+  );
+
+  if (!capacityValidation.valid) {
+    const error = new Error('One or more items exceed maximum stock capacity');
+    error.statusCode = 400;
+    error.details = capacityValidation.errors;
+    throw error;
+  }
+  
   // Check if transactions are supported (replica set or mongos)
   const supportsTransactions = companyDB.client?.topology?.description?.type !== 'Single';
   
@@ -1263,6 +1292,32 @@ export const createGRN = async (grnData, companyId, branchId, userId) => {
 
     logger.info(`GRN created: ${grn._id} (${grnNumber}) for branch: ${branchId}, company: ${companyId}`);
 
+    // Send notifications to super admins (async, don't wait)
+    // Wrap in try-catch to ensure notification failures don't affect GRN creation
+    try {
+      // Populate GRN details for notification
+      const populatedGRN = await GRN.findById(grn._id)
+        .populate('branch', 'name code address')
+        .populate('supplier', 'name contactPerson phone email')
+        .populate('receivedBy', 'name email')
+        .populate('items.inventoryItem', 'name')
+        .lean();
+
+      // Import and call notification service
+      const notificationService = (await import('./notificationService.js')).default;
+      
+      // Fire and forget - don't await to avoid blocking GRN creation response
+      notificationService.notifyGRNCreation(companyId, populatedGRN)
+        .catch(error => {
+          logger.error('Failed to send GRN notifications:', error);
+        });
+
+      logger.info(`GRN notification triggered for ${grnNumber}`);
+    } catch (notificationError) {
+      // Log but don't throw - notification failures shouldn't affect GRN creation
+      logger.error('Error triggering GRN notification:', notificationError);
+    }
+
     return grn;
   } catch (error) {
     // Rollback transaction if using transactions
@@ -1391,6 +1446,43 @@ export const getGRNById = async (grnId, companyId) => {
     return grn;
   } catch (error) {
     logger.error('Error getting GRN by ID:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get GRN details by ID with complete populated references
+ * @param {string} grnId - GRN ID
+ * @param {string} companyId - Company ID
+ * @param {string} branchId - Branch ID for access validation
+ * @returns {Promise<Object>} Complete GRN details
+ */
+export const getGRNDetails = async (grnId, companyId, branchId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const GRN = getGRNModel(companyDB);
+    const Branch = getBranchModel(companyDB); // Register Branch model
+    const Supplier = getSupplierModel(companyDB); // Register Supplier model
+
+    const grn = await GRN.findById(grnId)
+      .populate('branch', 'name code address city state pincode')
+      .populate('supplier', 'name contactPerson phone email address city state pincode gstNumber')
+      .populate('receivedBy', 'name email')
+      .populate('items.inventoryItem', 'name type unit sku')
+      .lean();
+
+    if (!grn) {
+      throw new Error('GRN not found');
+    }
+
+    // Verify branch matches
+    if (grn.branch._id.toString() !== branchId) {
+      throw new Error('GRN does not belong to the specified branch');
+    }
+
+    return grn;
+  } catch (error) {
+    logger.error('Error getting GRN details:', error);
     throw error;
   }
 };

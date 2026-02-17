@@ -592,6 +592,15 @@ export const createGRN = async (req, res, next) => {
   } catch (error) {
     logger.error('Create GRN error', error);
     
+    // Handle capacity validation errors with detailed information
+    if (error.message === 'Capacity validation failed' && error.statusCode === 400) {
+      return res.status(400).json({
+        success: false,
+        message: 'One or more items exceed maximum stock capacity',
+        errors: error.details
+      });
+    }
+    
     // Handle validation errors
     if (error.message.includes('Supplier is required') ||
         error.message.includes('Supplier not found') ||
@@ -711,6 +720,60 @@ export const getGRNById = async (req, res, next) => {
     logger.error('Get GRN by ID error', error);
     
     if (error.message === 'GRN not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Get GRN details by ID with complete populated references
+ * GET /api/inventory/grn/:branchId/:grnId
+ */
+export const getGRNDetails = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId, grnId } = req.params;
+
+    // Validate branchId and grnId are provided
+    if (!branchId || !grnId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID and GRN ID are required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Get GRN details
+    const grn = await inventoryService.getGRNDetails(grnId, companyId, branchId);
+
+    res.json({
+      success: true,
+      data: { grn }
+    });
+  } catch (error) {
+    logger.error('Get GRN details error', error);
+    
+    if (error.message === 'GRN not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message === 'GRN does not belong to the specified branch') {
       return res.status(404).json({
         success: false,
         message: error.message

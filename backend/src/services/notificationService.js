@@ -554,6 +554,91 @@ class NotificationService {
       });
     }
   }
+
+  /**
+   * Send GRN creation notifications to all super admins
+   * @param {string} companyId - Company ID
+   * @param {Object} grnDetails - Complete GRN details with populated references
+   */
+  async notifyGRNCreation(companyId, grnDetails) {
+    try {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const pdfGeneratorService = (await import('./pdfGeneratorService.js')).default;
+      const grnEmailService = (await import('./emailTemplates/grnEmailService.js')).default;
+
+      // Find all active super admin users
+      const superAdmins = await CompanyUser.find({
+        companyId,
+        role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] },
+        isActive: true
+      });
+
+      if (superAdmins.length === 0) {
+        logger.warn(`No active super admins found for company ${companyId}`);
+        return;
+      }
+
+      logger.info(`Found ${superAdmins.length} super admin(s) for GRN notification`);
+
+      // Generate PDF receipt
+      let pdfBuffer;
+      try {
+        pdfBuffer = await pdfGeneratorService.generateGRNPDF(grnDetails);
+        logger.info(`PDF generated successfully for GRN ${grnDetails.grnNumber}`);
+      } catch (pdfError) {
+        logger.error('Error generating PDF for GRN notification:', pdfError);
+        // Continue without PDF - don't fail the entire notification
+      }
+
+      // Send in-app notifications to all super admins
+      const inAppPromises = superAdmins.map(admin => 
+        this.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'grn_created',
+          title: 'New GRN Created',
+          message: `GRN ${grnDetails.grnNumber} created for ${grnDetails.supplier.name}. Total amount: $${grnDetails.totalAmount.toFixed(2)}`,
+          data: {
+            grnId: grnDetails._id,
+            grnNumber: grnDetails.grnNumber,
+            supplierName: grnDetails.supplier.name,
+            totalAmount: grnDetails.totalAmount,
+            branchName: grnDetails.branch.name
+          },
+          priority: 'normal',
+          actionUrl: `/inventory/grn/${grnDetails._id}`
+        }).catch(error => {
+          logger.error(`Failed to send in-app notification to admin ${admin._id}:`, error);
+          return null;
+        })
+      );
+
+      await Promise.allSettled(inAppPromises);
+      logger.info(`In-app notifications sent to ${superAdmins.length} super admin(s)`);
+
+      // Send email notifications with PDF attachment to all super admins
+      if (pdfBuffer) {
+        const emailPromises = superAdmins.map(admin =>
+          grnEmailService.sendGRNNotification(admin.email, {
+            grnDetails,
+            pdfAttachment: pdfBuffer
+          }).catch(error => {
+            logger.error(`Failed to send email notification to ${admin.email}:`, error);
+            return null;
+          })
+        );
+
+        await Promise.allSettled(emailPromises);
+        logger.info(`Email notifications sent to ${superAdmins.length} super admin(s)`);
+      } else {
+        logger.warn('Skipping email notifications due to PDF generation failure');
+      }
+
+      logger.info(`GRN notification completed for GRN ${grnDetails.grnNumber}`);
+    } catch (error) {
+      // Log error but don't throw - notification failures shouldn't prevent GRN creation
+      logger.error('Error in notifyGRNCreation:', error);
+    }
+  }
 }
 
 export default new NotificationService();

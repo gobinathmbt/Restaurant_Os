@@ -21,9 +21,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices, branchServices } from '@/api/services';
-import { Plus, Trash2, Eye, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Plus, Trash2, Eye, ChevronRight, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import StockViewModal from './StockViewModal';
+import SupplierDropdown from '@/components/common/SupplierDropdown';
+import InventoryItemDropdown from '@/components/common/InventoryItemDropdown';
 
 interface GRNFormModalProps {
   open: boolean;
@@ -38,15 +40,25 @@ interface Branch {
   code: string;
 }
 
-interface Supplier {
-  _id: string;
-  name: string;
+interface BranchConfig {
+  currentStock: number;
+  minimumStock: number;
+  maximumStock: number;
+  lastPurchasePrice?: number;
+  lastPurchaseDate?: string;
+  supplier?: {
+    _id: string;
+    name: string;
+  };
 }
 
 interface InventoryItem {
   _id: string;
   name: string;
   unit: string;
+  category?: string | { _id: string; name: string };
+  subcategory?: string | { _id: string; name: string };
+  branchConfig?: BranchConfig;
 }
 
 interface LineItem {
@@ -66,8 +78,8 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
   const [activeTab, setActiveTab] = useState('basic');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [inventoryItemsCache, setInventoryItemsCache] = useState<Map<string, InventoryItem>>(new Map());
+  const [capacityErrors, setCapacityErrors] = useState<Map<number, string>>(new Map());
   const [showStockModal, setShowStockModal] = useState(false);
   const [selectedLineItemIndex, setSelectedLineItemIndex] = useState<number | null>(null);
   const [formData, setFormData] = useState({
@@ -112,19 +124,10 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
     }
   }, [open, branchId, isSingleBranchAdmin, user?.branchIds]);
 
-  // Load data when branch is selected
-  useEffect(() => {
-    if (selectedBranch) {
-      fetchSuppliersForBranch(selectedBranch);
-      fetchInventoryItemsForBranch(selectedBranch);
-    }
-  }, [selectedBranch]);
-
   const resetForm = () => {
     setActiveTab('basic');
     setSelectedBranch(branchId || '');
-    setSuppliers([]);
-    setInventoryItems([]);
+    setInventoryItemsCache(new Map());
     setFormData({
       supplierId: '',
       receivedDate: new Date().toISOString().split('T')[0],
@@ -171,8 +174,7 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
   const handleBranchChange = (branchId: string) => {
     setSelectedBranch(branchId);
     // Clear previous data when branch changes
-    setSuppliers([]);
-    setInventoryItems([]);
+    setInventoryItemsCache(new Map());
     setFormData({
       ...formData,
       supplierId: '',
@@ -190,48 +192,19 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
     ]);
   };
 
-  const fetchSuppliersForBranch = async (branchId: string) => {
-    try {
-      setLoading(true);
-      const response = await inventoryServices.getSuppliersForBranch(branchId);
-      setSuppliers(response.data.data.suppliers || []);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch suppliers for selected branch',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchInventoryItemsForBranch = async (branchId: string) => {
-    try {
-      setLoading(true);
-      const response = await inventoryServices.getInventoryItemsForBranch(branchId);
-      setInventoryItems(response.data.data.items || []);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch inventory items for selected branch',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLineItemChange = (index: number, field: keyof LineItem, value: any) => {
+  const handleLineItemChange = (index: number, field: keyof LineItem, value: any, item?: InventoryItem) => {
     const updatedItems = [...lineItems];
     updatedItems[index] = { ...updatedItems[index], [field]: value };
 
     // Auto-fill unit when inventory item is selected
-    if (field === 'inventoryItem') {
-      const selectedItem = inventoryItems.find((item) => item._id === value);
-      if (selectedItem) {
-        updatedItems[index].unit = selectedItem.unit;
-      }
+    if (field === 'inventoryItem' && item) {
+      updatedItems[index].unit = item.unit;
+      // Add item to cache
+      setInventoryItemsCache((prevCache) => {
+        const newCache = new Map(prevCache);
+        newCache.set(item._id, item);
+        return newCache;
+      });
     }
 
     // Calculate total price when quantity or unit price changes
@@ -243,6 +216,79 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
     }
 
     setLineItems(updatedItems);
+
+    // Validate capacity when quantity or item changes
+    if ((field === 'quantity' || field === 'inventoryItem') && updatedItems[index].inventoryItem) {
+      const validation = validateCapacity(
+        updatedItems[index].inventoryItem,
+        updatedItems[index].quantity
+      );
+      setCapacityErrors((prevErrors) => {
+        const newErrors = new Map(prevErrors);
+        if (!validation.valid && validation.error) {
+          newErrors.set(index, validation.error);
+        } else {
+          newErrors.delete(index);
+        }
+        return newErrors;
+      });
+    }
+  };
+
+  const handleItemsLoaded = (items: InventoryItem[]) => {
+    // Update cache with loaded items
+    setInventoryItemsCache((prevCache) => {
+      const newCache = new Map(prevCache);
+      items.forEach((item) => {
+        newCache.set(item._id, item);
+      });
+      return newCache;
+    });
+  };
+
+  const validateCapacity = (itemId: string, quantity: number): { valid: boolean; error?: string } => {
+    const item = inventoryItemsCache.get(itemId);
+    if (!item?.branchConfig) {
+      return { valid: true }; // Can't validate without cache data
+    }
+
+    const { currentStock, maximumStock } = item.branchConfig;
+    if (maximumStock <= 0) {
+      return { valid: true }; // No max stock set
+    }
+
+    const currentStockNum = Number(currentStock) || 0;
+    const maximumStockNum = Number(maximumStock) || 0;
+    const quantityNum = Number(quantity) || 0;
+    const projectedStock = currentStockNum + quantityNum;
+    
+    if (projectedStock > maximumStockNum) {
+      const excess = projectedStock - maximumStockNum;
+      return {
+        valid: false,
+        error: `Exceeds capacity by ${excess.toFixed(2)} ${item.unit}. Max: ${maximumStockNum.toFixed(2)}, Current: ${currentStockNum.toFixed(2)}, Projected: ${projectedStock.toFixed(2)}`,
+      };
+    }
+
+    return { valid: true };
+  };
+
+  const validateAllCapacities = (): boolean => {
+    const errors = new Map<number, string>();
+    let hasErrors = false;
+
+    lineItems.forEach((item, index) => {
+      if (item.inventoryItem && item.quantity > 0) {
+        const validation = validateCapacity(item.inventoryItem, item.quantity);
+        if (!validation.valid && validation.error) {
+          errors.set(index, validation.error);
+          hasErrors = true;
+        }
+      }
+    });
+
+    setCapacityErrors(errors);
+    return !hasErrors;
   };
 
   const addLineItem = () => {
@@ -369,6 +415,18 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
       }
     }
 
+    // Validate capacity for all items
+    if (!validateAllCapacities()) {
+      const errorCount = capacityErrors.size;
+      const itemsText = errorCount === 1 ? 'item exceeds' : 'items exceed';
+      toast({
+        title: 'Capacity Exceeded',
+        description: `${errorCount} ${itemsText} maximum stock capacity. Please review the highlighted items.`,
+        variant: 'destructive',
+      });
+      return false;
+    }
+
     return true;
   };
 
@@ -413,11 +471,17 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
       // Handle different error types
       const status = error.response?.status;
       const errorMessage = error.response?.data?.message || error.message || 'Failed to create GRN';
+      const errorDetails = error.response?.data?.errors || [];
       
       if (status === 400) {
+        // For capacity validation errors, show detailed error list
+        const description = errorDetails.length > 0 
+          ? `${errorMessage}\n\n${errorDetails.join('\n')}`
+          : errorMessage;
+        
         toast({
           title: 'Validation Error',
-          description: errorMessage,
+          description,
           variant: 'destructive',
         });
       } else if (status === 403) {
@@ -553,28 +617,15 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
                     <h3 className="font-semibold text-lg">Supplier</h3>
                     <div>
                       <Label htmlFor="supplier" className="text-base">Supplier *</Label>
-                      <Select
-                        value={formData.supplierId}
-                        onValueChange={(value) => setFormData({ ...formData, supplierId: value })}
-                        disabled={!selectedBranch || loading}
-                      >
-                        <SelectTrigger className="mt-2">
-                          <SelectValue placeholder={!selectedBranch ? "Select branch first" : "Select supplier"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers.length === 0 && selectedBranch ? (
-                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                              No suppliers available for this branch
-                            </div>
-                          ) : (
-                            suppliers.map((supplier) => (
-                              <SelectItem key={supplier._id} value={supplier._id}>
-                                {supplier.name}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
+                      <div className="mt-2">
+                        <SupplierDropdown
+                          branchId={selectedBranch}
+                          value={formData.supplierId}
+                          onChange={(supplierId) => setFormData({ ...formData, supplierId })}
+                          disabled={!selectedBranch || loading}
+                          placeholder={!selectedBranch ? "Select branch first" : "Select supplier"}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -594,10 +645,17 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
                     </div>
 
                     <div className="space-y-3 max-h-96 overflow-y-auto">
-                      {lineItems.map((item, index) => (
-                        <div key={index} className="p-4 border rounded-lg space-y-3 bg-background">
+                      {lineItems.map((item, index) => {
+                        const hasCapacityError = capacityErrors.has(index);
+                        return (
+                        <div key={index} className={`p-4 border rounded-lg space-y-3 ${hasCapacityError ? 'border-yellow-500 bg-yellow-50/50 dark:bg-yellow-900/10' : 'bg-background'}`}>
                           <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Item {index + 1}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium">Item {index + 1}</span>
+                              {hasCapacityError && (
+                                <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+                              )}
+                            </div>
                             <div className="flex gap-2">
                               <Button
                                 type="button"
@@ -622,33 +680,31 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
                             </div>
                           </div>
 
+                          {hasCapacityError && (
+                            <div className="flex items-start gap-2 p-2 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-md">
+                              <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 flex-shrink-0" />
+                              <div className="text-xs text-yellow-800 dark:text-yellow-200">
+                                <div className="font-semibold">Capacity Warning</div>
+                                <div className="mt-1">{capacityErrors.get(index)}</div>
+                              </div>
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-3 gap-3">
                             <div className="col-span-3">
                               <Label>Inventory Item *</Label>
-                              <Select
-                                value={item.inventoryItem}
-                                onValueChange={(value) =>
-                                  handleLineItemChange(index, 'inventoryItem', value)
-                                }
-                                disabled={!selectedBranch || loading}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder={!selectedBranch ? "Select branch first" : "Select item"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {inventoryItems.length === 0 && selectedBranch ? (
-                                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                      No inventory items available for this branch
-                                    </div>
-                                  ) : (
-                                    inventoryItems.map((invItem) => (
-                                      <SelectItem key={invItem._id} value={invItem._id}>
-                                        {invItem.name} ({invItem.unit})
-                                      </SelectItem>
-                                    ))
-                                  )}
-                                </SelectContent>
-                              </Select>
+                              <div className="mt-1">
+                                <InventoryItemDropdown
+                                  branchId={selectedBranch}
+                                  value={item.inventoryItem}
+                                  onChange={(itemId, selectedItem) =>
+                                    handleLineItemChange(index, 'inventoryItem', itemId, selectedItem)
+                                  }
+                                  onItemsLoaded={handleItemsLoaded}
+                                  disabled={!selectedBranch || loading}
+                                  placeholder={!selectedBranch ? "Select branch first" : "Select item"}
+                                />
+                              </div>
                             </div>
 
                             <div>
@@ -721,7 +777,8 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
                             </div>
                           </div>
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
 
                     {/* Grand Total */}
@@ -796,6 +853,13 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
           }}
           branchId={selectedBranch}
           lineItems={[lineItems[selectedLineItemIndex]]}
+          inventoryItemsCache={
+            new Map(
+              Array.from(inventoryItemsCache.entries()).filter(
+                ([_, item]) => item.branchConfig !== undefined
+              ) as [string, InventoryItem & { branchConfig: BranchConfig }][]
+            )
+          }
         />
       )}
     </Dialog>

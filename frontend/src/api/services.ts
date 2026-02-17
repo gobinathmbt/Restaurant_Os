@@ -140,6 +140,9 @@ export const inventoryServices = {
   getGRN: (id: string) =>
     apiClient.get(`/api/inventory/grn/${id}`),
 
+  getGRNDetails: (branchId: string, grnId: string) =>
+    apiClient.get(`/api/inventory/grn/${branchId}/${grnId}`),
+
   createGRN: (branchId: string, data: any) =>
     apiClient.post("/api/inventory/grn", { ...data, branchId }),
 
