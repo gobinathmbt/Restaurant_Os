@@ -7,6 +7,9 @@ import * as inventoryService from '../services/inventoryService.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import { logger } from '../utils/logger.js';
 import { formatSuccessWithAssignments } from '../utils/errorResponses.js';
+import { getCompanyDB } from '../config/database.js';
+import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
+import notificationService from '../services/notificationService.js';
 
 /**
  * Helper function to verify branch access for a user
@@ -837,8 +840,6 @@ export const createStockAdjustment = async (req, res, next) => {
       try {
         const companyDB = getCompanyDB(companyId);
         const StockAdjustment = getStockAdjustmentModel(companyDB);
-        const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
-        const notificationService = (await import('../services/notificationService.js')).default;
 
         // Populate adjustment with branch, inventoryItem, adjustedBy details
         const populatedAdjustment = await StockAdjustment.findById(adjustment._id)
@@ -846,9 +847,34 @@ export const createStockAdjustment = async (req, res, next) => {
           .populate('inventoryItem', 'name')
           .lean();
 
+        if (!populatedAdjustment) {
+          logger.error('Stock adjustment not found for notification:', adjustment._id);
+          return;
+        }
+
         // Manually populate adjustedBy from CompanyUser (platform DB)
         const adjustedByUser = await CompanyUser.findById(userId).select('name email').lean();
-        populatedAdjustment.adjustedBy = adjustedByUser;
+        if (!adjustedByUser) {
+          logger.error('Adjusted by user not found for notification:', userId);
+          return;
+        }
+
+        populatedAdjustment.adjustedBy = {
+          _id: adjustedByUser._id,
+          name: adjustedByUser.name,
+          email: adjustedByUser.email
+        };
+
+        // Validate required fields before sending notification
+        if (!populatedAdjustment.branch || !populatedAdjustment.branch.name) {
+          logger.error('Branch information missing for notification:', populatedAdjustment);
+          return;
+        }
+
+        if (!populatedAdjustment.inventoryItem || !populatedAdjustment.inventoryItem.name) {
+          logger.error('Inventory item information missing for notification:', populatedAdjustment);
+          return;
+        }
 
         // Call notification service
         await notificationService.notifyStockAdjustmentCreation(companyId, populatedAdjustment);

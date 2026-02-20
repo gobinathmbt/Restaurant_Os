@@ -163,10 +163,10 @@ export default function StockAdjustmentFormModal({
     setFormData({ ...formData, inventoryItemId: itemId });
   };
 
-  // Validate capacity for increase adjustments
+  // Validate capacity for increase and correction adjustments
   const validateCapacity = (itemId: string, quantity: number, type: string) => {
-    // Only validate for increase type
-    if (type !== 'increase') {
+    // Validate for increase and correction types
+    if (type !== 'increase' && type !== 'correction') {
       return { valid: true };
     }
 
@@ -185,7 +185,14 @@ export default function StockAdjustmentFormModal({
     }
 
     // Calculate projected stock
-    const projectedStock = currentStock + quantity;
+    let projectedStock: number;
+    if (type === 'increase') {
+      projectedStock = currentStock + quantity;
+    } else if (type === 'correction') {
+      projectedStock = quantity;
+    } else {
+      return { valid: true };
+    }
 
     // Check if projected stock exceeds maximum
     if (projectedStock > maximumStock) {

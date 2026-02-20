@@ -28,13 +28,15 @@ interface GRNDetails {
     _id: string;
     name: string;
     code: string;
-    address?: string | {
-      street?: string;
-      city?: string;
-      state?: string;
-      pincode?: string;
-      country?: string;
-    };
+    address?:
+      | string
+      | {
+          street?: string;
+          city?: string;
+          state?: string;
+          pincode?: string;
+          country?: string;
+        };
     city?: string;
     state?: string;
     pincode?: string;
@@ -45,13 +47,15 @@ interface GRNDetails {
     contactPerson?: string;
     phone?: string;
     email?: string;
-    address?: string | {
-      street?: string;
-      city?: string;
-      state?: string;
-      pincode?: string;
-      country?: string;
-    };
+    address?:
+      | string
+      | {
+          street?: string;
+          city?: string;
+          state?: string;
+          pincode?: string;
+          country?: string;
+        };
     city?: string;
     state?: string;
     pincode?: string;
@@ -127,12 +131,13 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
 
   const handleDownload = async () => {
     if (!grnDetails) return;
-    
+
     setDownloading(true);
     try {
       await pdfGenerator.downloadGRNPDF(grnDetails);
       toast({
         title: 'Success',
+        variant: 'success',
         description: 'GRN receipt downloaded successfully',
       });
     } catch (error) {
@@ -149,7 +154,7 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
 
   const handlePrint = async () => {
     if (!grnDetails) return;
-    
+
     setPrinting(true);
     try {
       await pdfGenerator.printGRNPDF(grnDetails);
@@ -167,12 +172,13 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
 
   const handleResendInAppNotifications = async () => {
     if (!grnDetails) return;
-    
+
     setResendingInApp(true);
     try {
       const response = await api.inventory.resendGRNInAppNotifications(branchId, grnId);
       toast({
         title: 'Success',
+        variant: 'success',
         description: response.data.message || 'In-app notifications sent successfully',
       });
     } catch (error: any) {
@@ -189,13 +195,14 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
 
   const handleResendEmailNotifications = async () => {
     if (!grnDetails) return;
-    
+
     setResendingEmail(true);
     try {
       // Always include supplier (true by default)
       const response = await api.inventory.resendGRNEmailNotifications(branchId, grnId, true);
       toast({
         title: 'Success',
+        variant: 'success',
         description: response.data.message || 'Email notifications sent successfully',
       });
     } catch (error: any) {
@@ -290,8 +297,10 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
                             grnDetails.branch.address.city,
                             grnDetails.branch.address.state,
                             grnDetails.branch.address.pincode,
-                            grnDetails.branch.address.country
-                          ].filter(Boolean).join(', ')}
+                            grnDetails.branch.address.country,
+                          ]
+                            .filter(Boolean)
+                            .join(', ')}
                         </span>
                       </div>
                     )}
@@ -396,13 +405,21 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
                         <TableCell className="font-medium">{item.inventoryItem.name}</TableCell>
                         <TableCell className="text-right">{item.quantity}</TableCell>
                         <TableCell>{item.unit}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.unitPrice)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.totalPrice)}</TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(item.unitPrice)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(item.totalPrice)}
+                        </TableCell>
                       </TableRow>
                     ))}
                     <TableRow className="bg-muted font-semibold">
-                      <TableCell colSpan={4} className="text-right">Total Amount:</TableCell>
-                      <TableCell className="text-right">{formatCurrency(grnDetails.totalAmount)}</TableCell>
+                      <TableCell colSpan={4} className="text-right">
+                        Total Amount:
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(grnDetails.totalAmount)}
+                      </TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -417,89 +434,83 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
               )}
             </div>
           ) : (
-            <div className="text-center py-12 text-muted-foreground">
-              No GRN details available
-            </div>
+            <div className="text-center py-12 text-muted-foreground">No GRN details available</div>
           )}
         </DialogBody>
 
         <DialogFooter className="flex flex-col sm:flex-row gap-2 justify-between w-full">
-            <Button variant="outline" onClick={onClose}>
-              Close
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={handleResendInAppNotifications}
+              disabled={!grnDetails || resendingInApp}
+              size="sm"
+            >
+              {resendingInApp ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Bell className="mr-2 h-4 w-4" />
+                  Send In-App
+                </>
+              )}
             </Button>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={handleResendInAppNotifications}
-                disabled={!grnDetails || resendingInApp}
-                size="sm"
-              >
-                {resendingInApp ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Bell className="mr-2 h-4 w-4" />
-                    Send In-App
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleResendEmailNotifications}
-                disabled={!grnDetails || resendingEmail}
-                size="sm"
-              >
-                {resendingEmail ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="mr-2 h-4 w-4" />
-                    Send Email
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handlePrint}
-                disabled={!grnDetails || printing}
-                size="sm"
-              >
-                {printing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Printing...
-                  </>
-                ) : (
-                  <>
-                    <Printer className="mr-2 h-4 w-4" />
-                    Print
-                  </>
-                )}
-              </Button>
-              <Button
-                onClick={handleDownload}
-                disabled={!grnDetails || downloading}
-                size="sm"
-              >
-                {downloading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Downloading...
-                  </>
-                ) : (
-                  <>
-                    <Download className="mr-2 h-4 w-4" />
-                    Download
-                  </>
-                )}
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              onClick={handleResendEmailNotifications}
+              disabled={!grnDetails || resendingEmail}
+              size="sm"
+            >
+              {resendingEmail ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Send Email
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handlePrint}
+              disabled={!grnDetails || printing}
+              size="sm"
+            >
+              {printing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Printing...
+                </>
+              ) : (
+                <>
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print
+                </>
+              )}
+            </Button>
+            <Button onClick={handleDownload} disabled={!grnDetails || downloading} size="sm">
+              {downloading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
+                </>
+              )}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

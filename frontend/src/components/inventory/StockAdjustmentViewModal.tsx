@@ -100,6 +100,7 @@ export default function StockAdjustmentViewModal({
       toast({
         title: 'Success',
         description: response.data.message || 'In-app notifications sent successfully',
+        variant: 'success',
       });
     } catch (error: any) {
       console.error('Error resending in-app notifications:', error);
