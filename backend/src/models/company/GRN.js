@@ -1,16 +1,76 @@
 import mongoose from 'mongoose';
 
+/**
+ * GRNItem Sub-Schema
+ * Represents individual items in a GRN
+ */
+const grnItemSchema = new mongoose.Schema({
+  inventoryItem: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'InventoryItem',
+    required: true
+  },
+  quantity: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  unit: {
+    type: String,
+    required: true
+  },
+  unitPrice: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  totalPrice: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  batchNumber: {
+    type: String,
+    trim: true
+  },
+  expiryDate: {
+    type: Date
+  },
+  manufacturingDate: {
+    type: Date
+  },
+  notes: {
+    type: String,
+    trim: true
+  }
+}, { _id: false });
+
+/**
+ * GRN (Goods Receipt Note) Schema
+ * Documents receipt of inventory from suppliers
+ * Updated to support location-based architecture
+ */
 const grnSchema = new mongoose.Schema({
   grnNumber: {
     type: String,
     required: true,
+    unique: true,
     trim: true
   },
-  branch: {
+  
+  // Location reference (replaces branch)
+  locationId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch',
+    ref: 'Location',
     required: true
   },
+  
+  // Legacy branch reference (for backward compatibility during migration)
+  branch: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Branch'
+  },
+  
   supplier: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Supplier',
@@ -20,45 +80,25 @@ const grnSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'PurchaseOrder'
   },
-  items: [{
-    inventoryItem: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'InventoryItem',
-      required: true
-    },
-    quantity: {
-      type: Number,
-      required: true,
-      min: 0
-    },
-    unit: {
-      type: String,
-      required: true
-    },
-    unitPrice: {
-      type: Number,
-      required: true,
-      min: 0
-    },
-    totalPrice: {
-      type: Number,
-      required: true,
-      min: 0
-    },
-    batchNumber: {
-      type: String,
-      trim: true
-    },
-    expiryDate: {
-      type: Date
+  
+  items: {
+    type: [grnItemSchema],
+    required: true,
+    validate: {
+      validator: function(items) {
+        return items && items.length > 0;
+      },
+      message: 'At least one item is required'
     }
-  }],
+  },
+  
   totalAmount: {
     type: Number,
     required: true,
     default: 0,
     min: 0
   },
+  
   receivedBy: {
     type: mongoose.Schema.Types.ObjectId,
     required: true
@@ -68,12 +108,14 @@ const grnSchema = new mongoose.Schema({
     required: true,
     default: Date.now
   },
+  
   status: {
     type: String,
     required: true,
     enum: ['received', 'verified', 'cancelled'],
     default: 'received'
   },
+  
   notes: {
     type: String,
     trim: true
@@ -84,6 +126,10 @@ const grnSchema = new mongoose.Schema({
   },
   invoiceDate: {
     type: Date
+  },
+  paymentTerms: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: true
@@ -103,11 +149,16 @@ grnSchema.pre('save', function(next) {
   next();
 });
 
-// Indexes
-grnSchema.index({ branch: 1, grnNumber: 1 }, { unique: true });
-grnSchema.index({ supplier: 1 });
-grnSchema.index({ receivedDate: 1 });
+// Indexes for performance
+grnSchema.index({ grnNumber: 1 }, { unique: true });
+grnSchema.index({ locationId: 1, receivedDate: -1 });
+grnSchema.index({ supplier: 1, receivedDate: -1 });
+grnSchema.index({ receivedDate: -1 });
 grnSchema.index({ status: 1 });
+grnSchema.index({ locationId: 1, status: 1 });
+
+// Legacy indexes for backward compatibility
+grnSchema.index({ branch: 1, grnNumber: 1 });
 grnSchema.index({ branch: 1, receivedDate: -1 });
 
 export const getGRNModel = (companyDB) => {
