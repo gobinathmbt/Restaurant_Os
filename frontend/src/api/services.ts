@@ -171,6 +171,12 @@ export const inventoryServices = {
   createStockAdjustment: (branchId: string, data: any) =>
     apiClient.post("/api/inventory/adjustments", { ...data, branchId }),
 
+  getStockAdjustmentDetails: (branchId: string, adjustmentId: string) =>
+    apiClient.get(`/api/inventory/adjustments/${branchId}/${adjustmentId}`),
+
+  resendStockAdjustmentInAppNotifications: (branchId: string, adjustmentId: string) =>
+    apiClient.post(`/api/inventory/adjustments/${branchId}/${adjustmentId}/resend-inapp-notifications`),
+
   // Stock Transfers
   getStockTransfers: (branchId: string, params?: { page?: number; limit?: number; search?: string; status?: string }) =>
     apiClient.get("/api/inventory/transfers", { params: { branchId, ...params } }),

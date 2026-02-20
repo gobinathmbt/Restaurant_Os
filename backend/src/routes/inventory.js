@@ -17,6 +17,8 @@ import {
   createStockAdjustment,
   getStockAdjustments,
   getStockAdjustmentById,
+  getStockAdjustmentDetails,
+  resendStockAdjustmentInAppNotifications,
   createStockTransfer,
   getStockTransfers,
   getStockTransferById,
@@ -84,6 +86,8 @@ router.get('/grn/:id', getGRNById);
 // Stock Adjustment routes
 router.get('/adjustments', getStockAdjustments);
 router.post('/adjustments', createStockAdjustment);
+router.get('/adjustments/:branchId/:adjustmentId', getStockAdjustmentDetails);
+router.post('/adjustments/:branchId/:adjustmentId/resend-inapp-notifications', resendStockAdjustmentInAppNotifications);
 router.get('/adjustments/:id', getStockAdjustmentById);
 
 // Stock Transfer routes

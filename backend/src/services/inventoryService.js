@@ -12,6 +12,7 @@ import { getCategoryModel } from '../models/company/Category.js';
 import { getBranchModel } from '../models/company/Branch.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
 import { logger } from '../utils/logger.js';
+import CapacityValidator from './capacityValidator.js';
 
 /**
  * Create a new inventory item
@@ -1597,6 +1598,8 @@ export const createStockAdjustment = async (adjustmentData, companyId, branchId,
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
+    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
 
     // Validate required fields
     if (!adjustmentData.inventoryItemId || !adjustmentData.adjustmentType || !adjustmentData.quantity || !adjustmentData.reason) {
@@ -1615,18 +1618,38 @@ export const createStockAdjustment = async (adjustmentData, companyId, branchId,
       throw new Error('Invalid reason');
     }
 
-    // Get inventory item
+    // Get inventory item to verify it exists
     const inventoryItem = await InventoryItem.findById(adjustmentData.inventoryItemId);
     if (!inventoryItem) {
       throw new Error('Inventory item not found');
     }
 
-    // Verify item belongs to the branch
-    if (inventoryItem.branch.toString() !== branchId) {
+    // Fetch InventoryItemBranch configuration for the item and branch
+    const inventoryItemBranch = await InventoryItemBranch.findOne({
+      inventoryItem: adjustmentData.inventoryItemId,
+      branch: branchId
+    });
+
+    if (!inventoryItemBranch) {
       throw new Error('Inventory item does not belong to this branch');
     }
 
-    const previousStock = inventoryItem.currentStock;
+    // Validate capacity for increase adjustments
+    if (adjustmentData.adjustmentType === 'increase') {
+      const capacityValidator = new CapacityValidator(companyDB);
+      const capacityResult = await capacityValidator.validateAdjustmentCapacity(
+        branchId,
+        adjustmentData.inventoryItemId,
+        adjustmentData.quantity
+      );
+
+      if (!capacityResult.valid) {
+        throw new Error(capacityResult.error);
+      }
+    }
+
+    // Calculate previousStock from InventoryItemBranch.currentStock
+    const previousStock = inventoryItemBranch.currentStock;
     let newStock;
 
     // Calculate new stock based on adjustment type
@@ -1650,7 +1673,7 @@ export const createStockAdjustment = async (adjustmentData, companyId, branchId,
     // Generate adjustment number
     const adjustmentNumber = await generateAdjustmentNumber(companyId, branchId);
 
-    // Create stock adjustment
+    // Create stock adjustment document with all fields
     const adjustment = new StockAdjustment({
       adjustmentNumber,
       branch: branchId,
@@ -1667,11 +1690,11 @@ export const createStockAdjustment = async (adjustmentData, companyId, branchId,
 
     await adjustment.save();
 
-    // Update inventory item stock
-    inventoryItem.currentStock = newStock;
-    await inventoryItem.save();
+    // Update InventoryItemBranch.currentStock to newStock value
+    inventoryItemBranch.currentStock = newStock;
+    await inventoryItemBranch.save();
 
-    logger.info(`Stock adjustment created: ${adjustment._id} (${adjustmentNumber}) for company: ${companyId}`);
+    logger.info(`Stock adjustment created: ${adjustment._id} (${adjustmentNumber}) for company: ${companyId}, branch: ${branchId}`);
 
     return adjustment;
   } catch (error) {
@@ -1691,6 +1714,7 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
   try {
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
 
     const {
       page = 1,
@@ -1698,15 +1722,39 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
       startDate = '',
       endDate = '',
       type = '',
-      reason = ''
+      reason = '',
+      search = ''
     } = filters;
 
     // Build query
     const query = {};
 
-    // Branch filter - only add if not "all"
-    if (branchId && branchId !== 'all') {
+    // Branch filter logic
+    if (branchId === 'all') {
+      // Super Admin viewing all branches - no branch filter
+      // query.branch is not set, so all adjustments are returned
+    } else if (Array.isArray(branchId)) {
+      // Company Admin with array of branch IDs
+      query.branch = { $in: branchId };
+    } else if (branchId) {
+      // Specific branch ID
       query.branch = branchId;
+    }
+
+    // Search filter (adjustmentNumber or item name)
+    if (search) {
+      // Find inventory items matching the search term
+      const matchingItems = await InventoryItem.find({
+        name: { $regex: search, $options: 'i' }
+      }).select('_id').lean();
+      
+      const matchingItemIds = matchingItems.map(item => item._id);
+      
+      // Build $or query for adjustmentNumber or inventoryItem
+      query.$or = [
+        { adjustmentNumber: { $regex: search, $options: 'i' } },
+        { inventoryItem: { $in: matchingItemIds } }
+      ];
     }
 
     // Date range filter
@@ -1732,14 +1780,14 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
       query.reason = reason;
     }
 
-    // Calculate pagination
+    // Calculate pagination: skip = (page - 1) × limit
     const skip = (page - 1) * limit;
 
-    // Execute query
+    // Execute query with pagination
     const [adjustments, total] = await Promise.all([
       StockAdjustment.find(query)
+        .populate('branch', 'name code address city state pincode')
         .populate('inventoryItem', 'name type unit sku')
-        .populate('adjustedBy', 'name email')
         .sort({ adjustmentDate: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -1747,13 +1795,39 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
       StockAdjustment.countDocuments(query)
     ]);
 
+    // Manually populate adjustedBy from platform database
+    const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+    const userIds = [...new Set(adjustments.map(adj => adj.adjustedBy?.toString()).filter(Boolean))];
+    
+    if (userIds.length > 0) {
+      const users = await CompanyUser.find({ _id: { $in: userIds } }).select('name email').lean();
+      const userMap = new Map(users.map(user => [user._id.toString(), user]));
+      
+      // Attach user data to adjustments
+      adjustments.forEach(adj => {
+        if (adj.adjustedBy) {
+          const user = userMap.get(adj.adjustedBy.toString());
+          if (user) {
+            adj.adjustedBy = {
+              _id: user._id,
+              name: user.name,
+              email: user.email
+            };
+          }
+        }
+      });
+    }
+
+    // Calculate total pages: Math.ceil(total / limit)
+    const totalPages = Math.ceil(total / limit);
+
     return {
       adjustments,
       pagination: {
         total,
         page: parseInt(page),
         limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
+        pages: totalPages
       }
     };
   } catch (error) {
@@ -2306,6 +2380,101 @@ export const resendGRNEmailNotifications = async (grnId, companyId, includeSuppl
     return result;
   } catch (error) {
     logger.error('Error resending GRN email notifications:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Resend stock adjustment in-app notifications
+ * @param {string} adjustmentId - Stock adjustment ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>}
+ */
+export const resendStockAdjustmentInAppNotifications = async (adjustmentId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockAdjustment = getStockAdjustmentModel(companyDB);
+
+    // Get stock adjustment with populated details
+    const adjustment = await StockAdjustment.findById(adjustmentId)
+      .populate('branch', 'name code')
+      .populate('inventoryItem', 'name')
+      .lean();
+
+    if (!adjustment) {
+      throw new Error('Stock adjustment not found');
+    }
+
+    // Manually populate adjustedBy from platform database
+    if (adjustment.adjustedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(adjustment.adjustedBy).select('name email').lean();
+      if (user) {
+        adjustment.adjustedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
+    }
+
+    // Import and call notification service
+    const notificationService = (await import('./notificationService.js')).default;
+    
+    // Send in-app notifications
+    const result = await notificationService.notifyStockAdjustmentCreation(companyId, adjustment);
+    
+    logger.info(`Stock adjustment in-app notifications resent successfully for ${adjustment.adjustmentNumber}`);
+    
+    return result;
+  } catch (error) {
+    logger.error('Error resending stock adjustment in-app notifications:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get stock adjustment details by ID
+ * @param {string} adjustmentId - Stock adjustment ID
+ * @param {string} companyId - Company ID
+ * @param {string} branchId - Branch ID
+ * @returns {Promise<Object>}
+ */
+export const getStockAdjustmentDetails = async (adjustmentId, companyId, branchId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockAdjustment = getStockAdjustmentModel(companyDB);
+
+    // Get stock adjustment with populated details
+    const adjustment = await StockAdjustment.findOne({
+      _id: adjustmentId,
+      branch: branchId
+    })
+      .populate('branch', 'name code address')
+      .populate('inventoryItem', 'name unit type sku')
+      .lean();
+
+    if (!adjustment) {
+      throw new Error('Stock adjustment not found');
+    }
+
+    // Manually populate adjustedBy from platform database
+    if (adjustment.adjustedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(adjustment.adjustedBy).select('name email').lean();
+      if (user) {
+        adjustment.adjustedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
+    }
+
+    return adjustment;
+  } catch (error) {
+    logger.error('Error getting stock adjustment details:', error);
     throw error;
   }
 };

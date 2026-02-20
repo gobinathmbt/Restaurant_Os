@@ -14,6 +14,7 @@ import { Check, ChevronsUpDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { branchServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Branch {
   _id: string;
@@ -28,6 +29,8 @@ interface BranchSearchProps {
   placeholder?: string;
   showSelectAll?: boolean;
   className?: string;
+  singleSelect?: boolean;
+  autoSelectSingleBranch?: boolean;
 }
 
 export default function BranchSearch({
@@ -37,8 +40,11 @@ export default function BranchSearch({
   placeholder = 'Select branches...',
   showSelectAll = false,
   className = '',
+  singleSelect = false,
+  autoSelectSingleBranch = false,
 }: BranchSearchProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,12 +56,31 @@ export default function BranchSearch({
   // Determine which branches to display
   const displayBranches = searchQuery ? searchBranches : initialBranches;
 
+  // Check if user is single-branch admin
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
+
   // Fetch initial branches on mount (limit 50)
   useEffect(() => {
     if (open && initialBranches.length === 0) {
       fetchInitialBranches();
     }
   }, [open]);
+
+  // Auto-select single branch for single-branch admins (runs on mount and when user changes)
+  useEffect(() => {
+    if (autoSelectSingleBranch && isSingleBranchAdmin && user?.branchIds && user.branchIds.length === 1) {
+      const userBranchId = user.branchIds[0];
+      // Only update if not already selected
+      if (selectedBranchIds.length === 0 || selectedBranchIds[0] !== userBranchId) {
+        onBranchesChange([userBranchId]);
+        // Fetch initial branches to populate the display name
+        if (initialBranches.length === 0) {
+          fetchInitialBranches();
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSelectSingleBranch, user?.branchIds]);
 
   // Fetch branches when search query changes (direct API call, no debounce)
   useEffect(() => {
@@ -71,7 +96,15 @@ export default function BranchSearch({
         limit: 50,
         isActive: true,
       });
-      setInitialBranches(response.data.data.branches || []);
+      let branches = response.data.data.branches || [];
+      
+      // Filter branches based on user role
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+      if (!isSuperAdmin && user?.branchIds) {
+        branches = branches.filter((branch: Branch) => user.branchIds?.includes(branch._id));
+      }
+      
+      setInitialBranches(branches);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -91,7 +124,15 @@ export default function BranchSearch({
         isActive: true,
         search,
       });
-      setSearchBranches(response.data.data.branches || []);
+      let branches = response.data.data.branches || [];
+      
+      // Filter branches based on user role
+      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+      if (!isSuperAdmin && user?.branchIds) {
+        branches = branches.filter((branch: Branch) => user.branchIds?.includes(branch._id));
+      }
+      
+      setSearchBranches(branches);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -104,10 +145,17 @@ export default function BranchSearch({
   };
 
   const handleBranchToggle = (branchId: string) => {
-    const newSelection = selectedBranchIds.includes(branchId)
-      ? selectedBranchIds.filter((id) => id !== branchId)
-      : [...selectedBranchIds, branchId];
-    onBranchesChange(newSelection);
+    if (singleSelect) {
+      // Single select mode: replace selection and close popover
+      onBranchesChange([branchId]);
+      setOpen(false);
+    } else {
+      // Multi-select mode: toggle selection
+      const newSelection = selectedBranchIds.includes(branchId)
+        ? selectedBranchIds.filter((id) => id !== branchId)
+        : [...selectedBranchIds, branchId];
+      onBranchesChange(newSelection);
+    }
   };
 
   const handleRemoveBranch = (branchId: string) => {
@@ -148,10 +196,12 @@ export default function BranchSearch({
               role="combobox"
               aria-expanded={open}
               className="w-full justify-between"
-              disabled={disabled}
+              disabled={disabled || (autoSelectSingleBranch && isSingleBranchAdmin)}
             >
               {selectedBranchIds.length > 0
-                ? `${selectedBranchIds.length} branch${selectedBranchIds.length > 1 ? 'es' : ''} selected`
+                ? singleSelect
+                  ? selectedBranches[0]?.name || placeholder
+                  : `${selectedBranchIds.length} branch${selectedBranchIds.length > 1 ? 'es' : ''} selected`
                 : placeholder}
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
@@ -173,7 +223,7 @@ export default function BranchSearch({
               </CommandEmpty>
               <CommandList>
                 <CommandGroup>
-                  {showSelectAll && displayBranches.length > 0 && (
+                  {showSelectAll && !singleSelect && displayBranches.length > 0 && (
                     <CommandItem onSelect={handleSelectAll} className="font-medium">
                       <Check
                         className={cn(
@@ -225,7 +275,7 @@ export default function BranchSearch({
       </div>
 
       {/* Selected Branches Display */}
-      {selectedBranches.length > 0 && (
+      {!singleSelect && selectedBranches.length > 0 && (
         <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-muted/50">
           {selectedBranches.map((branch) => (
             <Badge key={branch._id} variant="secondary" className="gap-1">
@@ -240,11 +290,20 @@ export default function BranchSearch({
       )}
 
       {/* Info message */}
-      <p className="text-sm text-muted-foreground">
-        {selectedBranchIds.length > 0
-          ? `${selectedBranchIds.length} branch${selectedBranchIds.length !== 1 ? 'es' : ''} selected`
-          : 'Please select at least one branch'}
-      </p>
+      {!singleSelect && (
+        <p className="text-sm text-muted-foreground">
+          {selectedBranchIds.length > 0
+            ? `${selectedBranchIds.length} branch${selectedBranchIds.length !== 1 ? 'es' : ''} selected`
+            : 'Please select at least one branch'}
+        </p>
+      )}
+      
+      {/* Single-branch admin info */}
+      {autoSelectSingleBranch && isSingleBranchAdmin && (
+        <p className="text-xs text-muted-foreground">
+          Branch is automatically selected based on your access
+        </p>
+      )}
     </div>
   );
 }

@@ -790,6 +790,65 @@ class NotificationService {
       throw error;
     }
   }
+
+  /**
+   * Send in-app notifications for stock adjustment creation
+   * Only sends to super admins, no email notifications
+   * @param {string} companyId - Company ID
+   * @param {Object} adjustmentDetails - Populated adjustment details
+   * @returns {Promise<Object>} Notification result
+   */
+  async notifyStockAdjustmentCreation(companyId, adjustmentDetails) {
+    try {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+
+      // Find all active super admin users
+      const superAdmins = await CompanyUser.find({
+        companyId,
+        role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] },
+        isActive: true
+      });
+
+      if (superAdmins.length === 0) {
+        logger.warn(`No active super admins found for company ${companyId}`);
+        return { success: false, message: 'No super admins found' };
+      }
+
+      logger.info(`Sending in-app notifications to ${superAdmins.length} super admin(s) for stock adjustment`);
+
+      // Send in-app notifications to all super admins
+      const inAppPromises = superAdmins.map(admin => 
+        this.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'stock_adjustment_created',
+          title: 'Stock Adjustment Created',
+          message: `Adjustment ${adjustmentDetails.adjustmentNumber} created for ${adjustmentDetails.inventoryItem.name} at ${adjustmentDetails.branch.name}. Type: ${adjustmentDetails.adjustmentType}, Quantity: ${adjustmentDetails.quantity}, Adjusted by: ${adjustmentDetails.adjustedBy.name}`,
+          data: {
+            adjustmentId: adjustmentDetails._id,
+            adjustmentNumber: adjustmentDetails.adjustmentNumber,
+            itemName: adjustmentDetails.inventoryItem.name,
+            branchName: adjustmentDetails.branch.name,
+            adjustmentType: adjustmentDetails.adjustmentType,
+            quantity: adjustmentDetails.quantity,
+            adjustedByName: adjustmentDetails.adjustedBy.name
+          },
+          priority: 'medium',
+          actionUrl: `/inventory/adjustments/${adjustmentDetails._id}`
+        }).catch(error => {
+          logger.error(`Failed to send in-app notification to admin ${admin._id}:`, error);
+          return null;
+        })
+      );
+
+      await Promise.allSettled(inAppPromises);
+      logger.info(`In-app notifications sent to ${superAdmins.length} super admin(s) for stock adjustment`);
+
+      return { success: true, message: `In-app notifications sent to ${superAdmins.length} super admin(s)` };
+    } catch (error) {
+      logger.error('Error in notifyStockAdjustmentCreation:', error);
+      throw error;
+    }
+  }
 }
 
 export default new NotificationService();

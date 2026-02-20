@@ -13,20 +13,33 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
+import { useAuth } from '@/contexts/AuthContext';
 import { AlertCircle } from 'lucide-react';
+import InventoryItemDropdown from '@/components/common/InventoryItemDropdown';
+import BranchSearch from '@/components/common/BranchSearch';
 
 interface StockAdjustmentFormModalProps {
   open: boolean;
   onClose: () => void;
-  branchId: string;
+  branchId?: string;
   onSuccess: () => void;
+}
+
+interface BranchConfig {
+  currentStock: number;
+  minimumStock: number;
+  maximumStock?: number;
+  lastPurchasePrice?: number;
+  lastPurchaseDate?: string;
 }
 
 interface InventoryItem {
   _id: string;
   name: string;
-  currentStock: number;
   unit: string;
+  category?: string | { _id: string; name: string };
+  subcategory?: string | { _id: string; name: string };
+  branchConfig?: BranchConfig;
 }
 
 export default function StockAdjustmentFormModal({ 
@@ -36,9 +49,19 @@ export default function StockAdjustmentFormModal({
   onSuccess 
 }: StockAdjustmentFormModalProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  
+  // Branch state - using array for BranchSearch compatibility
+  const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([]);
+  
+  // Inventory items cache for capacity validation
+  const [inventoryItemsCache, setInventoryItemsCache] = useState<Map<string, InventoryItem>>(new Map());
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+  
+  // Capacity error state
+  const [capacityError, setCapacityError] = useState<string>('');
+  
   const [formData, setFormData] = useState({
     inventoryItemId: '',
     adjustmentType: 'increase',
@@ -47,12 +70,32 @@ export default function StockAdjustmentFormModal({
     notes: ''
   });
 
+  // Reset form on modal open/close
   useEffect(() => {
     if (open) {
-      fetchInventoryItems();
-      resetForm();
+      // Reset form fields but not branch (BranchSearch will handle auto-selection)
+      setFormData({
+        inventoryItemId: '',
+        adjustmentType: 'increase',
+        quantity: 0,
+        reason: 'count_correction',
+        notes: ''
+      });
+      setSelectedItem(null);
+      setInventoryItemsCache(new Map());
+      setCapacityError('');
+    } else {
+      // Clear branch selection when modal closes (so auto-select works on next open)
+      setSelectedBranchIds([]);
     }
-  }, [open, branchId]);
+  }, [open]);
+
+  // Set branch from prop if provided (for pre-selection from parent)
+  useEffect(() => {
+    if (branchId && branchId !== 'all' && open) {
+      setSelectedBranchIds([branchId]);
+    }
+  }, [branchId, open]);
 
   const resetForm = () => {
     setFormData({
@@ -63,31 +106,103 @@ export default function StockAdjustmentFormModal({
       notes: ''
     });
     setSelectedItem(null);
+    setInventoryItemsCache(new Map());
+    setCapacityError('');
+    // Don't reset branch - let BranchSearch handle auto-selection
   };
 
-  const fetchInventoryItems = async () => {
-    try {
-      const response = await inventoryServices.getInventoryItems(branchId, { limit: 1000 });
-      setInventoryItems(response.data.data.items || []);
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: "Failed to fetch inventory items",
-        variant: "destructive",
-      });
+  // Clear form data when branch changes
+  const handleBranchChange = (branchIds: string[]) => {
+    setSelectedBranchIds(branchIds);
+    setFormData({
+      inventoryItemId: '',
+      adjustmentType: 'increase',
+      quantity: 0,
+      reason: 'count_correction',
+      notes: ''
+    });
+    setSelectedItem(null);
+    setInventoryItemsCache(new Map());
+    setCapacityError('');
+  };
+
+  // Get selected branch ID (first element since single-select)
+  const selectedBranch = selectedBranchIds[0] || '';
+
+  // Validate capacity when quantity or adjustmentType changes
+  useEffect(() => {
+    if (formData.inventoryItemId && formData.quantity > 0) {
+      const validation = validateCapacity(
+        formData.inventoryItemId,
+        formData.quantity,
+        formData.adjustmentType
+      );
+      
+      if (!validation.valid && validation.error) {
+        setCapacityError(validation.error);
+      } else {
+        setCapacityError('');
+      }
+    } else {
+      setCapacityError('');
     }
+  }, [formData.quantity, formData.adjustmentType, formData.inventoryItemId, inventoryItemsCache]);
+
+  // Handle items loaded from InventoryItemDropdown
+  const handleItemsLoaded = (items: InventoryItem[]) => {
+    const cache = new Map<string, InventoryItem>();
+    items.forEach(item => {
+      cache.set(item._id, item);
+    });
+    setInventoryItemsCache(cache);
   };
 
-  const handleItemChange = (itemId: string) => {
-    const item = inventoryItems.find(i => i._id === itemId);
-    setSelectedItem(item || null);
+  // Handle inventory item selection
+  const handleItemChange = (itemId: string, item: InventoryItem) => {
+    setSelectedItem(item);
     setFormData({ ...formData, inventoryItemId: itemId });
   };
 
+  // Validate capacity for increase adjustments
+  const validateCapacity = (itemId: string, quantity: number, type: string) => {
+    // Only validate for increase type
+    if (type !== 'increase') {
+      return { valid: true };
+    }
+
+    // Get item from cache
+    const item = inventoryItemsCache.get(itemId);
+    if (!item?.branchConfig) {
+      return { valid: true };
+    }
+
+    // Extract stock values
+    const { currentStock, maximumStock } = item.branchConfig;
+
+    // If no maximum stock or maximum stock <= 0, no validation needed
+    if (!maximumStock || maximumStock <= 0) {
+      return { valid: true };
+    }
+
+    // Calculate projected stock
+    const projectedStock = currentStock + quantity;
+
+    // Check if projected stock exceeds maximum
+    if (projectedStock > maximumStock) {
+      const excess = projectedStock - maximumStock;
+      return {
+        valid: false,
+        error: `Exceeds capacity by ${excess.toFixed(2)} ${item.unit}. Current: ${currentStock.toFixed(2)}, Max: ${maximumStock.toFixed(2)}, Projected: ${projectedStock.toFixed(2)}`
+      };
+    }
+
+    return { valid: true };
+  };
+
   const calculateNewStock = () => {
-    if (!selectedItem) return 0;
+    if (!selectedItem?.branchConfig) return 0;
     
-    const currentStock = selectedItem.currentStock;
+    const currentStock = selectedItem.branchConfig.currentStock;
     const quantity = formData.quantity;
     
     switch (formData.adjustmentType) {
@@ -139,6 +254,16 @@ export default function StockAdjustmentFormModal({
       return false;
     }
 
+    // Check for capacity errors
+    if (capacityError) {
+      toast({
+        title: "Capacity Exceeded",
+        description: capacityError,
+        variant: "destructive",
+      });
+      return false;
+    }
+
     const newStock = calculateNewStock();
     if (newStock < 0) {
       toast({
@@ -179,7 +304,7 @@ export default function StockAdjustmentFormModal({
         notes: formData.notes.trim() || undefined
       };
 
-      await inventoryServices.createStockAdjustment(branchId, submitData);
+      await inventoryServices.createStockAdjustment(selectedBranch, submitData);
       toast({
         title: "Success",
         description: "Stock adjustment created successfully",
@@ -188,11 +313,38 @@ export default function StockAdjustmentFormModal({
       
       onSuccess();
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.response?.data?.message || "Failed to create stock adjustment",
-        variant: "destructive",
-      });
+      // Handle branch access denial (403)
+      if (error.response?.status === 403) {
+        toast({
+          title: "Access Denied",
+          description: error.response?.data?.message || "You do not have access to this branch",
+          variant: "destructive",
+        });
+      }
+      // Handle capacity validation errors (400)
+      else if (error.response?.status === 400 && error.response?.data?.message?.includes('capacity')) {
+        toast({
+          title: "Capacity Exceeded",
+          description: error.response.data.message,
+          variant: "destructive",
+        });
+      }
+      // Handle other validation errors (400)
+      else if (error.response?.status === 400) {
+        toast({
+          title: "Validation Error",
+          description: error.response?.data?.message || "Invalid request data",
+          variant: "destructive",
+        });
+      }
+      // Handle all other errors
+      else {
+        toast({
+          title: "Error",
+          description: error.response?.data?.message || "Failed to create stock adjustment",
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -210,36 +362,45 @@ export default function StockAdjustmentFormModal({
 
         <DialogBody>
           <form id="stock-adjustment-form" onSubmit={handleSubmit} className="space-y-6">
+            {/* Branch Selection Section */}
+            <div className="space-y-4">
+              <h3 className="font-semibold">Branch Selection</h3>
+              <div>
+                <Label htmlFor="branch">Branch *</Label>
+                <BranchSearch
+                  selectedBranchIds={selectedBranchIds}
+                  onBranchesChange={handleBranchChange}
+                  disabled={loading}
+                  placeholder="Select branch"
+                  singleSelect={true}
+                  autoSelectSingleBranch={true}
+                />
+              </div>
+            </div>
+
             {/* Inventory Item Selection */}
             <div className="space-y-4">
               <h3 className="font-semibold">Item Selection</h3>
               <div>
                 <Label htmlFor="inventoryItem">Inventory Item *</Label>
-                <Select
+                <InventoryItemDropdown
+                  branchId={selectedBranch}
                   value={formData.inventoryItemId}
-                  onValueChange={handleItemChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select inventory item" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {inventoryItems.map((item) => (
-                      <SelectItem key={item._id} value={item._id}>
-                        {item.name} (Current: {item.currentStock} {item.unit})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={handleItemChange}
+                  onItemsLoaded={handleItemsLoaded}
+                  disabled={!selectedBranch}
+                  placeholder={!selectedBranch ? "Select branch first" : "Select inventory item"}
+                />
               </div>
 
               {/* Current Stock Display */}
-              {selectedItem && (
+              {selectedItem?.branchConfig && (
                 <div className="p-4 bg-muted rounded-lg">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <span className="text-sm text-muted-foreground">Current Stock</span>
                       <p className="text-2xl font-bold">
-                        {selectedItem.currentStock} {selectedItem.unit}
+                        {selectedItem.branchConfig.currentStock} {selectedItem.unit}
                       </p>
                     </div>
                     <div>
@@ -260,9 +421,10 @@ export default function StockAdjustmentFormModal({
                   <Select
                     value={formData.adjustmentType}
                     onValueChange={(value) => setFormData({ ...formData, adjustmentType: value })}
+                    disabled={!selectedBranch}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
+                      <SelectValue placeholder={!selectedBranch ? "Select branch first" : "Select type"} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="increase">Increase</SelectItem>
@@ -288,7 +450,8 @@ export default function StockAdjustmentFormModal({
                     step="0.01"
                     value={formData.quantity || ''}
                     onChange={(e) => setFormData({ ...formData, quantity: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
+                    placeholder={!selectedBranch ? "Select branch first" : "0"}
+                    disabled={!selectedBranch}
                     required
                   />
                 </div>
@@ -298,9 +461,10 @@ export default function StockAdjustmentFormModal({
                   <Select
                     value={formData.reason}
                     onValueChange={(value) => setFormData({ ...formData, reason: value })}
+                    disabled={!selectedBranch}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select reason" />
+                      <SelectValue placeholder={!selectedBranch ? "Select branch first" : "Select reason"} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="damaged">Damaged</SelectItem>
@@ -315,8 +479,21 @@ export default function StockAdjustmentFormModal({
               </div>
             </div>
 
+            {/* Capacity Error Display */}
+            {capacityError && (
+              <div className="p-4 bg-destructive/10 border-2 border-destructive rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+                  <div>
+                    <h4 className="font-semibold text-destructive mb-1">Maximum Capacity Exceeded</h4>
+                    <p className="text-sm text-destructive/90">{capacityError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* New Stock Preview */}
-            {selectedItem && (
+            {selectedItem?.branchConfig && (
               <div className={`p-4 rounded-lg border-2 ${willBeNegative ? 'bg-destructive/10 border-destructive' : 'bg-primary/5 border-primary/20'}`}>
                 <div className="flex items-center justify-between">
                   <div>
@@ -342,7 +519,8 @@ export default function StockAdjustmentFormModal({
                 id="notes"
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Additional notes about this adjustment..."
+                placeholder={!selectedBranch ? "Select branch first" : "Additional notes about this adjustment..."}
+                disabled={!selectedBranch}
                 rows={3}
               />
             </div>
@@ -353,7 +531,7 @@ export default function StockAdjustmentFormModal({
           <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button type="submit" form="stock-adjustment-form" disabled={loading || willBeNegative}>
+          <Button type="submit" form="stock-adjustment-form" disabled={loading || willBeNegative || !!capacityError}>
             {loading ? 'Creating...' : 'Create Adjustment'}
           </Button>
         </DialogFooter>

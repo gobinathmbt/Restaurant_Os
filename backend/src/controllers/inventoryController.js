@@ -831,6 +831,33 @@ export const createStockAdjustment = async (req, res, next) => {
       message: 'Stock adjustment created successfully',
       data: { adjustment }
     });
+
+    // Send notifications asynchronously after response
+    setImmediate(async () => {
+      try {
+        const companyDB = getCompanyDB(companyId);
+        const StockAdjustment = getStockAdjustmentModel(companyDB);
+        const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+        const notificationService = (await import('../services/notificationService.js')).default;
+
+        // Populate adjustment with branch, inventoryItem, adjustedBy details
+        const populatedAdjustment = await StockAdjustment.findById(adjustment._id)
+          .populate('branch', 'name code')
+          .populate('inventoryItem', 'name')
+          .lean();
+
+        // Manually populate adjustedBy from CompanyUser (platform DB)
+        const adjustedByUser = await CompanyUser.findById(userId).select('name email').lean();
+        populatedAdjustment.adjustedBy = adjustedByUser;
+
+        // Call notification service
+        await notificationService.notifyStockAdjustmentCreation(companyId, populatedAdjustment);
+        logger.info(`Notifications sent for stock adjustment ${adjustment.adjustmentNumber}`);
+      } catch (notificationError) {
+        logger.error('Error sending stock adjustment notifications:', notificationError);
+        // Don't fail the adjustment creation if notifications fail
+      }
+    });
   } catch (error) {
     logger.error('Create stock adjustment error', error);
     
@@ -838,7 +865,8 @@ export const createStockAdjustment = async (req, res, next) => {
         error.message.includes('Invalid adjustment type') ||
         error.message.includes('Invalid reason') ||
         error.message.includes('Insufficient stock') ||
-        error.message.includes('does not belong to this branch')) {
+        error.message.includes('does not belong to this branch') ||
+        error.message.includes('exceed maximum stock capacity')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -862,7 +890,7 @@ export const createStockAdjustment = async (req, res, next) => {
  */
 export const getStockAdjustments = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds } = req.user;
     const { branchId, ...filters } = req.query;
 
     // Validate branchId is provided
@@ -873,8 +901,36 @@ export const getStockAdjustments = async (req, res, next) => {
       });
     }
 
-    // Verify branch access (skip verification for "all" if user is super admin)
-    if (branchId !== 'all') {
+    // Determine effective branchId based on role and request
+    let effectiveBranchId = branchId;
+
+    // Check if user is Super Admin
+    const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+
+    if (branchId === 'all') {
+      if (isSuperAdmin) {
+        // Super Admin can view all branches - pass "all" to service
+        effectiveBranchId = 'all';
+      } else {
+        // Company Admin requesting "all" - get their assigned branches
+        let effectiveBranchIds = userBranchIds;
+        if (!effectiveBranchIds) {
+          const user = await CompanyUser.findById(userId).select('branchIds');
+          effectiveBranchIds = user?.branchIds || [];
+        }
+        
+        if (effectiveBranchIds.length === 0) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to any branches'
+          });
+        }
+        
+        // Pass array of branch IDs to service
+        effectiveBranchId = effectiveBranchIds;
+      }
+    } else {
+      // Specific branch requested - verify access
       const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
       if (!hasAccess) {
         return res.status(403).json({
@@ -882,19 +938,11 @@ export const getStockAdjustments = async (req, res, next) => {
           message: 'You do not have access to this branch'
         });
       }
-    } else {
-      // Only super admins can use "all"
-      const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
-      if (!isSuperAdmin) {
-        return res.status(403).json({
-          success: false,
-          message: 'Only super admins can view all branches'
-        });
-      }
+      effectiveBranchId = branchId;
     }
 
-    // Get stock adjustments
-    const result = await inventoryService.getStockAdjustments(companyId, branchId, filters);
+    // Get stock adjustments with effective branch filter
+    const result = await inventoryService.getStockAdjustments(companyId, effectiveBranchId, filters);
 
     res.json({
       success: true,
@@ -933,6 +981,114 @@ export const getStockAdjustmentById = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Get stock adjustment by ID error', error);
+    
+    if (error.message === 'Stock adjustment not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Get stock adjustment details
+ * GET /api/inventory/adjustments/:branchId/:adjustmentId
+ */
+export const getStockAdjustmentDetails = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId, adjustmentId } = req.params;
+
+    // Validate branchId and adjustmentId are provided
+    if (!branchId || !adjustmentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID and Adjustment ID are required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Get stock adjustment details
+    const adjustment = await inventoryService.getStockAdjustmentDetails(adjustmentId, companyId, branchId);
+
+    logger.info('Stock adjustment details retrieved via API', { 
+      adjustmentId, 
+      companyId, 
+      branchId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      data: { adjustment }
+    });
+  } catch (error) {
+    logger.error('Get stock adjustment details error', error);
+    
+    if (error.message === 'Stock adjustment not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Resend stock adjustment in-app notifications
+ * POST /api/inventory/adjustments/:branchId/:adjustmentId/resend-inapp-notifications
+ */
+export const resendStockAdjustmentInAppNotifications = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId, adjustmentId } = req.params;
+
+    // Validate branchId and adjustmentId are provided
+    if (!branchId || !adjustmentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID and Adjustment ID are required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Resend in-app notifications
+    const result = await inventoryService.resendStockAdjustmentInAppNotifications(adjustmentId, companyId);
+
+    logger.info('Stock adjustment in-app notifications resent via API', { 
+      adjustmentId, 
+      companyId, 
+      branchId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    logger.error('Resend stock adjustment in-app notifications error', error);
     
     if (error.message === 'Stock adjustment not found') {
       return res.status(404).json({
