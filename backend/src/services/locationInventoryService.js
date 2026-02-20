@@ -142,6 +142,39 @@ export const updateAvailableQuantity = async (params) => {
 };
 
 /**
+ * Calculate default reservation expiry based on location or global settings
+ * @param {Object} location - Location document
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Date>} Default expiry timestamp
+ */
+const calculateDefaultReservationExpiry = async (location, companyId) => {
+  try {
+    // Try to get location-specific timeout from settings
+    const locationTimeoutMinutes = location?.settings?.reservationTimeoutMinutes;
+    
+    if (locationTimeoutMinutes && locationTimeoutMinutes > 0) {
+      const expiryDate = new Date();
+      expiryDate.setMinutes(expiryDate.getMinutes() + locationTimeoutMinutes);
+      return expiryDate;
+    }
+
+    // Fall back to global setting (default: 24 hours)
+    const { getConfig } = await import('../config/env.js');
+    const globalTimeoutMinutes = await getConfig('RESERVATION_TIMEOUT_MINUTES', 'RESERVATION_TIMEOUT_MINUTES', 1440); // 24 hours default
+    
+    const expiryDate = new Date();
+    expiryDate.setMinutes(expiryDate.getMinutes() + parseInt(globalTimeoutMinutes));
+    return expiryDate;
+  } catch (error) {
+    // If config loading fails, use 24 hours as fallback
+    logger.warn('Failed to load reservation timeout config, using 24 hours default:', error);
+    const expiryDate = new Date();
+    expiryDate.setMinutes(expiryDate.getMinutes() + 1440);
+    return expiryDate;
+  }
+};
+
+/**
  * Reserve inventory for an order or production
  * Decreases available quantity and increases reserved quantity
  * Records ledger entry atomically
@@ -190,6 +223,20 @@ export const reserveInventory = async (params) => {
     const companyDB = getCompanyDB(companyId);
     const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const InventoryReservation = getInventoryReservationModel(companyDB);
+    const { getLocationModel } = await import('../models/company/Location.js');
+    const Location = getLocationModel(companyDB);
+
+    // Get location for default expiry calculation (Requirement 26.5)
+    const location = await Location.findById(locationId).session(session);
+    if (!location) {
+      throw new Error(`Location ${locationId} not found`);
+    }
+
+    // Calculate expiry timestamp if not provided (Requirement 26.1, 26.5)
+    let reservationExpiresAt = expiresAt;
+    if (!reservationExpiresAt) {
+      reservationExpiresAt = await calculateDefaultReservationExpiry(location, companyId);
+    }
 
     // Get current inventory state
     const inventory = await InventoryItemLocation.findOne({
@@ -227,7 +274,7 @@ export const reserveInventory = async (params) => {
       inventoryItem: itemId,
       locationId,
       quantity,
-      reservationExpiresAt: expiresAt,
+      reservationExpiresAt,
       status: 'active',
       referenceType,
       referenceId,
@@ -476,6 +523,14 @@ export const consumeReservation = async (params) => {
     // Validate reservation is active
     if (reservation.status !== 'active') {
       throw new Error(`Reservation ${reservationId} is not active (status: ${reservation.status})`);
+    }
+
+    // Prevent consumption of expired reservations (Requirement 26.7)
+    if (reservation.reservationExpiresAt && reservation.reservationExpiresAt < new Date()) {
+      throw new Error(
+        `Reservation ${reservationId} has expired at ${reservation.reservationExpiresAt.toISOString()}. ` +
+        `Cannot consume expired reservation.`
+      );
     }
 
     // Validate quantity matches reservation

@@ -1,6 +1,7 @@
 import batchExpiryMonitoringJob from './batchExpiryMonitoringJob.js';
 import inventoryRecalculationJob from './inventoryRecalculationJob.js';
 import archivedDataCleanupJob from './archivedDataCleanupJob.js';
+import reservationExpiryCleanupJob from './reservationExpiryCleanupJob.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -31,6 +32,12 @@ class JobScheduler {
       schedule: 'monthly', // Run monthly
       dayOfMonth: 1, // First day of month
       time: '04:00' // 4 AM
+    });
+    
+    // Register reservation expiry cleanup job (runs every 5 minutes)
+    this.registerJob('reservationExpiryCleanup', reservationExpiryCleanupJob, {
+      schedule: 'interval', // Run at fixed interval
+      intervalMinutes: 5 // Every 5 minutes
     });
   }
 
@@ -117,6 +124,18 @@ class JobScheduler {
    */
   shouldRunJob(name, config, now) {
     const lastRun = this.getLastRunTime(name);
+    
+    // Handle interval-based scheduling (e.g., every 5 minutes)
+    if (config.schedule === 'interval') {
+      if (!lastRun) {
+        return true; // Run immediately if never run
+      }
+      
+      const timeSinceLastRun = now - lastRun;
+      const intervalMs = config.intervalMinutes * 60 * 1000;
+      
+      return timeSinceLastRun >= intervalMs;
+    }
     
     // If never run, check if it's time to run
     if (!lastRun) {
