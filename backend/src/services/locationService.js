@@ -7,6 +7,16 @@
 import { getCompanyDB } from '../config/database.js';
 import { getLocationModel } from '../models/company/Location.js';
 import { logger } from '../utils/logger.js';
+import {
+  parsePaginationParams,
+  buildPaginatedResponse,
+  buildFilterObject,
+  executePaginatedQuery,
+  generateCacheKey,
+  executeWithCache,
+  invalidateCacheByPrefix,
+  CACHE_CONFIG
+} from '../utils/queryOptimization.js';
 
 /**
  * Validate location capabilities based on type
@@ -181,6 +191,9 @@ export const createLocation = async (locationData, companyId) => {
 
     await location.save();
 
+    // Invalidate location cache
+    invalidateCacheByPrefix(`${CACHE_CONFIG.LOCATIONS.prefix}:${companyId}`);
+
     logger.info(`Location created: ${location._id} (${location.code}) for company: ${companyId}`);
 
     return location;
@@ -266,6 +279,9 @@ export const updateLocation = async (locationId, updateData, companyId) => {
     Object.assign(existingLocation, updateData);
     await existingLocation.save();
 
+    // Invalidate location cache
+    invalidateCacheByPrefix(`${CACHE_CONFIG.LOCATIONS.prefix}:${companyId}`);
+
     logger.info(`Location updated: ${locationId} for company: ${companyId}`);
 
     return existingLocation;
@@ -309,7 +325,7 @@ export const getLocation = async (locationId, companyId, includeArchived = false
 };
 
 /**
- * List locations with filtering
+ * List locations with filtering and pagination
  * @param {string} companyId - Company ID
  * @param {Object} filters - Filter options
  * @returns {Promise<Object>} Paginated locations
@@ -319,72 +335,60 @@ export const listLocations = async (companyId, filters = {}) => {
     const companyDB = getCompanyDB(companyId);
     const Location = getLocationModel(companyDB);
 
-    const {
-      page = 1,
-      limit = 10,
-      search = '',
-      type = '',
-      isActive = 'all',
-      includeArchived = false,
-      capability = ''
-    } = filters;
+    // Parse pagination parameters
+    const { page, limit, skip } = parsePaginationParams(filters);
 
-    // Build query
-    const query = {};
+    // Build filter object
+    const filterConfig = {
+      type: { type: 'enum', values: ['branch', 'warehouse', 'central_kitchen', 'cloud_kitchen'] },
+      isActive: { type: 'boolean' },
+      capability: { type: 'exact', field: `capabilities.${filters.capability}` }
+    };
 
-    // Status filter
-    if (isActive !== 'all') {
-      query.isActive = isActive === 'true' || isActive === true;
-    }
+    const query = buildFilterObject(filters, filterConfig);
 
     // Archived filter
-    if (!includeArchived) {
+    if (!filters.includeArchived) {
       query.isArchived = false;
     }
 
-    // Type filter
-    if (type && type !== 'all') {
-      query.type = type;
-    }
-
-    // Capability filter
-    if (capability && isValidCapability(capability)) {
-      query[`capabilities.${capability}`] = true;
-    }
-
     // Search filter
-    if (search) {
+    if (filters.search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { code: { $regex: search, $options: 'i' } },
-        { 'address.city': { $regex: search, $options: 'i' } },
-        { 'address.state': { $regex: search, $options: 'i' } }
+        { name: { $regex: filters.search, $options: 'i' } },
+        { code: { $regex: filters.search, $options: 'i' } },
+        { 'address.city': { $regex: filters.search, $options: 'i' } },
+        { 'address.state': { $regex: filters.search, $options: 'i' } }
       ];
     }
 
-    // Calculate pagination
-    const skip = (page - 1) * limit;
+    // Generate cache key
+    const cacheKey = generateCacheKey(
+      `${CACHE_CONFIG.LOCATIONS.prefix}:${companyId}`,
+      { query, page, limit }
+    );
 
-    // Execute query
-    const [locations, total] = await Promise.all([
-      Location.find(query)
-        .populate('preferredWarehouse', 'name code type')
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      Location.countDocuments(query)
-    ]);
+    // Execute with caching
+    const result = await executeWithCache(
+      cacheKey,
+      async () => {
+        // Execute paginated query
+        const [locations, total] = await Promise.all([
+          Location.find(query)
+            .populate('preferredWarehouse', 'name code type')
+            .sort({ name: 1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+          Location.countDocuments(query)
+        ]);
 
-    return {
-      locations,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
-      }
-    };
+        return buildPaginatedResponse(locations, total, page, limit);
+      },
+      CACHE_CONFIG.LOCATIONS.ttl
+    );
+
+    return result;
   } catch (error) {
     logger.error('Error listing locations:', error);
     throw error;
@@ -446,6 +450,9 @@ export const archiveLocation = async (locationId, companyId) => {
       throw new Error('Location not found');
     }
 
+    // Invalidate location cache
+    invalidateCacheByPrefix(`${CACHE_CONFIG.LOCATIONS.prefix}:${companyId}`);
+
     logger.info(`Location archived: ${locationId} for company: ${companyId}`);
 
     return location;
@@ -478,6 +485,9 @@ export const restoreLocation = async (locationId, companyId) => {
     if (!location) {
       throw new Error('Location not found');
     }
+
+    // Invalidate location cache
+    invalidateCacheByPrefix(`${CACHE_CONFIG.LOCATIONS.prefix}:${companyId}`);
 
     logger.info(`Location restored: ${locationId} for company: ${companyId}`);
 
