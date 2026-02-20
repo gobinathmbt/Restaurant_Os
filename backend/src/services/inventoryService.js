@@ -2478,3 +2478,16 @@ export const getStockAdjustmentDetails = async (adjustmentId, companyId, branchI
     throw error;
   }
 };
+
+// ============================================================================
+// Location-Based GRN Operations (New Architecture)
+// ============================================================================
+
+// Re-export location-based GRN functions from grnService
+export {
+  createGRNWithBatches,
+  getGRNsByLocation,
+  getGRNsBySupplier,
+  verifyGRN,
+  cancelGRN
+} from './grnService.js';
