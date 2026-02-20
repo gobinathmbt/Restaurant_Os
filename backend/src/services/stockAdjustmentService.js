@@ -2,6 +2,7 @@
  * Stock Adjustment Service
  * Business logic for stock adjustment operations
  * Handles manual stock corrections for physical count discrepancies, damage, theft, expiry
+ * Includes optimistic locking and retry logic for concurrent operations
  */
 
 import { getCompanyDB } from '../config/database.js';
@@ -11,6 +12,7 @@ import { getInventoryItemLocationModel } from '../models/company/InventoryItemLo
 import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
 import { logger } from '../utils/logger.js';
+import { withTransactionAndRetry } from '../utils/concurrencyControl.js';
 
 /**
  * Generate unique adjustment number
@@ -156,6 +158,15 @@ export const createAdjustment = async (adjustmentData, companyId) => {
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Approved adjustment
  */
+/**
+ * Approve a stock adjustment
+ * Updates inventory quantities and creates ledger entries
+ * Uses transaction with retry logic for concurrent operations
+ * @param {string} adjustmentId - Adjustment ID
+ * @param {string} userId - User approving the adjustment
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Approved adjustment
+ */
 export const approveAdjustment = async (adjustmentId, userId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
@@ -163,7 +174,7 @@ export const approveAdjustment = async (adjustmentId, userId, companyId) => {
     const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
 
-    // Get adjustment
+    // Get adjustment (outside transaction to validate early)
     const adjustment = await StockAdjustment.findById(adjustmentId);
     
     if (!adjustment) {
@@ -178,114 +189,128 @@ export const approveAdjustment = async (adjustmentId, userId, companyId) => {
       );
     }
 
-    // Start a session for transaction
-    const session = await companyDB.startSession();
-    
-    try {
-      await session.startTransaction();
+    // Execute with transaction and retry logic
+    const result = await withTransactionAndRetry(
+      companyDB,
+      async (session) => {
+        // Re-fetch adjustment within transaction to ensure latest state
+        const currentAdjustment = await StockAdjustment.findById(adjustmentId).session(session);
+        
+        if (!currentAdjustment) {
+          throw new Error(`Stock adjustment not found: ${adjustmentId}`);
+        }
 
-      // Process each item in the adjustment
-      for (const item of adjustment.items) {
-        // Get inventory at location
-        const inventory = await InventoryItemLocation.findOne({
-          locationId: adjustment.locationId,
-          inventoryItem: item.inventoryItem,
-          isActive: true
-        }).session(session);
-
-        if (!inventory) {
+        // Re-validate status (may have changed)
+        if (currentAdjustment.status !== 'draft' && currentAdjustment.status !== 'pending_approval') {
           throw new Error(
-            `Inventory item ${item.inventoryItem} not found at location ${adjustment.locationId}`
+            `Cannot approve adjustment with status '${currentAdjustment.status}'`
           );
         }
 
-        // Record quantities before changes
-        const beforeAvailable = inventory.availableQuantity;
-        const beforeReserved = inventory.reservedQuantity;
-        const beforeInTransit = inventory.inTransitQuantity;
-
-        // Update inventory quantity
-        inventory.availableQuantity += item.quantityDelta;
-
-        // Validate non-negative quantity
-        if (inventory.availableQuantity < 0) {
-          throw new Error(
-            `Adjustment would result in negative available quantity for item ${item.inventoryItem}. ` +
-            `Current: ${beforeAvailable}, Delta: ${item.quantityDelta}, Result: ${inventory.availableQuantity}`
-          );
-        }
-
-        await inventory.save({ session });
-
-        // If batch number is specified, update batch quantity
-        if (item.batchNumber) {
-          const batch = await InventoryBatchLocation.findOne({
-            locationId: adjustment.locationId,
+        // Process each item in the adjustment
+        for (const item of currentAdjustment.items) {
+          // Get inventory at location
+          const inventory = await InventoryItemLocation.findOne({
+            locationId: currentAdjustment.locationId,
             inventoryItem: item.inventoryItem,
-            batchNumber: item.batchNumber,
             isActive: true
           }).session(session);
 
-          if (batch) {
-            batch.availableQuantity += item.quantityDelta;
-            
-            // Validate non-negative batch quantity
-            if (batch.availableQuantity < 0) {
-              throw new Error(
-                `Adjustment would result in negative batch quantity for batch ${item.batchNumber}. ` +
-                `Current: ${batch.availableQuantity - item.quantityDelta}, Delta: ${item.quantityDelta}`
-              );
-            }
-
-            await batch.save({ session });
+          if (!inventory) {
+            throw new Error(
+              `Inventory item ${item.inventoryItem} not found at location ${currentAdjustment.locationId}`
+            );
           }
+
+          // Record quantities before changes
+          const beforeAvailable = inventory.availableQuantity;
+          const beforeReserved = inventory.reservedQuantity;
+          const beforeInTransit = inventory.inTransitQuantity;
+
+          // Update inventory quantity
+          inventory.availableQuantity += item.quantityDelta;
+
+          // Validate non-negative quantity
+          if (inventory.availableQuantity < 0) {
+            throw new Error(
+              `Adjustment would result in negative available quantity for item ${item.inventoryItem}. ` +
+              `Current: ${beforeAvailable}, Delta: ${item.quantityDelta}, Result: ${inventory.availableQuantity}`
+            );
+          }
+
+          inventory.version += 1;
+          await inventory.save({ session });
+
+          // If batch number is specified, update batch quantity
+          if (item.batchNumber) {
+            const batch = await InventoryBatchLocation.findOne({
+              locationId: currentAdjustment.locationId,
+              inventoryItem: item.inventoryItem,
+              batchNumber: item.batchNumber,
+              isActive: true
+            }).session(session);
+
+            if (batch) {
+              batch.availableQuantity += item.quantityDelta;
+              
+              // Validate non-negative batch quantity
+              if (batch.availableQuantity < 0) {
+                throw new Error(
+                  `Adjustment would result in negative batch quantity for batch ${item.batchNumber}. ` +
+                  `Current: ${batch.availableQuantity - item.quantityDelta}, Delta: ${item.quantityDelta}`
+                );
+              }
+
+              batch.version += 1;
+              await batch.save({ session });
+            }
+          }
+
+          // Record ledger entry
+          await recordLedgerEntry(
+            {
+              inventoryItem: item.inventoryItem,
+              locationId: currentAdjustment.locationId,
+              batchNumber: item.batchNumber,
+              movementType: 'adjustment',
+              quantityDelta: item.quantityDelta,
+              beforeAvailable: beforeAvailable,
+              afterAvailable: inventory.availableQuantity,
+              beforeReserved: beforeReserved,
+              afterReserved: inventory.reservedQuantity,
+              beforeInTransit: beforeInTransit,
+              afterInTransit: inventory.inTransitQuantity,
+              referenceType: 'ADJUSTMENT',
+              referenceId: currentAdjustment._id,
+              referenceNumber: currentAdjustment.adjustmentNumber,
+              performedBy: userId,
+              reason: item.reason,
+              notes: item.notes || `${currentAdjustment.adjustmentType} adjustment: ${currentAdjustment.adjustmentNumber}`,
+              correlationId: currentAdjustment._id.toString()
+            },
+            companyId
+          );
         }
 
-        // Record ledger entry
-        await recordLedgerEntry(
-          {
-            inventoryItem: item.inventoryItem,
-            locationId: adjustment.locationId,
-            batchNumber: item.batchNumber,
-            movementType: 'adjustment',
-            quantityDelta: item.quantityDelta,
-            beforeAvailable: beforeAvailable,
-            afterAvailable: inventory.availableQuantity,
-            beforeReserved: beforeReserved,
-            afterReserved: inventory.reservedQuantity,
-            beforeInTransit: beforeInTransit,
-            afterInTransit: inventory.inTransitQuantity,
-            referenceType: 'ADJUSTMENT',
-            referenceId: adjustment._id,
-            referenceNumber: adjustment.adjustmentNumber,
-            performedBy: userId,
-            reason: item.reason,
-            notes: item.notes || `${adjustment.adjustmentType} adjustment: ${adjustment.adjustmentNumber}`,
-            correlationId: adjustment._id.toString()
-          },
-          companyId
-        );
+        // Update adjustment status
+        currentAdjustment.status = 'approved';
+        currentAdjustment.approvedBy = userId;
+        currentAdjustment.approvedDate = new Date();
+        await currentAdjustment.save({ session });
+
+        return currentAdjustment;
+      },
+      {
+        operationName: `Approve adjustment ${adjustment.adjustmentNumber}`,
+        maxRetries: 3
       }
+    );
 
-      // Update adjustment status
-      adjustment.status = 'approved';
-      adjustment.approvedBy = userId;
-      adjustment.approvedDate = new Date();
-      await adjustment.save({ session });
+    logger.info(
+      `Stock adjustment approved: ${result.adjustmentNumber} by user ${userId} for company: ${companyId}`
+    );
 
-      await session.commitTransaction();
-
-      logger.info(
-        `Stock adjustment approved: ${adjustment.adjustmentNumber} by user ${userId} for company: ${companyId}`
-      );
-
-      return adjustment;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
+    return result;
   } catch (error) {
     logger.error('Error approving stock adjustment:', error);
     throw error;

@@ -2,6 +2,7 @@
  * Stock Transfer Service
  * Business logic for stock transfer operations with location-based architecture
  * Supports push and request transfer types with strict state machine validation
+ * Includes optimistic locking and retry logic for concurrent operations
  */
 
 import { getCompanyDB } from '../config/database.js';
@@ -12,6 +13,10 @@ import { validateCapability } from './locationService.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
 import { consumeInventoryFIFO } from './inventoryCostingService.js';
 import { logger } from '../utils/logger.js';
+import { 
+  withTransactionAndRetry, 
+  sortLocationsForLocking 
+} from '../utils/concurrencyControl.js';
 
 /**
  * Generate unique transfer number
@@ -169,6 +174,7 @@ export const createTransfer = async (transferData, companyId) => {
  * Approve a stock transfer
  * Deducts from source availableQuantity and adds to destination inTransitQuantity
  * Records ledger entries for both locations
+ * Uses transaction with retry logic for concurrent operations
  * @param {string} transferId - Transfer ID
  * @param {string} userId - User approving the transfer
  * @param {string} companyId - Company ID
@@ -180,7 +186,7 @@ export const approveTransfer = async (transferId, userId, companyId) => {
     const StockTransfer = getStockTransferModel(companyDB);
     const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
 
-    // Get transfer
+    // Get transfer (outside transaction to validate early)
     const transfer = await StockTransfer.findById(transferId);
     
     if (!transfer) {
@@ -199,143 +205,164 @@ export const approveTransfer = async (transferId, userId, companyId) => {
       );
     }
 
-    // Start a session for transaction
-    const session = await companyDB.startSession();
-    
-    try {
-      await session.startTransaction();
+    // Sort locations for deterministic lock ordering (prevents deadlocks)
+    const sortedLocations = sortLocationsForLocking([
+      transfer.fromLocation,
+      transfer.toLocation
+    ]);
 
-      // Process each item in the transfer
-      for (const item of transfer.items) {
-        // Get source inventory
-        const sourceInventory = await InventoryItemLocation.findOne({
-          locationId: transfer.fromLocation,
-          inventoryItem: item.inventoryItem,
-          isActive: true
-        }).session(session);
-
-        if (!sourceInventory) {
-          throw new Error(
-            `Inventory item ${item.inventoryItem} not found at source location`
-          );
-        }
-
-        // Check if sufficient available quantity exists
-        if (sourceInventory.availableQuantity < item.sentQuantity) {
-          throw new Error(
-            `Insufficient available quantity for item ${item.inventoryItem}. ` +
-            `Requested: ${item.sentQuantity}, Available: ${sourceInventory.availableQuantity}`
-          );
-        }
-
-        // Get or create destination inventory
-        let destInventory = await InventoryItemLocation.findOne({
-          locationId: transfer.toLocation,
-          inventoryItem: item.inventoryItem,
-          isActive: true
-        }).session(session);
-
-        if (!destInventory) {
-          // Create destination inventory if it doesn't exist
-          destInventory = new InventoryItemLocation({
-            inventoryItem: item.inventoryItem,
-            locationId: transfer.toLocation,
-            availableQuantity: 0,
-            reservedQuantity: 0,
-            inTransitQuantity: 0,
-            minimumStock: 0,
-            maximumStock: 0,
-            reorderPoint: 0,
-            costingMethod: sourceInventory.costingMethod || 'FIFO',
-            isActive: true,
-            isArchived: false
-          });
-          await destInventory.save({ session });
-        }
-
-        // Record quantities before changes
-        const sourceBeforeAvailable = sourceInventory.availableQuantity;
-        const sourceBeforeReserved = sourceInventory.reservedQuantity;
-        const sourceBeforeInTransit = sourceInventory.inTransitQuantity;
+    // Execute with transaction and retry logic
+    const result = await withTransactionAndRetry(
+      companyDB,
+      async (session) => {
+        // Re-fetch transfer within transaction to ensure latest state
+        const currentTransfer = await StockTransfer.findById(transferId).session(session);
         
-        const destBeforeAvailable = destInventory.availableQuantity;
-        const destBeforeReserved = destInventory.reservedQuantity;
-        const destBeforeInTransit = destInventory.inTransitQuantity;
+        if (!currentTransfer) {
+          throw new Error(`Transfer not found: ${transferId}`);
+        }
 
-        // Update source inventory: deduct from available
-        sourceInventory.availableQuantity -= item.sentQuantity;
-        await sourceInventory.save({ session });
+        // Re-validate state transition (may have changed)
+        if (!isValidStateTransition(currentTransfer.status, 'approved')) {
+          throw new Error(
+            `Cannot transition transfer from '${currentTransfer.status}' to 'approved'`
+          );
+        }
 
-        // Update destination inventory: add to in-transit
-        destInventory.inTransitQuantity += item.sentQuantity;
-        await destInventory.save({ session });
-
-        // Record ledger entry for source (transfer_out)
-        await recordLedgerEntry(
-          {
+        // Process each item in the transfer
+        for (const item of currentTransfer.items) {
+          // Get source inventory
+          const sourceInventory = await InventoryItemLocation.findOne({
+            locationId: currentTransfer.fromLocation,
             inventoryItem: item.inventoryItem,
-            locationId: transfer.fromLocation,
-            movementType: 'transfer_out',
-            quantityDelta: -item.sentQuantity,
-            beforeAvailable: sourceBeforeAvailable,
-            afterAvailable: sourceInventory.availableQuantity,
-            beforeReserved: sourceBeforeReserved,
-            afterReserved: sourceInventory.reservedQuantity,
-            beforeInTransit: sourceBeforeInTransit,
-            afterInTransit: sourceInventory.inTransitQuantity,
-            referenceType: 'TRANSFER',
-            referenceId: transfer._id,
-            referenceNumber: transfer.transferNumber,
-            performedBy: userId,
-            notes: `Transfer approved: ${transfer.transferNumber}`,
-            correlationId: transfer._id.toString()
-          },
-          companyId
-        );
+            isActive: true
+          }).session(session);
 
-        // Record ledger entry for destination (transfer_in to in-transit)
-        await recordLedgerEntry(
-          {
+          if (!sourceInventory) {
+            throw new Error(
+              `Inventory item ${item.inventoryItem} not found at source location`
+            );
+          }
+
+          // Check if sufficient available quantity exists
+          if (sourceInventory.availableQuantity < item.sentQuantity) {
+            throw new Error(
+              `Insufficient available quantity for item ${item.inventoryItem}. ` +
+              `Requested: ${item.sentQuantity}, Available: ${sourceInventory.availableQuantity}`
+            );
+          }
+
+          // Get or create destination inventory
+          let destInventory = await InventoryItemLocation.findOne({
+            locationId: currentTransfer.toLocation,
             inventoryItem: item.inventoryItem,
-            locationId: transfer.toLocation,
-            movementType: 'transfer_in',
-            quantityDelta: item.sentQuantity,
-            beforeAvailable: destBeforeAvailable,
-            afterAvailable: destInventory.availableQuantity,
-            beforeReserved: destBeforeReserved,
-            afterReserved: destInventory.reservedQuantity,
-            beforeInTransit: destBeforeInTransit,
-            afterInTransit: destInventory.inTransitQuantity,
-            referenceType: 'TRANSFER',
-            referenceId: transfer._id,
-            referenceNumber: transfer.transferNumber,
-            performedBy: userId,
-            notes: `Transfer approved (in-transit): ${transfer.transferNumber}`,
-            correlationId: transfer._id.toString()
-          },
-          companyId
-        );
+            isActive: true
+          }).session(session);
+
+          if (!destInventory) {
+            // Create destination inventory if it doesn't exist
+            destInventory = new InventoryItemLocation({
+              inventoryItem: item.inventoryItem,
+              locationId: currentTransfer.toLocation,
+              availableQuantity: 0,
+              reservedQuantity: 0,
+              inTransitQuantity: 0,
+              minimumStock: 0,
+              maximumStock: 0,
+              reorderPoint: 0,
+              costingMethod: sourceInventory.costingMethod || 'FIFO',
+              isActive: true,
+              isArchived: false,
+              version: 0
+            });
+            await destInventory.save({ session });
+          }
+
+          // Record quantities before changes
+          const sourceBeforeAvailable = sourceInventory.availableQuantity;
+          const sourceBeforeReserved = sourceInventory.reservedQuantity;
+          const sourceBeforeInTransit = sourceInventory.inTransitQuantity;
+          
+          const destBeforeAvailable = destInventory.availableQuantity;
+          const destBeforeReserved = destInventory.reservedQuantity;
+          const destBeforeInTransit = destInventory.inTransitQuantity;
+
+          // Update source inventory: deduct from available
+          sourceInventory.availableQuantity -= item.sentQuantity;
+          sourceInventory.version += 1;
+          await sourceInventory.save({ session });
+
+          // Update destination inventory: add to in-transit
+          destInventory.inTransitQuantity += item.sentQuantity;
+          destInventory.version += 1;
+          await destInventory.save({ session });
+
+          // Record ledger entry for source (transfer_out)
+          await recordLedgerEntry(
+            {
+              inventoryItem: item.inventoryItem,
+              locationId: currentTransfer.fromLocation,
+              movementType: 'transfer_out',
+              quantityDelta: -item.sentQuantity,
+              beforeAvailable: sourceBeforeAvailable,
+              afterAvailable: sourceInventory.availableQuantity,
+              beforeReserved: sourceBeforeReserved,
+              afterReserved: sourceInventory.reservedQuantity,
+              beforeInTransit: sourceBeforeInTransit,
+              afterInTransit: sourceInventory.inTransitQuantity,
+              referenceType: 'TRANSFER',
+              referenceId: currentTransfer._id,
+              referenceNumber: currentTransfer.transferNumber,
+              performedBy: userId,
+              notes: `Transfer approved: ${currentTransfer.transferNumber}`,
+              correlationId: currentTransfer._id.toString()
+            },
+            companyId
+          );
+
+          // Record ledger entry for destination (transfer_in to in-transit)
+          await recordLedgerEntry(
+            {
+              inventoryItem: item.inventoryItem,
+              locationId: currentTransfer.toLocation,
+              movementType: 'transfer_in',
+              quantityDelta: item.sentQuantity,
+              beforeAvailable: destBeforeAvailable,
+              afterAvailable: destInventory.availableQuantity,
+              beforeReserved: destBeforeReserved,
+              afterReserved: destInventory.reservedQuantity,
+              beforeInTransit: destBeforeInTransit,
+              afterInTransit: destInventory.inTransitQuantity,
+              referenceType: 'TRANSFER',
+              referenceId: currentTransfer._id,
+              referenceNumber: currentTransfer.transferNumber,
+              performedBy: userId,
+              notes: `Transfer approved (in-transit): ${currentTransfer.transferNumber}`,
+              correlationId: currentTransfer._id.toString()
+            },
+            companyId
+          );
+        }
+
+        // Update transfer status
+        currentTransfer.status = 'approved';
+        currentTransfer.approvedBy = userId;
+        currentTransfer.approvedDate = new Date();
+        await currentTransfer.save({ session });
+
+        return currentTransfer;
+      },
+      {
+        operationName: `Approve transfer ${transfer.transferNumber}`,
+        maxRetries: 3
       }
+    );
 
-      // Update transfer status
-      transfer.status = 'approved';
-      transfer.approvedBy = userId;
-      transfer.approvedDate = new Date();
-      await transfer.save({ session });
+    logger.info(
+      `Transfer approved: ${result.transferNumber} by user ${userId} for company: ${companyId}`
+    );
 
-      await session.commitTransaction();
-
-      logger.info(
-        `Transfer approved: ${transfer.transferNumber} by user ${userId} for company: ${companyId}`
-      );
-
-      return transfer;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
+    return result;
   } catch (error) {
     logger.error('Error approving transfer:', error);
     throw error;
@@ -348,6 +375,7 @@ export const approveTransfer = async (transferId, userId, companyId) => {
  * Subtracts from destination inTransitQuantity and adds to destination availableQuantity
  * Uses FIFO costing for batch-aware consumption if applicable
  * Records ledger entries with cost information
+ * Uses transaction with retry logic for concurrent operations
  * @param {string} transferId - Transfer ID
  * @param {string} userId - User completing the transfer
  * @param {Object} receivedQuantities - Map of item IDs to received quantities
@@ -360,7 +388,7 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
     const StockTransfer = getStockTransferModel(companyDB);
     const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
 
-    // Get transfer
+    // Get transfer (outside transaction to validate early)
     const transfer = await StockTransfer.findById(transferId);
     
     if (!transfer) {
@@ -375,117 +403,130 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
       );
     }
 
-    // Start a session for transaction
-    const session = await companyDB.startSession();
-    
-    try {
-      await session.startTransaction();
-
-      // Process each item in the transfer
-      for (const item of transfer.items) {
-        // Get received quantity (default to sent quantity if not specified)
-        const receivedQty = receivedQuantities?.[item.inventoryItem.toString()] ?? item.sentQuantity;
+    // Execute with transaction and retry logic
+    const result = await withTransactionAndRetry(
+      companyDB,
+      async (session) => {
+        // Re-fetch transfer within transaction to ensure latest state
+        const currentTransfer = await StockTransfer.findById(transferId).session(session);
         
-        // Update item with received quantity
-        item.receivedQuantity = receivedQty;
+        if (!currentTransfer) {
+          throw new Error(`Transfer not found: ${transferId}`);
+        }
 
-        // Get destination inventory
-        const destInventory = await InventoryItemLocation.findOne({
-          locationId: transfer.toLocation,
-          inventoryItem: item.inventoryItem,
-          isActive: true
-        }).session(session);
-
-        if (!destInventory) {
+        // Re-validate state transition (may have changed)
+        if (!isValidStateTransition(currentTransfer.status, 'completed')) {
           throw new Error(
-            `Inventory item ${item.inventoryItem} not found at destination location`
+            `Cannot transition transfer from '${currentTransfer.status}' to 'completed'`
           );
         }
 
-        // Validate in-transit quantity
-        if (destInventory.inTransitQuantity < item.sentQuantity) {
-          throw new Error(
-            `Insufficient in-transit quantity for item ${item.inventoryItem}. ` +
-            `Expected: ${item.sentQuantity}, In-transit: ${destInventory.inTransitQuantity}`
-          );
-        }
+        // Process each item in the transfer
+        for (const item of currentTransfer.items) {
+          // Get received quantity (default to sent quantity if not specified)
+          const receivedQty = receivedQuantities?.[item.inventoryItem.toString()] ?? item.sentQuantity;
+          
+          // Update item with received quantity
+          item.receivedQuantity = receivedQty;
 
-        // Record quantities before changes
-        const destBeforeAvailable = destInventory.availableQuantity;
-        const destBeforeReserved = destInventory.reservedQuantity;
-        const destBeforeInTransit = destInventory.inTransitQuantity;
-
-        // Update destination inventory: subtract from in-transit, add to available
-        destInventory.inTransitQuantity -= item.sentQuantity;
-        destInventory.availableQuantity += receivedQty;
-        await destInventory.save({ session });
-
-        // Get source inventory to check costing method
-        const sourceInventory = await InventoryItemLocation.findOne({
-          locationId: transfer.fromLocation,
-          inventoryItem: item.inventoryItem,
-          isActive: true
-        }).session(session);
-
-        let costInfo = null;
-
-        // If source uses FIFO costing, we would have consumed from batches during approval
-        // For now, we'll record the ledger entry without specific cost information
-        // (Task 31 will add batch cost tracking to transfers)
-        
-        // Record ledger entry for destination (completion)
-        await recordLedgerEntry(
-          {
+          // Get destination inventory
+          const destInventory = await InventoryItemLocation.findOne({
+            locationId: currentTransfer.toLocation,
             inventoryItem: item.inventoryItem,
-            locationId: transfer.toLocation,
-            movementType: 'transfer_in',
-            quantityDelta: receivedQty,
-            beforeAvailable: destBeforeAvailable,
-            afterAvailable: destInventory.availableQuantity,
-            beforeReserved: destBeforeReserved,
-            afterReserved: destInventory.reservedQuantity,
-            beforeInTransit: destBeforeInTransit,
-            afterInTransit: destInventory.inTransitQuantity,
-            referenceType: 'TRANSFER',
-            referenceId: transfer._id,
-            referenceNumber: transfer.transferNumber,
-            unitCost: costInfo?.unitCost,
-            totalValue: costInfo?.totalValue,
-            performedBy: userId,
-            notes: receivedQty !== item.sentQuantity 
-              ? `Transfer completed: ${transfer.transferNumber}. Received ${receivedQty} of ${item.sentQuantity} sent.`
-              : `Transfer completed: ${transfer.transferNumber}`,
-            correlationId: transfer._id.toString()
-          },
-          companyId
-        );
+            isActive: true
+          }).session(session);
 
-        // If received quantity differs from sent quantity, add note to item
-        if (receivedQty !== item.sentQuantity) {
-          item.notes = (item.notes || '') + 
-            ` [Discrepancy: Sent ${item.sentQuantity}, Received ${receivedQty}]`;
+          if (!destInventory) {
+            throw new Error(
+              `Inventory item ${item.inventoryItem} not found at destination location`
+            );
+          }
+
+          // Validate in-transit quantity
+          if (destInventory.inTransitQuantity < item.sentQuantity) {
+            throw new Error(
+              `Insufficient in-transit quantity for item ${item.inventoryItem}. ` +
+              `Expected: ${item.sentQuantity}, In-transit: ${destInventory.inTransitQuantity}`
+            );
+          }
+
+          // Record quantities before changes
+          const destBeforeAvailable = destInventory.availableQuantity;
+          const destBeforeReserved = destInventory.reservedQuantity;
+          const destBeforeInTransit = destInventory.inTransitQuantity;
+
+          // Update destination inventory: subtract from in-transit, add to available
+          destInventory.inTransitQuantity -= item.sentQuantity;
+          destInventory.availableQuantity += receivedQty;
+          destInventory.version += 1;
+          await destInventory.save({ session });
+
+          // Get source inventory to check costing method
+          const sourceInventory = await InventoryItemLocation.findOne({
+            locationId: currentTransfer.fromLocation,
+            inventoryItem: item.inventoryItem,
+            isActive: true
+          }).session(session);
+
+          let costInfo = null;
+
+          // If source uses FIFO costing, we would have consumed from batches during approval
+          // For now, we'll record the ledger entry without specific cost information
+          // (Task 31 will add batch cost tracking to transfers)
+          
+          // Record ledger entry for destination (completion)
+          await recordLedgerEntry(
+            {
+              inventoryItem: item.inventoryItem,
+              locationId: currentTransfer.toLocation,
+              movementType: 'transfer_in',
+              quantityDelta: receivedQty,
+              beforeAvailable: destBeforeAvailable,
+              afterAvailable: destInventory.availableQuantity,
+              beforeReserved: destBeforeReserved,
+              afterReserved: destInventory.reservedQuantity,
+              beforeInTransit: destBeforeInTransit,
+              afterInTransit: destInventory.inTransitQuantity,
+              referenceType: 'TRANSFER',
+              referenceId: currentTransfer._id,
+              referenceNumber: currentTransfer.transferNumber,
+              unitCost: costInfo?.unitCost,
+              totalValue: costInfo?.totalValue,
+              performedBy: userId,
+              notes: receivedQty !== item.sentQuantity 
+                ? `Transfer completed: ${currentTransfer.transferNumber}. Received ${receivedQty} of ${item.sentQuantity} sent.`
+                : `Transfer completed: ${currentTransfer.transferNumber}`,
+              correlationId: currentTransfer._id.toString()
+            },
+            companyId
+          );
+
+          // If received quantity differs from sent quantity, add note to item
+          if (receivedQty !== item.sentQuantity) {
+            item.notes = (item.notes || '') + 
+              ` [Discrepancy: Sent ${item.sentQuantity}, Received ${receivedQty}]`;
+          }
         }
+
+        // Update transfer status
+        currentTransfer.status = 'completed';
+        currentTransfer.completedBy = userId;
+        currentTransfer.completedDate = new Date();
+        await currentTransfer.save({ session });
+
+        return currentTransfer;
+      },
+      {
+        operationName: `Complete transfer ${transfer.transferNumber}`,
+        maxRetries: 3
       }
+    );
 
-      // Update transfer status
-      transfer.status = 'completed';
-      transfer.completedBy = userId;
-      transfer.completedDate = new Date();
-      await transfer.save({ session });
+    logger.info(
+      `Transfer completed: ${result.transferNumber} by user ${userId} for company: ${companyId}`
+    );
 
-      await session.commitTransaction();
-
-      logger.info(
-        `Transfer completed: ${transfer.transferNumber} by user ${userId} for company: ${companyId}`
-      );
-
-      return transfer;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
+    return result;
   } catch (error) {
     logger.error('Error completing transfer:', error);
     throw error;
@@ -807,6 +848,7 @@ export const getTransfersByStatus = async (status, companyId, options = {}) => {
  * Return a stock transfer
  * Subtracts from destination inTransitQuantity and adds back to source availableQuantity
  * Records ledger entries for both locations
+ * Uses transaction with retry logic for concurrent operations
  * @param {string} transferId - Transfer ID
  * @param {string} userId - User returning the transfer
  * @param {string} returnReason - Reason for return
@@ -824,7 +866,7 @@ export const returnTransfer = async (transferId, userId, returnReason, companyId
       throw new Error('Return reason is required');
     }
 
-    // Get transfer
+    // Get transfer (outside transaction to validate early)
     const transfer = await StockTransfer.findById(transferId);
     
     if (!transfer) {
@@ -839,136 +881,151 @@ export const returnTransfer = async (transferId, userId, returnReason, companyId
       );
     }
 
-    // Start a session for transaction
-    const session = await companyDB.startSession();
-    
-    try {
-      await session.startTransaction();
-
-      // Process each item in the transfer
-      for (const item of transfer.items) {
-        // Get destination inventory
-        const destInventory = await InventoryItemLocation.findOne({
-          locationId: transfer.toLocation,
-          inventoryItem: item.inventoryItem,
-          isActive: true
-        }).session(session);
-
-        if (!destInventory) {
-          throw new Error(
-            `Inventory item ${item.inventoryItem} not found at destination location`
-          );
-        }
-
-        // Validate in-transit quantity
-        if (destInventory.inTransitQuantity < item.sentQuantity) {
-          throw new Error(
-            `Insufficient in-transit quantity for item ${item.inventoryItem}. ` +
-            `Expected: ${item.sentQuantity}, In-transit: ${destInventory.inTransitQuantity}`
-          );
-        }
-
-        // Get source inventory
-        const sourceInventory = await InventoryItemLocation.findOne({
-          locationId: transfer.fromLocation,
-          inventoryItem: item.inventoryItem,
-          isActive: true
-        }).session(session);
-
-        if (!sourceInventory) {
-          throw new Error(
-            `Inventory item ${item.inventoryItem} not found at source location`
-          );
-        }
-
-        // Record quantities before changes
-        const destBeforeAvailable = destInventory.availableQuantity;
-        const destBeforeReserved = destInventory.reservedQuantity;
-        const destBeforeInTransit = destInventory.inTransitQuantity;
+    // Execute with transaction and retry logic
+    const result = await withTransactionAndRetry(
+      companyDB,
+      async (session) => {
+        // Re-fetch transfer within transaction to ensure latest state
+        const currentTransfer = await StockTransfer.findById(transferId).session(session);
         
-        const sourceBeforeAvailable = sourceInventory.availableQuantity;
-        const sourceBeforeReserved = sourceInventory.reservedQuantity;
-        const sourceBeforeInTransit = sourceInventory.inTransitQuantity;
+        if (!currentTransfer) {
+          throw new Error(`Transfer not found: ${transferId}`);
+        }
 
-        // Update destination inventory: subtract from in-transit
-        destInventory.inTransitQuantity -= item.sentQuantity;
-        await destInventory.save({ session });
+        // Re-validate state transition (may have changed)
+        if (!isValidStateTransition(currentTransfer.status, 'returned')) {
+          throw new Error(
+            `Cannot transition transfer from '${currentTransfer.status}' to 'returned'`
+          );
+        }
 
-        // Update source inventory: add back to available
-        sourceInventory.availableQuantity += item.sentQuantity;
-        await sourceInventory.save({ session });
-
-        // Record ledger entry for destination (return_out)
-        await recordLedgerEntry(
-          {
+        // Process each item in the transfer
+        for (const item of currentTransfer.items) {
+          // Get destination inventory
+          const destInventory = await InventoryItemLocation.findOne({
+            locationId: currentTransfer.toLocation,
             inventoryItem: item.inventoryItem,
-            locationId: transfer.toLocation,
-            movementType: 'return_out',
-            quantityDelta: -item.sentQuantity,
-            beforeAvailable: destBeforeAvailable,
-            afterAvailable: destInventory.availableQuantity,
-            beforeReserved: destBeforeReserved,
-            afterReserved: destInventory.reservedQuantity,
-            beforeInTransit: destBeforeInTransit,
-            afterInTransit: destInventory.inTransitQuantity,
-            referenceType: 'TRANSFER',
-            referenceId: transfer._id,
-            referenceNumber: transfer.transferNumber,
-            performedBy: userId,
-            reason: returnReason,
-            notes: `Transfer returned: ${transfer.transferNumber}. Reason: ${returnReason}`,
-            correlationId: transfer._id.toString()
-          },
-          companyId
-        );
+            isActive: true
+          }).session(session);
 
-        // Record ledger entry for source (return_in)
-        await recordLedgerEntry(
-          {
+          if (!destInventory) {
+            throw new Error(
+              `Inventory item ${item.inventoryItem} not found at destination location`
+            );
+          }
+
+          // Validate in-transit quantity
+          if (destInventory.inTransitQuantity < item.sentQuantity) {
+            throw new Error(
+              `Insufficient in-transit quantity for item ${item.inventoryItem}. ` +
+              `Expected: ${item.sentQuantity}, In-transit: ${destInventory.inTransitQuantity}`
+            );
+          }
+
+          // Get source inventory
+          const sourceInventory = await InventoryItemLocation.findOne({
+            locationId: currentTransfer.fromLocation,
             inventoryItem: item.inventoryItem,
-            locationId: transfer.fromLocation,
-            movementType: 'return_in',
-            quantityDelta: item.sentQuantity,
-            beforeAvailable: sourceBeforeAvailable,
-            afterAvailable: sourceInventory.availableQuantity,
-            beforeReserved: sourceBeforeReserved,
-            afterReserved: sourceInventory.reservedQuantity,
-            beforeInTransit: sourceBeforeInTransit,
-            afterInTransit: sourceInventory.inTransitQuantity,
-            referenceType: 'TRANSFER',
-            referenceId: transfer._id,
-            referenceNumber: transfer.transferNumber,
-            performedBy: userId,
-            reason: returnReason,
-            notes: `Transfer returned: ${transfer.transferNumber}. Reason: ${returnReason}`,
-            correlationId: transfer._id.toString()
-          },
-          companyId
-        );
+            isActive: true
+          }).session(session);
+
+          if (!sourceInventory) {
+            throw new Error(
+              `Inventory item ${item.inventoryItem} not found at source location`
+            );
+          }
+
+          // Record quantities before changes
+          const destBeforeAvailable = destInventory.availableQuantity;
+          const destBeforeReserved = destInventory.reservedQuantity;
+          const destBeforeInTransit = destInventory.inTransitQuantity;
+          
+          const sourceBeforeAvailable = sourceInventory.availableQuantity;
+          const sourceBeforeReserved = sourceInventory.reservedQuantity;
+          const sourceBeforeInTransit = sourceInventory.inTransitQuantity;
+
+          // Update destination inventory: subtract from in-transit
+          destInventory.inTransitQuantity -= item.sentQuantity;
+          destInventory.version += 1;
+          await destInventory.save({ session });
+
+          // Update source inventory: add back to available
+          sourceInventory.availableQuantity += item.sentQuantity;
+          sourceInventory.version += 1;
+          await sourceInventory.save({ session });
+
+          // Record ledger entry for destination (return_out)
+          await recordLedgerEntry(
+            {
+              inventoryItem: item.inventoryItem,
+              locationId: currentTransfer.toLocation,
+              movementType: 'return_out',
+              quantityDelta: -item.sentQuantity,
+              beforeAvailable: destBeforeAvailable,
+              afterAvailable: destInventory.availableQuantity,
+              beforeReserved: destBeforeReserved,
+              afterReserved: destInventory.reservedQuantity,
+              beforeInTransit: destBeforeInTransit,
+              afterInTransit: destInventory.inTransitQuantity,
+              referenceType: 'TRANSFER',
+              referenceId: currentTransfer._id,
+              referenceNumber: currentTransfer.transferNumber,
+              performedBy: userId,
+              reason: returnReason,
+              notes: `Transfer returned: ${currentTransfer.transferNumber}. Reason: ${returnReason}`,
+              correlationId: currentTransfer._id.toString()
+            },
+            companyId
+          );
+
+          // Record ledger entry for source (return_in)
+          await recordLedgerEntry(
+            {
+              inventoryItem: item.inventoryItem,
+              locationId: currentTransfer.fromLocation,
+              movementType: 'return_in',
+              quantityDelta: item.sentQuantity,
+              beforeAvailable: sourceBeforeAvailable,
+              afterAvailable: sourceInventory.availableQuantity,
+              beforeReserved: sourceBeforeReserved,
+              afterReserved: sourceInventory.reservedQuantity,
+              beforeInTransit: sourceBeforeInTransit,
+              afterInTransit: sourceInventory.inTransitQuantity,
+              referenceType: 'TRANSFER',
+              referenceId: currentTransfer._id,
+              referenceNumber: currentTransfer.transferNumber,
+              performedBy: userId,
+              reason: returnReason,
+              notes: `Transfer returned: ${currentTransfer.transferNumber}. Reason: ${returnReason}`,
+              correlationId: currentTransfer._id.toString()
+            },
+            companyId
+          );
+        }
+
+        // Update transfer status
+        currentTransfer.status = 'returned';
+        currentTransfer.returnedBy = userId;
+        currentTransfer.returnedDate = new Date();
+        currentTransfer.returnReason = returnReason;
+        await currentTransfer.save({ session });
+
+        return currentTransfer;
+      },
+      {
+        operationName: `Return transfer ${transfer.transferNumber}`,
+        maxRetries: 3
       }
+    );
 
-      // Update transfer status
-      transfer.status = 'returned';
-      transfer.returnedBy = userId;
-      transfer.returnedDate = new Date();
-      transfer.returnReason = returnReason;
-      await transfer.save({ session });
+    logger.info(
+      `Transfer returned: ${result.transferNumber} by user ${userId} for company: ${companyId}. Reason: ${returnReason}`
+    );
 
-      await session.commitTransaction();
-
-      logger.info(
-        `Transfer returned: ${transfer.transferNumber} by user ${userId} for company: ${companyId}. Reason: ${returnReason}`
-      );
-
-      return transfer;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
+    return result;
   } catch (error) {
     logger.error('Error returning transfer:', error);
     throw error;
   }
 };
+

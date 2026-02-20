@@ -2,6 +2,7 @@
  * GRN Service
  * Business logic for Goods Receipt Note (GRN) operations with location-based batch tracking
  * Implements Requirements: 8.1, 8.2, 8.4, 8.5, 17.2, 16.1, 25.1, 25.6
+ * Includes optimistic locking and retry logic for concurrent operations
  */
 
 import { getCompanyDB } from '../config/database.js';
@@ -12,6 +13,7 @@ import { validateCapability } from './locationService.js';
 import { createOrUpdateBatch } from './inventoryBatchLocationService.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
 import { logger } from '../utils/logger.js';
+import { withTransactionAndRetry } from '../utils/concurrencyControl.js';
 
 /**
  * Generate unique GRN number
@@ -92,165 +94,134 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
     throw error;
   }
   
-  // Check if transactions are supported
-  const supportsTransactions = companyDB.client?.topology?.description?.type !== 'Single';
-  
-  let session = null;
-  if (supportsTransactions) {
-    session = await companyDB.startSession();
-    session.startTransaction();
-  }
-  
-  try {
-    const GRN = getGRNModel(companyDB);
-    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
-    
-    // Generate GRN number
-    const grnNumber = await generateGRNNumber(companyId, grnData.locationId);
-    
-    // Calculate line item totals
-    const items = grnData.items.map(item => ({
-      ...item,
-      totalPrice: item.quantity * item.unitPrice
-    }));
-    
-    // Create GRN document
-    const grnDoc = {
-      grnNumber,
-      locationId: grnData.locationId,
-      supplier: grnData.supplierId,
-      purchaseOrder: grnData.purchaseOrder,
-      items,
-      receivedBy: userId,
-      receivedDate: grnData.receivedDate || new Date(),
-      status: grnData.status || 'received',
-      notes: grnData.notes,
-      invoiceNumber: grnData.invoiceNumber,
-      invoiceDate: grnData.invoiceDate,
-      paymentTerms: grnData.paymentTerms
-    };
-    
-    // Create GRN
-    let grn;
-    if (session) {
-      const grnArray = await GRN.create([grnDoc], { session });
-      grn = grnArray[0];
-    } else {
-      grn = await GRN.create(grnDoc);
-    }
-    
-    // Requirement 17.2: For each item, create or update InventoryBatchLocation
-    // Requirement 8.5: Update InventoryItemLocation availableQuantity
-    // Requirement 16.1: Record ledger entry with GRN reference
-    for (const item of items) {
-      // Get or create InventoryItemLocation
-      let inventoryItemLocation;
-      const query = InventoryItemLocation.findOne({
-        inventoryItem: item.inventoryItem,
-        locationId: grnData.locationId
-      });
+  // Execute with transaction and retry logic
+  const grn = await withTransactionAndRetry(
+    companyDB,
+    async (session) => {
+      const GRN = getGRNModel(companyDB);
+      const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
       
-      if (session) query.session(session);
-      inventoryItemLocation = await query;
+      // Generate GRN number
+      const grnNumber = await generateGRNNumber(companyId, grnData.locationId);
       
-      if (!inventoryItemLocation) {
-        // Create new InventoryItemLocation if it doesn't exist
-        const newInventoryItemLocation = {
-          inventoryItem: item.inventoryItem,
-          locationId: grnData.locationId,
-          availableQuantity: 0,
-          reservedQuantity: 0,
-          inTransitQuantity: 0,
-          minimumStock: 0,
-          costingMethod: 'FIFO',
-          isActive: true,
-          isArchived: false,
-          version: 0
-        };
-        
-        if (session) {
-          const result = await InventoryItemLocation.create([newInventoryItemLocation], { session });
-          inventoryItemLocation = result[0];
-        } else {
-          inventoryItemLocation = await InventoryItemLocation.create(newInventoryItemLocation);
-        }
-      }
+      // Calculate line item totals
+      const items = grnData.items.map(item => ({
+        ...item,
+        totalPrice: item.quantity * item.unitPrice
+      }));
       
-      // Store before state for ledger
-      const beforeAvailable = inventoryItemLocation.availableQuantity;
-      const beforeReserved = inventoryItemLocation.reservedQuantity;
-      const beforeInTransit = inventoryItemLocation.inTransitQuantity;
-      
-      // Update availableQuantity
-      inventoryItemLocation.availableQuantity += item.quantity;
-      inventoryItemLocation.lastPurchasePrice = item.unitPrice;
-      inventoryItemLocation.lastPurchaseDate = grn.receivedDate;
-      inventoryItemLocation.supplier = grnData.supplierId;
-      inventoryItemLocation.version += 1;
-      
-      if (session) {
-        await inventoryItemLocation.save({ session });
-      } else {
-        await inventoryItemLocation.save();
-      }
-      
-      // Create or update batch
-      const batchData = {
-        inventoryItem: item.inventoryItem,
+      // Create GRN document
+      const grnDoc = {
+        grnNumber,
         locationId: grnData.locationId,
-        batchNumber: item.batchNumber || `BATCH-${grnNumber}-${item.inventoryItem}`,
-        expiryDate: item.expiryDate,
-        manufacturingDate: item.manufacturingDate,
-        availableQuantity: item.quantity,
-        unitCost: item.unitPrice,
         supplier: grnData.supplierId,
-        grnReference: grn._id
+        purchaseOrder: grnData.purchaseOrder,
+        items,
+        receivedBy: userId,
+        receivedDate: grnData.receivedDate || new Date(),
+        status: grnData.status || 'received',
+        notes: grnData.notes,
+        invoiceNumber: grnData.invoiceNumber,
+        invoiceDate: grnData.invoiceDate,
+        paymentTerms: grnData.paymentTerms
       };
       
-      await createOrUpdateBatch(batchData, companyId);
+      // Create GRN
+      const grnArray = await GRN.create([grnDoc], { session });
+      const createdGrn = grnArray[0];
       
-      // Record ledger entry
-      await recordLedgerEntry({
-        inventoryItem: item.inventoryItem,
-        locationId: grnData.locationId,
-        batchNumber: batchData.batchNumber,
-        movementType: 'grn',
-        quantityDelta: item.quantity,
-        beforeAvailable,
-        afterAvailable: inventoryItemLocation.availableQuantity,
-        beforeReserved,
-        afterReserved: inventoryItemLocation.reservedQuantity,
-        beforeInTransit,
-        afterInTransit: inventoryItemLocation.inTransitQuantity,
-        referenceType: 'GRN',
-        referenceId: grn._id,
-        referenceNumber: grnNumber,
-        unitCost: item.unitPrice,
-        totalValue: item.totalPrice,
-        performedBy: userId,
-        notes: item.notes
-      }, companyId);
+      // Requirement 17.2: For each item, create or update InventoryBatchLocation
+      // Requirement 8.5: Update InventoryItemLocation availableQuantity
+      // Requirement 16.1: Record ledger entry with GRN reference
+      for (const item of items) {
+        // Get or create InventoryItemLocation
+        let inventoryItemLocation = await InventoryItemLocation.findOne({
+          inventoryItem: item.inventoryItem,
+          locationId: grnData.locationId
+        }).session(session);
+        
+        if (!inventoryItemLocation) {
+          // Create new InventoryItemLocation if it doesn't exist
+          const newInventoryItemLocation = {
+            inventoryItem: item.inventoryItem,
+            locationId: grnData.locationId,
+            availableQuantity: 0,
+            reservedQuantity: 0,
+            inTransitQuantity: 0,
+            minimumStock: 0,
+            costingMethod: 'FIFO',
+            isActive: true,
+            isArchived: false,
+            version: 0
+          };
+          
+          const result = await InventoryItemLocation.create([newInventoryItemLocation], { session });
+          inventoryItemLocation = result[0];
+        }
+        
+        // Store before state for ledger
+        const beforeAvailable = inventoryItemLocation.availableQuantity;
+        const beforeReserved = inventoryItemLocation.reservedQuantity;
+        const beforeInTransit = inventoryItemLocation.inTransitQuantity;
+        
+        // Update availableQuantity
+        inventoryItemLocation.availableQuantity += item.quantity;
+        inventoryItemLocation.lastPurchasePrice = item.unitPrice;
+        inventoryItemLocation.lastPurchaseDate = createdGrn.receivedDate;
+        inventoryItemLocation.supplier = grnData.supplierId;
+        inventoryItemLocation.version += 1;
+        
+        await inventoryItemLocation.save({ session });
+        
+        // Create or update batch
+        const batchData = {
+          inventoryItem: item.inventoryItem,
+          locationId: grnData.locationId,
+          batchNumber: item.batchNumber || `BATCH-${grnNumber}-${item.inventoryItem}`,
+          expiryDate: item.expiryDate,
+          manufacturingDate: item.manufacturingDate,
+          availableQuantity: item.quantity,
+          unitCost: item.unitPrice,
+          supplier: grnData.supplierId,
+          grnReference: createdGrn._id
+        };
+        
+        await createOrUpdateBatch(batchData, companyId);
+        
+        // Record ledger entry
+        await recordLedgerEntry({
+          inventoryItem: item.inventoryItem,
+          locationId: grnData.locationId,
+          batchNumber: batchData.batchNumber,
+          movementType: 'grn',
+          quantityDelta: item.quantity,
+          beforeAvailable,
+          afterAvailable: inventoryItemLocation.availableQuantity,
+          beforeReserved,
+          afterReserved: inventoryItemLocation.reservedQuantity,
+          beforeInTransit,
+          afterInTransit: inventoryItemLocation.inTransitQuantity,
+          referenceType: 'GRN',
+          referenceId: createdGrn._id,
+          referenceNumber: grnNumber,
+          unitCost: item.unitPrice,
+          totalValue: item.totalPrice,
+          performedBy: userId,
+          notes: item.notes
+        }, companyId);
+      }
+      
+      return createdGrn;
+    },
+    {
+      operationName: 'Create GRN with batches',
+      maxRetries: 3
     }
-    
-    // Commit transaction if using transactions
-    if (session) {
-      await session.commitTransaction();
-      session.endSession();
-    }
-    
-    logger.info(`GRN created with batches: ${grn._id} (${grnNumber}) for location: ${grnData.locationId}, company: ${companyId}`);
-    
-    return grn;
-  } catch (error) {
-    // Rollback transaction if using transactions
-    if (session) {
-      await session.abortTransaction();
-      session.endSession();
-    }
-    
-    logger.error('Error creating GRN with batches:', error);
-    throw error;
-  }
+  );
+  
+  logger.info(`GRN created with batches: ${grn._id} (${grn.grnNumber}) for location: ${grnData.locationId}, company: ${companyId}`);
+  
+  return grn;
 };
 
 /**
