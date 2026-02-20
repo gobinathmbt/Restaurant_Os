@@ -494,6 +494,316 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
 
 
 /**
+ * Reject a stock transfer
+ * Does not modify any inventory quantities
+ * Records rejection reason and user
+ * @param {string} transferId - Transfer ID
+ * @param {string} userId - User rejecting the transfer
+ * @param {string} rejectionReason - Reason for rejection
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Rejected transfer
+ */
+export const rejectTransfer = async (transferId, userId, rejectionReason, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+
+    // Validate rejection reason
+    if (!rejectionReason || rejectionReason.trim().length === 0) {
+      throw new Error('Rejection reason is required');
+    }
+
+    // Get transfer
+    const transfer = await StockTransfer.findById(transferId);
+    
+    if (!transfer) {
+      throw new Error(`Transfer not found: ${transferId}`);
+    }
+
+    // Validate state transition
+    if (!isValidStateTransition(transfer.status, 'rejected')) {
+      throw new Error(
+        `Cannot transition transfer from '${transfer.status}' to 'rejected'. ` +
+        `Transfer must be in 'pending' status to be rejected.`
+      );
+    }
+
+    // Update transfer status (no inventory changes)
+    transfer.status = 'rejected';
+    transfer.rejectedBy = userId;
+    transfer.rejectedDate = new Date();
+    transfer.rejectionReason = rejectionReason;
+    await transfer.save();
+
+    logger.info(
+      `Transfer rejected: ${transfer.transferNumber} by user ${userId} for company: ${companyId}. Reason: ${rejectionReason}`
+    );
+
+    return transfer;
+  } catch (error) {
+    logger.error('Error rejecting transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Cancel a stock transfer
+ * Does not modify any inventory quantities
+ * Can only be done by the initiator while transfer is pending
+ * @param {string} transferId - Transfer ID
+ * @param {string} userId - User cancelling the transfer
+ * @param {string} cancellationReason - Reason for cancellation
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Cancelled transfer
+ */
+export const cancelTransfer = async (transferId, userId, cancellationReason, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+
+    // Validate cancellation reason
+    if (!cancellationReason || cancellationReason.trim().length === 0) {
+      throw new Error('Cancellation reason is required');
+    }
+
+    // Get transfer
+    const transfer = await StockTransfer.findById(transferId);
+    
+    if (!transfer) {
+      throw new Error(`Transfer not found: ${transferId}`);
+    }
+
+    // Validate state transition
+    if (!isValidStateTransition(transfer.status, 'cancelled')) {
+      throw new Error(
+        `Cannot transition transfer from '${transfer.status}' to 'cancelled'. ` +
+        `Transfer must be in 'pending' status to be cancelled.`
+      );
+    }
+
+    // Update transfer status (no inventory changes)
+    transfer.status = 'cancelled';
+    transfer.cancelledBy = userId;
+    transfer.cancelledDate = new Date();
+    transfer.cancellationReason = cancellationReason;
+    await transfer.save();
+
+    logger.info(
+      `Transfer cancelled: ${transfer.transferNumber} by user ${userId} for company: ${companyId}. Reason: ${cancellationReason}`
+    );
+
+    return transfer;
+  } catch (error) {
+    logger.error('Error cancelling transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Get a single transfer by ID
+ * @param {string} transferId - Transfer ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Transfer
+ */
+export const getTransfer = async (transferId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+
+    const transfer = await StockTransfer.findById(transferId)
+      .populate('fromLocation', 'name code type address')
+      .populate('toLocation', 'name code type address')
+      .populate('items.inventoryItem', 'name itemCode unit')
+      .populate('requestedBy', 'name email')
+      .populate('approvedBy', 'name email')
+      .populate('completedBy', 'name email')
+      .populate('rejectedBy', 'name email')
+      .populate('cancelledBy', 'name email')
+      .populate('returnedBy', 'name email')
+      .lean();
+
+    if (!transfer) {
+      throw new Error(`Transfer not found: ${transferId}`);
+    }
+
+    return transfer;
+  } catch (error) {
+    logger.error('Error getting transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Get transfers by location
+ * @param {string} locationId - Location ID
+ * @param {string} direction - 'from', 'to', or 'both'
+ * @param {string} companyId - Company ID
+ * @param {Object} options - Query options (page, limit, status, etc.)
+ * @returns {Promise<Object>} Paginated transfers
+ */
+export const getTransfersByLocation = async (locationId, direction, companyId, options = {}) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+
+    const {
+      page = 1,
+      limit = 50,
+      status,
+      transferType,
+      startDate,
+      endDate
+    } = options;
+
+    // Build query
+    const query = {};
+
+    // Location filter
+    if (direction === 'from') {
+      query.fromLocation = locationId;
+    } else if (direction === 'to') {
+      query.toLocation = locationId;
+    } else if (direction === 'both') {
+      query.$or = [
+        { fromLocation: locationId },
+        { toLocation: locationId }
+      ];
+    } else {
+      throw new Error(`Invalid direction: ${direction}. Must be 'from', 'to', or 'both'`);
+    }
+
+    // Status filter
+    if (status) {
+      query.status = status;
+    }
+
+    // Transfer type filter
+    if (transferType) {
+      query.transferType = transferType;
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      query.requestDate = {};
+      if (startDate) {
+        query.requestDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.requestDate.$lte = new Date(endDate);
+      }
+    }
+
+    // Execute query with pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [transfers, total] = await Promise.all([
+      StockTransfer.find(query)
+        .populate('fromLocation', 'name code type')
+        .populate('toLocation', 'name code type')
+        .populate('items.inventoryItem', 'name itemCode')
+        .sort({ requestDate: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      StockTransfer.countDocuments(query)
+    ]);
+
+    return {
+      transfers,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting transfers by location:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Get transfers by status
+ * @param {string} status - Transfer status
+ * @param {string} companyId - Company ID
+ * @param {Object} options - Query options (page, limit, etc.)
+ * @returns {Promise<Object>} Paginated transfers
+ */
+export const getTransfersByStatus = async (status, companyId, options = {}) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+
+    const {
+      page = 1,
+      limit = 50,
+      transferType,
+      startDate,
+      endDate
+    } = options;
+
+    // Validate status
+    const validStatuses = ['pending', 'approved', 'completed', 'rejected', 'cancelled', 'returned'];
+    if (!validStatuses.includes(status)) {
+      throw new Error(`Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}`);
+    }
+
+    // Build query
+    const query = { status };
+
+    // Transfer type filter
+    if (transferType) {
+      query.transferType = transferType;
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      query.requestDate = {};
+      if (startDate) {
+        query.requestDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.requestDate.$lte = new Date(endDate);
+      }
+    }
+
+    // Execute query with pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [transfers, total] = await Promise.all([
+      StockTransfer.find(query)
+        .populate('fromLocation', 'name code type')
+        .populate('toLocation', 'name code type')
+        .populate('items.inventoryItem', 'name itemCode')
+        .sort({ requestDate: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      StockTransfer.countDocuments(query)
+    ]);
+
+    return {
+      transfers,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting transfers by status:', error);
+    throw error;
+  }
+};
+
+
+/**
  * Return a stock transfer
  * Subtracts from destination inTransitQuantity and adds back to source availableQuantity
  * Records ledger entries for both locations

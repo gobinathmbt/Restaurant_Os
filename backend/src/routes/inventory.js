@@ -38,6 +38,23 @@ import {
   getInventoryItemsForBranch,
   createInventoryItemWithBranches
 } from '../controllers/inventoryItemBranchController.js';
+import {
+  getInventoryByLocation,
+  getInventoryByItem,
+  getInventoryAtLocation,
+  getBatchesAtLocation,
+  getExpiringBatches,
+  getExpiredBatches,
+  reserveInventory,
+  releaseReservation,
+  consumeReservation
+} from '../controllers/locationInventoryController.js';
+import {
+  getLedgerForItemAtLocation,
+  getLedgerForLocation,
+  getInventoryMovements,
+  getLedgerForUser
+} from '../controllers/inventoryLedgerController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { validateAndAssignItemCategories } from '../middlewares/categoryBranchValidation.js';
 
@@ -96,5 +113,42 @@ router.post('/transfers', createStockTransfer);
 router.get('/transfers/:id', getStockTransferById);
 router.put('/transfers/:id/approve', approveStockTransfer);
 router.put('/transfers/:id/reject', rejectStockTransfer);
+
+// Location-based Inventory Management routes (NEW)
+// Get all inventory at a location
+router.get('/location/:locationId', getInventoryByLocation);
+
+// Get inventory for a specific item across all locations
+router.get('/item/:itemId', getInventoryByItem);
+
+// Get inventory for a specific item at a specific location
+router.get('/location/:locationId/item/:itemId', getInventoryAtLocation);
+
+// Get batches for a specific item at a location
+router.get('/location/:locationId/item/:itemId/batches', getBatchesAtLocation);
+
+// Get expiring batches at a location
+router.get('/location/:locationId/expiring', getExpiringBatches);
+
+// Get expired batches at a location
+router.get('/location/:locationId/expired', getExpiredBatches);
+
+// Reservation management
+router.post('/reserve', reserveInventory);
+router.post('/release', releaseReservation);
+router.post('/consume', consumeReservation);
+
+// Inventory Ledger routes (NEW - Task 14)
+// Get ledger entries for a specific item at a specific location
+router.get('/ledger/location/:locationId/item/:itemId', getLedgerForItemAtLocation);
+
+// Get all ledger entries for a specific location
+router.get('/ledger/location/:locationId', getLedgerForLocation);
+
+// Get inventory movements with filtering and grouping for reporting
+router.get('/ledger/movements', getInventoryMovements);
+
+// Get ledger entries for a specific user (audit trail)
+router.get('/ledger/user/:userId', getLedgerForUser);
 
 export default router;

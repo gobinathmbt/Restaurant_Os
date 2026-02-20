@@ -586,11 +586,14 @@ export const getInventoryAtLocation = async (locationId, itemId, companyId) => {
 };
 
 /**
- * Get all inventory at a location
+ * Get all inventory at a location with pagination support
  * @param {string} locationId - Location ID
  * @param {string} companyId - Company ID
  * @param {Object} filters - Optional filters
- * @returns {Promise<Array>} Array of inventory item locations
+ * @param {boolean} filters.includeArchived - Include archived items
+ * @param {number} filters.page - Page number (default: 1)
+ * @param {number} filters.limit - Items per page (default: 100)
+ * @returns {Promise<Object>} Paginated inventory results
  */
 export const getInventoryByLocation = async (locationId, companyId, filters = {}) => {
   try {
@@ -606,13 +609,30 @@ export const getInventoryByLocation = async (locationId, companyId, filters = {}
       delete query.isActive;
     }
 
-    const inventory = await InventoryItemLocation.find(query)
-      .populate('inventoryItem')
-      .populate('locationId')
-      .populate('supplier')
-      .sort({ 'inventoryItem.name': 1 });
+    // Pagination parameters
+    const page = filters.page || 1;
+    const limit = filters.limit || 100;
+    const skip = (page - 1) * limit;
 
-    return inventory;
+    // Execute query with pagination
+    const [items, total] = await Promise.all([
+      InventoryItemLocation.find(query)
+        .populate('inventoryItem')
+        .populate('locationId')
+        .populate('supplier')
+        .sort({ 'inventoryItem.name': 1 })
+        .skip(skip)
+        .limit(limit),
+      InventoryItemLocation.countDocuments(query)
+    ]);
+
+    return {
+      items,
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit)
+    };
   } catch (error) {
     logger.error('Error getting inventory by location:', error);
     throw error;

@@ -20,6 +20,7 @@ import { logger } from './src/utils/logger.js';
 import authRoutes from './src/routes/authRoutes.js';
 import notificationRoutes from './src/routes/notificationRoutes.js';
 import branchRoutes from './src/routes/branchRoutes.js';
+import locationRoutes from './src/routes/locationRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import platformConfigRoutes from './src/routes/platformConfigRoutes.js';
 import inventoryRoutes from './src/routes/inventory.js';
@@ -27,6 +28,10 @@ import recipeRoutes from './src/routes/recipes.js';
 import supplierRoutes from './src/routes/suppliers.js';
 import categoryRoutes from './src/routes/categories.js';
 import menuRoutes from './src/routes/menuRoutes.js';
+import stockTransferRoutes from './src/routes/stockTransferRoutes.js';
+import stockAdjustmentRoutes from './src/routes/stockAdjustmentRoutes.js';
+import grnRoutes from './src/routes/grnRoutes.js';
+import reportingRoutes from './src/routes/reportingRoutes.js';
 import socketManager from './src/config/socket.js';
 
 // Load environment variables from .env file
@@ -72,6 +77,7 @@ const startServer = async () => {
     app.use('/api/auth', authRoutes);
     app.use('/api/notifications', notificationRoutes);
     app.use('/api/branches', branchRoutes);
+    app.use('/api/locations', locationRoutes);
     app.use('/api/users', userRoutes);
     app.use('/api/platform-config', platformConfigRoutes);
     app.use('/api/inventory', inventoryRoutes);
@@ -79,6 +85,10 @@ const startServer = async () => {
     app.use('/api/suppliers', supplierRoutes);
     app.use('/api/categories', categoryRoutes);
     app.use('/api/menu', menuRoutes);
+    app.use('/api/transfers', stockTransferRoutes);
+    app.use('/api/adjustments', stockAdjustmentRoutes);
+    app.use('/api/grn', grnRoutes);
+    app.use('/api/reports', reportingRoutes);
 
     // Health check endpoint
     app.get('/health', (req, res) => {
