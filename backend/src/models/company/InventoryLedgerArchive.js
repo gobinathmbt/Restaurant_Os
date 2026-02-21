@@ -2,9 +2,9 @@ import mongoose from 'mongoose';
 
 /**
  * InventoryLedgerArchive Schema
- * Archive collection for old ledger entries (older than retention period)
- * Maintains performance as data grows (36M+ entries/year)
- * Same schema as InventoryLedger for consistency
+ * Archive collection for old inventory ledger entries
+ * Same schema as InventoryLedger for seamless archival and retrieval
+ * Entries older than retention period (default: 2 years) are moved here
  */
 const inventoryLedgerArchiveSchema = new mongoose.Schema({
   inventoryItem: {
@@ -27,22 +27,22 @@ const inventoryLedgerArchiveSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
-      'grn',
-      'transfer_out',
-      'transfer_in',
-      'return_in',
-      'return_out',
-      'adjustment',
-      'reservation',
-      'release',
-      'consumption',
-      'damage',
-      'expiry',
-      'theft'
+      'grn',              // Goods receipt from supplier
+      'transfer_out',     // Stock sent to another location
+      'transfer_in',      // Stock received from another location
+      'return_in',        // Returned stock received back
+      'return_out',       // Stock returned to source
+      'adjustment',       // Manual stock adjustment
+      'reservation',      // Stock reserved for order
+      'release',          // Reservation released
+      'consumption',      // Reserved stock consumed
+      'damage',           // Stock damaged/written off
+      'expiry',           // Stock expired
+      'theft'             // Stock theft/loss
     ]
   },
   
-  // Quantity change
+  // Quantity change (can be positive or negative)
   quantityDelta: {
     type: Number,
     required: true
@@ -112,33 +112,44 @@ const inventoryLedgerArchiveSchema = new mongoose.Schema({
     trim: true
   },
   
-  // Correlation ID
+  // Correlation ID for tracking related operations
   correlationId: {
     type: String,
     trim: true
   },
   
   // Archive metadata
-  archivedDate: {
+  archivedAt: {
     type: Date,
-    required: true,
     default: Date.now
   },
   originalCreatedAt: {
     type: Date,
     required: true
+  },
+  originalUpdatedAt: {
+    type: Date,
+    required: true
   }
 }, {
-  timestamps: false // Use originalCreatedAt instead
+  timestamps: false  // We preserve original timestamps
 });
 
 // Prevent updates and deletes (immutable archive)
 inventoryLedgerArchiveSchema.pre('findOneAndUpdate', function(next) {
-  next(new Error('Archived ledger entries are immutable and cannot be updated'));
+  next(new Error('Archived inventory ledger entries are immutable and cannot be updated'));
 });
 
 inventoryLedgerArchiveSchema.pre('findOneAndDelete', function(next) {
-  next(new Error('Archived ledger entries cannot be deleted'));
+  next(new Error('Archived inventory ledger entries cannot be deleted'));
+});
+
+inventoryLedgerArchiveSchema.pre('deleteOne', function(next) {
+  next(new Error('Archived inventory ledger entries cannot be deleted'));
+});
+
+inventoryLedgerArchiveSchema.pre('deleteMany', function(next) {
+  next(new Error('Archived inventory ledger entries cannot be deleted'));
 });
 
 // Same indexes as InventoryLedger for consistent query performance
@@ -147,7 +158,11 @@ inventoryLedgerArchiveSchema.index({ referenceType: 1, referenceId: 1 });
 inventoryLedgerArchiveSchema.index({ movementType: 1, originalCreatedAt: -1 });
 inventoryLedgerArchiveSchema.index({ originalCreatedAt: -1 });
 inventoryLedgerArchiveSchema.index({ performedBy: 1, originalCreatedAt: -1 });
-inventoryLedgerArchiveSchema.index({ archivedDate: 1 });
+inventoryLedgerArchiveSchema.index({ locationId: 1, originalCreatedAt: -1 });
+inventoryLedgerArchiveSchema.index({ inventoryItem: 1, originalCreatedAt: -1 });
+inventoryLedgerArchiveSchema.index({ batchNumber: 1, originalCreatedAt: -1 });
+inventoryLedgerArchiveSchema.index({ correlationId: 1 });
+inventoryLedgerArchiveSchema.index({ archivedAt: 1 });
 
 export const getInventoryLedgerArchiveModel = (companyDB) => {
   return companyDB.model('InventoryLedgerArchive', inventoryLedgerArchiveSchema);

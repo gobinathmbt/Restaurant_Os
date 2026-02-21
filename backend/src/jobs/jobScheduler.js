@@ -2,6 +2,7 @@ import batchExpiryMonitoringJob from './batchExpiryMonitoringJob.js';
 import inventoryRecalculationJob from './inventoryRecalculationJob.js';
 import archivedDataCleanupJob from './archivedDataCleanupJob.js';
 import reservationExpiryCleanupJob from './reservationExpiryCleanupJob.js';
+import ledgerArchivalJob from './ledgerArchivalJob.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -38,6 +39,13 @@ class JobScheduler {
     this.registerJob('reservationExpiryCleanup', reservationExpiryCleanupJob, {
       schedule: 'interval', // Run at fixed interval
       intervalMinutes: 5 // Every 5 minutes
+    });
+    
+    // Register ledger archival job (runs monthly)
+    this.registerJob('ledgerArchival', ledgerArchivalJob, {
+      schedule: 'monthly', // Run monthly
+      dayOfMonth: 1, // First day of month
+      time: '05:00' // 5 AM
     });
   }
 

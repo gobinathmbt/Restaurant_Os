@@ -10,6 +10,7 @@ import { getStockTransferModel } from '../models/company/StockTransfer.js';
 import { getStockBackorderModel } from '../models/company/StockBackorder.js';
 import { getLocationModel } from '../models/company/Location.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
+import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
 import { validateCapability } from './locationService.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
 import { consumeInventoryFIFO } from './inventoryCostingService.js';
@@ -340,6 +341,57 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
           const destBeforeReserved = destInventory.reservedQuantity;
           const destBeforeInTransit = destInventory.inTransitQuantity;
 
+          // For FIFO costing, consume batches and record costs
+          let batchCosts = [];
+          let totalCost = 0;
+          
+          if (sourceInventory.costingMethod === 'FIFO') {
+            // Get batches ordered by FIFO (expiry date ascending, then created date ascending)
+            const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
+            const batches = await InventoryBatchLocation.find({
+              locationId: currentTransfer.fromLocation,
+              inventoryItem: item.inventoryItem,
+              status: 'active',
+              availableQuantity: { $gt: 0 },
+              isActive: true
+            })
+              .sort({ expiryDate: 1, createdAt: 1 })
+              .session(session);
+
+            let remainingToConsume = actualSentQty;
+
+            for (const batch of batches) {
+              if (remainingToConsume <= 0) break;
+
+              const consumeFromBatch = Math.min(batch.availableQuantity, remainingToConsume);
+              
+              // Update batch quantity
+              batch.availableQuantity -= consumeFromBatch;
+              batch.version += 1;
+              await batch.save({ session });
+
+              // Calculate cost for this batch
+              const batchCost = consumeFromBatch * batch.unitCost;
+              totalCost += batchCost;
+
+              // Record batch cost information
+              batchCosts.push({
+                sourceBatchId: batch._id,
+                quantity: consumeFromBatch,
+                unitCost: batch.unitCost,
+                totalCost: batchCost
+              });
+
+              remainingToConsume -= consumeFromBatch;
+            }
+          }
+
+          // Store batch costs in transfer item
+          if (batchCosts.length > 0) {
+            item.batchCosts = batchCosts;
+            item.totalCost = totalCost;
+          }
+
           // Update source inventory: deduct from available
           sourceInventory.availableQuantity -= actualSentQty;
           sourceInventory.version += 1;
@@ -366,6 +418,8 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
               referenceType: 'TRANSFER',
               referenceId: currentTransfer._id,
               referenceNumber: currentTransfer.transferNumber,
+              unitCost: batchCosts.length > 0 ? totalCost / actualSentQty : undefined,
+              totalValue: batchCosts.length > 0 ? totalCost : undefined,
               performedBy: userId,
               notes: backorderedQty > 0 
                 ? `Transfer partially approved: ${currentTransfer.transferNumber} (sent: ${actualSentQty}, backordered: ${backorderedQty})`
@@ -391,6 +445,8 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
               referenceType: 'TRANSFER',
               referenceId: currentTransfer._id,
               referenceNumber: currentTransfer.transferNumber,
+              unitCost: batchCosts.length > 0 ? totalCost / actualSentQty : undefined,
+              totalValue: batchCosts.length > 0 ? totalCost : undefined,
               performedBy: userId,
               notes: backorderedQty > 0
                 ? `Transfer partially approved (in-transit): ${currentTransfer.transferNumber} (sent: ${actualSentQty}, backordered: ${backorderedQty})`
@@ -536,11 +592,55 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
             isActive: true
           }).session(session);
 
-          let costInfo = null;
+          // Create destination batches with costs from source batches
+          let totalCost = 0;
+          let averageUnitCost = 0;
 
-          // If source uses FIFO costing, we would have consumed from batches during approval
-          // For now, we'll record the ledger entry without specific cost information
-          // (Task 31 will add batch cost tracking to transfers)
+          if (item.batchCosts && item.batchCosts.length > 0) {
+            const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
+            
+            // Calculate proportional distribution if received quantity differs from sent quantity
+            const proportionReceived = receivedQty / item.sentQuantity;
+            
+            for (const batchCost of item.batchCosts) {
+              // Proportionally distribute received quantity across batch costs
+              const batchReceivedQty = batchCost.quantity * proportionReceived;
+              const batchReceivedCost = batchCost.totalCost * proportionReceived;
+              
+              if (batchReceivedQty > 0) {
+                // Create or update destination batch with same unit cost as source
+                const destBatch = await InventoryBatchLocation.findOneAndUpdate(
+                  {
+                    locationId: currentTransfer.toLocation,
+                    inventoryItem: item.inventoryItem,
+                    batchNumber: `TRF-${currentTransfer.transferNumber}-${batchCost.sourceBatchId}`,
+                    isActive: true
+                  },
+                  {
+                    $inc: { availableQuantity: batchReceivedQty },
+                    $setOnInsert: {
+                      unitCost: batchCost.unitCost,
+                      status: 'active',
+                      grnReference: currentTransfer._id,
+                      createdAt: new Date()
+                    },
+                    $set: {
+                      updatedAt: new Date()
+                    }
+                  },
+                  {
+                    upsert: true,
+                    new: true,
+                    session
+                  }
+                );
+
+                totalCost += batchReceivedCost;
+              }
+            }
+            
+            averageUnitCost = totalCost / receivedQty;
+          }
           
           // Record ledger entry for destination (completion)
           await recordLedgerEntry(
@@ -558,8 +658,8 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
               referenceType: 'TRANSFER',
               referenceId: currentTransfer._id,
               referenceNumber: currentTransfer.transferNumber,
-              unitCost: costInfo?.unitCost,
-              totalValue: costInfo?.totalValue,
+              unitCost: averageUnitCost > 0 ? averageUnitCost : undefined,
+              totalValue: totalCost > 0 ? totalCost : undefined,
               performedBy: userId,
               notes: receivedQty !== item.sentQuantity 
                 ? `Transfer completed: ${currentTransfer.transferNumber}. Received ${receivedQty} of ${item.sentQuantity} sent.`
