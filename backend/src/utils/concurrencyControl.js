@@ -308,6 +308,176 @@ export const sortLocationsForLocking = (locationIds) => {
 };
 
 /**
+ * Transfer serialization lock manager
+ * Ensures transfers between the same two locations are processed serially
+ * to prevent deadlocks from concurrent operations
+ */
+class TransferLockManager {
+  constructor() {
+    // Map of location pair keys to promise queues
+    this.locks = new Map();
+  }
+
+  /**
+   * Generate a unique key for a location pair
+   * Always sorts locations to ensure consistent key regardless of direction
+   * @param {string} locationId1 - First location ID
+   * @param {string} locationId2 - Second location ID
+   * @returns {string} Unique key for the location pair
+   */
+  _getLocationPairKey(locationId1, locationId2) {
+    const sorted = sortLocationsForLocking([locationId1, locationId2]);
+    return `${sorted[0]}_${sorted[1]}`;
+  }
+
+  /**
+   * Acquire lock for a location pair
+   * Returns a promise that resolves when the lock is acquired
+   * @param {string} locationId1 - First location ID
+   * @param {string} locationId2 - Second location ID
+   * @returns {Promise<Function>} Release function to call when done
+   */
+  async acquireLock(locationId1, locationId2) {
+    const key = this._getLocationPairKey(locationId1, locationId2);
+    
+    // Get or create the lock queue for this location pair
+    let lockQueue = this.locks.get(key);
+    
+    if (!lockQueue) {
+      lockQueue = {
+        queue: [],
+        locked: false
+      };
+      this.locks.set(key, lockQueue);
+    }
+
+    // Create a promise that will be resolved when this operation can proceed
+    const lockPromise = new Promise((resolve) => {
+      lockQueue.queue.push(resolve);
+    });
+
+    // If not currently locked, grant the lock immediately
+    if (!lockQueue.locked) {
+      lockQueue.locked = true;
+      const resolve = lockQueue.queue.shift();
+      resolve();
+    }
+
+    // Wait for the lock to be granted
+    await lockPromise;
+
+    // Return a release function
+    return () => this._releaseLock(key);
+  }
+
+  /**
+   * Release lock for a location pair
+   * Grants the lock to the next waiting operation if any
+   * @param {string} key - Location pair key
+   * @private
+   */
+  _releaseLock(key) {
+    const lockQueue = this.locks.get(key);
+    
+    if (!lockQueue) {
+      return;
+    }
+
+    // If there are more operations waiting, grant the lock to the next one
+    if (lockQueue.queue.length > 0) {
+      const resolve = lockQueue.queue.shift();
+      resolve();
+    } else {
+      // No more operations waiting, unlock and clean up
+      lockQueue.locked = false;
+      
+      // Clean up empty lock queues to prevent memory leaks
+      if (lockQueue.queue.length === 0) {
+        this.locks.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Get the number of active locks (for monitoring/debugging)
+   * @returns {number} Number of active locks
+   */
+  getActiveLockCount() {
+    return this.locks.size;
+  }
+
+  /**
+   * Get the number of waiting operations for a location pair (for monitoring/debugging)
+   * @param {string} locationId1 - First location ID
+   * @param {string} locationId2 - Second location ID
+   * @returns {number} Number of waiting operations
+   */
+  getWaitingCount(locationId1, locationId2) {
+    const key = this._getLocationPairKey(locationId1, locationId2);
+    const lockQueue = this.locks.get(key);
+    return lockQueue ? lockQueue.queue.length : 0;
+  }
+}
+
+// Global singleton instance
+const transferLockManager = new TransferLockManager();
+
+/**
+ * Execute transfer operation with serialization for same location pairs
+ * Ensures transfers between the same two locations are processed serially
+ * to prevent deadlocks from concurrent operations
+ * 
+ * @param {string} fromLocationId - Source location ID
+ * @param {string} toLocationId - Destination location ID
+ * @param {Function} operation - Async operation to execute
+ * @param {Object} options - Options
+ * @param {string} options.operationName - Name for logging
+ * @returns {Promise<any>} Result of operation
+ */
+export const withTransferSerialization = async (
+  fromLocationId,
+  toLocationId,
+  operation,
+  options = {}
+) => {
+  const operationName = options.operationName || 'Transfer operation';
+  
+  // Acquire lock for this location pair
+  const releaseLock = await transferLockManager.acquireLock(
+    fromLocationId,
+    toLocationId
+  );
+  
+  try {
+    logger.debug(
+      `${operationName}: Lock acquired for locations ${fromLocationId} <-> ${toLocationId}`
+    );
+    
+    // Execute the operation
+    const result = await operation();
+    
+    return result;
+  } finally {
+    // Always release the lock, even if operation fails
+    releaseLock();
+    
+    logger.debug(
+      `${operationName}: Lock released for locations ${fromLocationId} <-> ${toLocationId}`
+    );
+  }
+};
+
+/**
+ * Get transfer lock manager statistics (for monitoring)
+ * @returns {Object} Lock manager statistics
+ */
+export const getTransferLockStats = () => {
+  return {
+    activeLocks: transferLockManager.getActiveLockCount()
+  };
+};
+
+/**
  * Execute operation with transaction and retry logic
  * Combines transaction management with retry logic for concurrent operations
  * 
@@ -352,6 +522,8 @@ export default {
   updateMultipleWithOptimisticLock,
   sortLocationsForLocking,
   withTransactionAndRetry,
+  withTransferSerialization,
+  getTransferLockStats,
   isVersionConflictError,
   isDeadlockError,
   isRetryableError

@@ -10,9 +10,20 @@ const stockTransferItemSchema = new mongoose.Schema({
     ref: 'InventoryItem',
     required: true
   },
+  // Partial fulfillment support
+  requestedQuantity: {
+    type: Number,
+    required: true,
+    min: 0
+  },
   sentQuantity: {
     type: Number,
     required: true,
+    min: 0
+  },
+  backorderedQuantity: {
+    type: Number,
+    default: 0,
     min: 0
   },
   receivedQuantity: {

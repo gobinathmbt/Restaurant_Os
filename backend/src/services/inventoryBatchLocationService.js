@@ -8,6 +8,13 @@ import { getCompanyDB } from '../config/database.js';
 import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { logger } from '../utils/logger.js';
+import { 
+  getLocationTimezone, 
+  getStartOfDayInTimezone, 
+  getEndOfDayInTimezone,
+  addDaysInTimezone,
+  isExpiredInTimezone 
+} from '../utils/timezoneHelper.js';
 
 /**
  * Create or update a batch for GRN processing
@@ -192,6 +199,7 @@ export const getNextBatchForConsumption = async (locationId, inventoryItemId, co
 
 /**
  * Get batches expiring within specified number of days
+ * Uses location timezone for accurate expiry calculations
  * @param {string} locationId - Location ID
  * @param {number} daysUntilExpiry - Number of days to look ahead
  * @param {string} companyId - Company ID
@@ -203,22 +211,22 @@ export const getExpiringBatches = async (locationId, daysUntilExpiry, companyId,
     const companyDB = getCompanyDB(companyId);
     const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
 
-    // Calculate date range
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const futureDate = new Date(today);
-    futureDate.setDate(futureDate.getDate() + daysUntilExpiry);
-    futureDate.setHours(23, 59, 59, 999);
+    // Get location timezone for accurate expiry calculation
+    const timezone = await getLocationTimezone(locationId, companyId);
 
-    // Build query
+    // Calculate date range in location's timezone
+    const startDate = getStartOfDayInTimezone(timezone);
+    const futureDate = addDaysInTimezone(new Date(), daysUntilExpiry, timezone);
+    const endDate = getEndOfDayInTimezone(timezone, futureDate);
+
+    // Build query - all dates stored in UTC, comparison done with UTC dates
     const query = {
       locationId,
       isActive: true,
       status: 'active',
       expiryDate: {
-        $gte: today,
-        $lte: futureDate
+        $gte: startDate,
+        $lte: endDate
       },
       availableQuantity: { $gt: 0 }
     };
@@ -234,17 +242,19 @@ export const getExpiringBatches = async (locationId, daysUntilExpiry, companyId,
       .populate('grnReference', 'grnNumber receivedDate')
       .lean();
 
-    logger.info(`Found ${batches.length} batches expiring within ${daysUntilExpiry} days at location ${locationId}`);
+    logger.info(`Found ${batches.length} batches expiring within ${daysUntilExpiry} days at location ${locationId} (timezone: ${timezone})`);
 
     return batches;
   } catch (error) {
     logger.error('Error getting expiring batches:', error);
     throw error;
   }
+
 };
 
 /**
  * Get expired batches at a location
+ * Uses location timezone for accurate expiry determination
  * @param {string} locationId - Location ID
  * @param {string} companyId - Company ID
  * @param {string} inventoryItemId - Optional: filter by specific item
@@ -255,14 +265,17 @@ export const getExpiredBatches = async (locationId, companyId, inventoryItemId =
     const companyDB = getCompanyDB(companyId);
     const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Get location timezone for accurate expiry determination
+    const timezone = await getLocationTimezone(locationId, companyId);
 
-    // Build query - find batches with expiry date in the past
+    // Get start of today in location's timezone (converted to UTC)
+    const todayStart = getStartOfDayInTimezone(timezone);
+
+    // Build query - find batches with expiry date before today in location's timezone
     const query = {
       locationId,
       isActive: true,
-      expiryDate: { $lt: today },
+      expiryDate: { $lt: todayStart },
       availableQuantity: { $gt: 0 }
     };
 
@@ -277,7 +290,7 @@ export const getExpiredBatches = async (locationId, companyId, inventoryItemId =
       .populate('grnReference', 'grnNumber receivedDate')
       .lean();
 
-    logger.info(`Found ${batches.length} expired batches at location ${locationId}`);
+    logger.info(`Found ${batches.length} expired batches at location ${locationId} (timezone: ${timezone})`);
 
     return batches;
   } catch (error) {

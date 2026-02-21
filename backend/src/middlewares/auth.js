@@ -3,6 +3,7 @@ import { ENV } from '../config/env.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import PlatformAdmin from '../models/platform/PlatformAdmin.js';
 import { logger } from '../utils/logger.js';
+import { getCompanyDB } from '../config/database.js';
 
 /**
  * Authentication Middleware
@@ -189,3 +190,28 @@ export const requirePlatformSuperAdmin = (req, res, next) => {
 
   next();
 };
+
+/**
+ * Require Company DB Middleware
+ * Attaches companyDB connection to the request based on authenticated user's companyId
+ */
+export const requireCompanyDB = (req, res, next) => {
+  if (!req.user || !req.user.companyId) {
+    return res.status(400).json({
+      success: false,
+      message: 'Company context required'
+    });
+  }
+
+  try {
+    const companyDB = getCompanyDB(req.user.companyId);
+    req.companyDB = companyDB;
+    next();
+  } catch (error) {
+    logger.error('Failed to get company DB', error);
+    return res.status(500).json({ success: false, message: 'Failed to initialize company database' });
+  }
+};
+
+// Backwards-compatible aliases
+export const authenticateToken = authenticate;

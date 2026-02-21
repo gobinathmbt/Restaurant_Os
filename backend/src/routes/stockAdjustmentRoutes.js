@@ -13,6 +13,7 @@ import {
   getAdjustmentsByStatus
 } from '../controllers/stockAdjustmentController.js';
 import { authenticate } from '../middlewares/auth.js';
+import { idempotencyMiddleware } from '../middlewares/idempotency.js';
 
 const router = express.Router();
 
@@ -25,8 +26,8 @@ router.post('/', createAdjustment);
 // Get a single adjustment by ID
 router.get('/:id', getAdjustmentById);
 
-// Approve a stock adjustment
-router.put('/:id/approve', approveAdjustment);
+// Approve a stock adjustment (with idempotency support)
+router.put('/:id/approve', idempotencyMiddleware('ADJUSTMENT_APPROVAL'), approveAdjustment);
 
 // Reject a stock adjustment
 router.put('/:id/reject', rejectAdjustment);

@@ -3,10 +3,10 @@ import mongoose from 'mongoose';
 /**
  * StockBackorder Schema
  * Tracks unfulfilled quantities from partial transfer approvals
- * Enables realistic warehouse operations at scale
+ * Enables warehouse operations to send available stock immediately and backorder the rest
  */
 const stockBackorderSchema = new mongoose.Schema({
-  // Reference to original transfer
+  // Reference to original transfer that was partially fulfilled
   originalTransferId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'StockTransfer',
@@ -25,23 +25,26 @@ const stockBackorderSchema = new mongoose.Schema({
     required: true
   },
   
-  // Backorder details
+  // Item being backordered
   inventoryItem: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'InventoryItem',
     required: true
   },
+  
+  // Backorder quantity
   backorderedQuantity: {
     type: Number,
     required: true,
     min: 0
   },
+  
   unit: {
     type: String,
     required: true
   },
   
-  // Status
+  // Backorder status
   status: {
     type: String,
     required: true,
@@ -78,12 +81,6 @@ const stockBackorderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     required: true
   },
-  createdDate: {
-    type: Date,
-    required: true,
-    default: Date.now
-  },
-  
   notes: {
     type: String,
     trim: true
@@ -97,8 +94,9 @@ stockBackorderSchema.index({ fromLocation: 1, status: 1 });
 stockBackorderSchema.index({ toLocation: 1, status: 1 });
 stockBackorderSchema.index({ inventoryItem: 1, status: 1 });
 stockBackorderSchema.index({ originalTransferId: 1 });
-stockBackorderSchema.index({ fulfilledTransferId: 1 });
-stockBackorderSchema.index({ status: 1, createdDate: -1 });
+stockBackorderSchema.index({ status: 1, createdAt: -1 });
+stockBackorderSchema.index({ fromLocation: 1, inventoryItem: 1, status: 1 });
+stockBackorderSchema.index({ toLocation: 1, inventoryItem: 1, status: 1 });
 
 export const getStockBackorderModel = (companyDB) => {
   return companyDB.model('StockBackorder', stockBackorderSchema);

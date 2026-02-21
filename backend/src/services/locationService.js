@@ -209,6 +209,12 @@ export const createLocation = async (locationData, companyId) => {
  * @param {Object} updateData - Update data
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Updated location
+ * 
+ * Note on timezone changes:
+ * - Changing timezone does NOT retroactively change historical timestamps
+ * - All timestamps are stored in UTC in the database
+ * - Timezone changes only affect future expiry calculations and display conversions
+ * - Historical ledger entries, batch records, and transfers remain unchanged
  */
 export const updateLocation = async (locationId, updateData, companyId) => {
   try {
@@ -274,6 +280,11 @@ export const updateLocation = async (locationId, updateData, companyId) => {
     // Don't allow direct updates to isActive or isArchived through this method
     delete updateData.isActive;
     delete updateData.isArchived;
+
+    // Log timezone changes for audit purposes
+    if (updateData.timezone && updateData.timezone !== existingLocation.timezone) {
+      logger.info(`Timezone changed for location ${locationId} from ${existingLocation.timezone} to ${updateData.timezone}. Historical timestamps remain in UTC and are not modified.`);
+    }
 
     // Update location
     Object.assign(existingLocation, updateData);

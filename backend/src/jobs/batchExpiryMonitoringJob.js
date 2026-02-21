@@ -3,6 +3,7 @@ import { getInventoryBatchLocationModel } from '../models/company/InventoryBatch
 import { getLocationModel } from '../models/company/Location.js';
 import notificationService from '../services/notificationService.js';
 import { logger } from '../utils/logger.js';
+import { getStartOfDayInTimezone, getEndOfDayInTimezone, addDaysInTimezone } from '../utils/timezoneHelper.js';
 
 /**
  * Batch Expiry Monitoring Job
@@ -23,6 +24,7 @@ class BatchExpiryMonitoringJob {
 
   /**
    * Execute the batch expiry monitoring job for a specific company
+   * Uses timezone-aware calculations for each location
    * @param {string} companyId - Company ID
    * @param {Object} options - Job options
    * @returns {Promise<Object>} Job execution result
@@ -37,27 +39,46 @@ class BatchExpiryMonitoringJob {
       const Location = getLocationModel(companyDB);
 
       const expiryWarningDays = options.expiryWarningDays || this.expiryWarningDays;
-      const now = new Date();
-      const warningThreshold = new Date(now);
-      warningThreshold.setDate(warningThreshold.getDate() + expiryWarningDays);
 
-      // Step 1: Mark expired batches
-      const expiredResult = await this.markExpiredBatches(
-        InventoryBatchLocation,
-        now
-      );
+      // Get all active locations to process timezone-aware expiry
+      const locations = await Location.find({ isActive: true }).select('_id timezone').lean();
 
-      // Step 2: Find batches expiring soon
-      const expiringBatches = await this.findExpiringBatches(
-        InventoryBatchLocation,
-        now,
-        warningThreshold
-      );
+      let totalExpiredMarked = 0;
+      let totalExpiringFound = 0;
+      const allExpiringBatches = [];
+
+      // Process each location with its own timezone
+      for (const location of locations) {
+        const timezone = location.timezone || 'UTC';
+        
+        // Step 1: Mark expired batches for this location
+        const todayStart = getStartOfDayInTimezone(timezone);
+        const expiredResult = await this.markExpiredBatchesForLocation(
+          InventoryBatchLocation,
+          location._id,
+          todayStart
+        );
+        totalExpiredMarked += expiredResult.modifiedCount;
+
+        // Step 2: Find batches expiring soon for this location
+        const futureDate = addDaysInTimezone(new Date(), expiryWarningDays, timezone);
+        const warningThreshold = getEndOfDayInTimezone(timezone, futureDate);
+        
+        const expiringBatches = await this.findExpiringBatchesForLocation(
+          InventoryBatchLocation,
+          location._id,
+          todayStart,
+          warningThreshold
+        );
+        
+        totalExpiringFound += expiringBatches.length;
+        allExpiringBatches.push(...expiringBatches);
+      }
 
       // Step 3: Group by location and send notifications
       const notificationResult = await this.sendExpiryNotifications(
         companyId,
-        expiringBatches,
+        allExpiringBatches,
         Location,
         expiryWarningDays
       );
@@ -66,10 +87,11 @@ class BatchExpiryMonitoringJob {
       const result = {
         success: true,
         companyId,
-        executedAt: now,
+        executedAt: new Date(),
         duration,
-        expiredBatchesMarked: expiredResult.modifiedCount,
-        expiringBatchesFound: expiringBatches.length,
+        locationsProcessed: locations.length,
+        expiredBatchesMarked: totalExpiredMarked,
+        expiringBatchesFound: totalExpiringFound,
         notificationsSent: notificationResult.sent,
         notificationsFailed: notificationResult.failed
       };
@@ -91,17 +113,18 @@ class BatchExpiryMonitoringJob {
   }
 
   /**
-   * Mark batches as expired if their expiry date has passed
+   * Mark batches as expired for a specific location if their expiry date has passed
+   * Uses location timezone for accurate expiry determination
    * @param {Model} InventoryBatchLocation - Batch model
-   * @param {Date} now - Current date
+   * @param {string} locationId - Location ID
+   * @param {Date} todayStart - Start of today in location's timezone (UTC)
    * @returns {Promise<Object>} Update result
    */
-  async markExpiredBatches(InventoryBatchLocation, now) {
-    logger.info(`[${this.jobName}] Marking expired batches`);
-
+  async markExpiredBatchesForLocation(InventoryBatchLocation, locationId, todayStart) {
     const result = await InventoryBatchLocation.updateMany(
       {
-        expiryDate: { $lt: now },
+        locationId,
+        expiryDate: { $lt: todayStart },
         status: 'active',
         isActive: true
       },
@@ -110,23 +133,27 @@ class BatchExpiryMonitoringJob {
       }
     );
 
-    logger.info(`[${this.jobName}] Marked ${result.modifiedCount} batches as expired`);
+    if (result.modifiedCount > 0) {
+      logger.info(`[${this.jobName}] Marked ${result.modifiedCount} batches as expired at location ${locationId}`);
+    }
+    
     return result;
   }
 
   /**
-   * Find batches expiring within the warning threshold
+   * Find batches expiring within the warning threshold for a specific location
+   * Uses location timezone for accurate expiry calculation
    * @param {Model} InventoryBatchLocation - Batch model
-   * @param {Date} now - Current date
-   * @param {Date} warningThreshold - Warning threshold date
+   * @param {string} locationId - Location ID
+   * @param {Date} todayStart - Start of today in location's timezone (UTC)
+   * @param {Date} warningThreshold - Warning threshold date in location's timezone (UTC)
    * @returns {Promise<Array>} Expiring batches
    */
-  async findExpiringBatches(InventoryBatchLocation, now, warningThreshold) {
-    logger.info(`[${this.jobName}] Finding batches expiring between ${now.toISOString()} and ${warningThreshold.toISOString()}`);
-
+  async findExpiringBatchesForLocation(InventoryBatchLocation, locationId, todayStart, warningThreshold) {
     const expiringBatches = await InventoryBatchLocation.find({
+      locationId,
       expiryDate: {
-        $gte: now,
+        $gte: todayStart,
         $lte: warningThreshold
       },
       status: 'active',
@@ -137,10 +164,9 @@ class BatchExpiryMonitoringJob {
       ]
     })
       .populate('inventoryItem', 'name code category unit')
-      .populate('locationId', 'name code type')
+      .populate('locationId', 'name code type timezone')
       .lean();
 
-    logger.info(`[${this.jobName}] Found ${expiringBatches.length} batches expiring soon`);
     return expiringBatches;
   }
 

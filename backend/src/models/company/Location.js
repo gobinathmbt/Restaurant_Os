@@ -87,6 +87,11 @@ const locationSchema = new mongoose.Schema({
   },
   
   // Timezone support for global operations
+  // IMPORTANT: Changing timezone does not retroactively change historical timestamps
+  // All timestamps are stored in UTC. Timezone is only used for:
+  // 1. Calculating expiry dates (start/end of day in location timezone)
+  // 2. Converting timestamps for display to users
+  // Historical data remains in UTC and is not modified when timezone changes
   timezone: {
     type: String,
     default: 'UTC'

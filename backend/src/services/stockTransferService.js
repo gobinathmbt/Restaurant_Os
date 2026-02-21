@@ -7,6 +7,7 @@
 
 import { getCompanyDB } from '../config/database.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
+import { getStockBackorderModel } from '../models/company/StockBackorder.js';
 import { getLocationModel } from '../models/company/Location.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { validateCapability } from './locationService.js';
@@ -15,7 +16,8 @@ import { consumeInventoryFIFO } from './inventoryCostingService.js';
 import { logger } from '../utils/logger.js';
 import { 
   withTransactionAndRetry, 
-  sortLocationsForLocking 
+  sortLocationsForLocking,
+  withTransferSerialization
 } from '../utils/concurrencyControl.js';
 
 /**
@@ -180,11 +182,14 @@ export const createTransfer = async (transferData, companyId) => {
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Approved transfer
  */
-export const approveTransfer = async (transferId, userId, companyId) => {
+export const approveTransfer = async (transferId, userId, companyId, options = {}) => {
   try {
+    const { allowPartialFulfillment = true } = options;
+    
     const companyDB = getCompanyDB(companyId);
     const StockTransfer = getStockTransferModel(companyDB);
     const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const StockBackorder = getStockBackorderModel(companyDB);
 
     // Get transfer (outside transaction to validate early)
     const transfer = await StockTransfer.findById(transferId);
@@ -205,14 +210,19 @@ export const approveTransfer = async (transferId, userId, companyId) => {
       );
     }
 
-    // Sort locations for deterministic lock ordering (prevents deadlocks)
-    const sortedLocations = sortLocationsForLocking([
+    // Serialize transfers between same location pairs to prevent deadlocks
+    const result = await withTransferSerialization(
       transfer.fromLocation,
-      transfer.toLocation
-    ]);
+      transfer.toLocation,
+      async () => {
+        // Sort locations for deterministic lock ordering (prevents deadlocks)
+        const sortedLocations = sortLocationsForLocking([
+          transfer.fromLocation,
+          transfer.toLocation
+        ]);
 
-    // Execute with transaction and retry logic
-    const result = await withTransactionAndRetry(
+        // Execute with transaction and retry logic
+        return await withTransactionAndRetry(
       companyDB,
       async (session) => {
         // Re-fetch transfer within transaction to ensure latest state
@@ -229,6 +239,8 @@ export const approveTransfer = async (transferId, userId, companyId) => {
           );
         }
 
+        const backordersCreated = [];
+
         // Process each item in the transfer
         for (const item of currentTransfer.items) {
           // Get source inventory
@@ -244,12 +256,53 @@ export const approveTransfer = async (transferId, userId, companyId) => {
             );
           }
 
-          // Check if sufficient available quantity exists
-          if (sourceInventory.availableQuantity < item.sentQuantity) {
-            throw new Error(
-              `Insufficient available quantity for item ${item.inventoryItem}. ` +
-              `Requested: ${item.sentQuantity}, Available: ${sourceInventory.availableQuantity}`
-            );
+          // Determine actual quantity to send (partial fulfillment logic)
+          const requestedQty = item.requestedQuantity || item.sentQuantity;
+          const availableQty = sourceInventory.availableQuantity;
+          let actualSentQty = requestedQty;
+          let backorderedQty = 0;
+
+          if (availableQty < requestedQty) {
+            if (!allowPartialFulfillment) {
+              throw new Error(
+                `Insufficient available quantity for item ${item.inventoryItem}. ` +
+                `Requested: ${requestedQty}, Available: ${availableQty}`
+              );
+            }
+            
+            // Partial fulfillment: send what's available
+            actualSentQty = Math.min(availableQty, requestedQty);
+            backorderedQty = requestedQty - actualSentQty;
+          }
+
+          // Update item with actual quantities
+          if (!item.requestedQuantity) {
+            item.requestedQuantity = requestedQty;
+          }
+          item.sentQuantity = actualSentQty;
+          item.backorderedQuantity = backorderedQty;
+
+          // Create backorder record if there's unfulfilled quantity
+          if (backorderedQty > 0) {
+            const backorder = new StockBackorder({
+              originalTransferId: currentTransfer._id,
+              fromLocation: currentTransfer.fromLocation,
+              toLocation: currentTransfer.toLocation,
+              inventoryItem: item.inventoryItem,
+              backorderedQuantity: backorderedQty,
+              unit: item.unit,
+              status: 'pending',
+              createdBy: userId,
+              notes: `Backorder created from partial approval of transfer ${currentTransfer.transferNumber}`
+            });
+            
+            await backorder.save({ session });
+            backordersCreated.push(backorder);
+          }
+
+          // Skip inventory updates if nothing is being sent
+          if (actualSentQty === 0) {
+            continue;
           }
 
           // Get or create destination inventory
@@ -288,12 +341,12 @@ export const approveTransfer = async (transferId, userId, companyId) => {
           const destBeforeInTransit = destInventory.inTransitQuantity;
 
           // Update source inventory: deduct from available
-          sourceInventory.availableQuantity -= item.sentQuantity;
+          sourceInventory.availableQuantity -= actualSentQty;
           sourceInventory.version += 1;
           await sourceInventory.save({ session });
 
           // Update destination inventory: add to in-transit
-          destInventory.inTransitQuantity += item.sentQuantity;
+          destInventory.inTransitQuantity += actualSentQty;
           destInventory.version += 1;
           await destInventory.save({ session });
 
@@ -303,7 +356,7 @@ export const approveTransfer = async (transferId, userId, companyId) => {
               inventoryItem: item.inventoryItem,
               locationId: currentTransfer.fromLocation,
               movementType: 'transfer_out',
-              quantityDelta: -item.sentQuantity,
+              quantityDelta: -actualSentQty,
               beforeAvailable: sourceBeforeAvailable,
               afterAvailable: sourceInventory.availableQuantity,
               beforeReserved: sourceBeforeReserved,
@@ -314,7 +367,9 @@ export const approveTransfer = async (transferId, userId, companyId) => {
               referenceId: currentTransfer._id,
               referenceNumber: currentTransfer.transferNumber,
               performedBy: userId,
-              notes: `Transfer approved: ${currentTransfer.transferNumber}`,
+              notes: backorderedQty > 0 
+                ? `Transfer partially approved: ${currentTransfer.transferNumber} (sent: ${actualSentQty}, backordered: ${backorderedQty})`
+                : `Transfer approved: ${currentTransfer.transferNumber}`,
               correlationId: currentTransfer._id.toString()
             },
             companyId
@@ -326,7 +381,7 @@ export const approveTransfer = async (transferId, userId, companyId) => {
               inventoryItem: item.inventoryItem,
               locationId: currentTransfer.toLocation,
               movementType: 'transfer_in',
-              quantityDelta: item.sentQuantity,
+              quantityDelta: actualSentQty,
               beforeAvailable: destBeforeAvailable,
               afterAvailable: destInventory.availableQuantity,
               beforeReserved: destBeforeReserved,
@@ -337,7 +392,9 @@ export const approveTransfer = async (transferId, userId, companyId) => {
               referenceId: currentTransfer._id,
               referenceNumber: currentTransfer.transferNumber,
               performedBy: userId,
-              notes: `Transfer approved (in-transit): ${currentTransfer.transferNumber}`,
+              notes: backorderedQty > 0
+                ? `Transfer partially approved (in-transit): ${currentTransfer.transferNumber} (sent: ${actualSentQty}, backordered: ${backorderedQty})`
+                : `Transfer approved (in-transit): ${currentTransfer.transferNumber}`,
               correlationId: currentTransfer._id.toString()
             },
             companyId
@@ -350,16 +407,22 @@ export const approveTransfer = async (transferId, userId, companyId) => {
         currentTransfer.approvedDate = new Date();
         await currentTransfer.save({ session });
 
-        return currentTransfer;
+        return { transfer: currentTransfer, backorders: backordersCreated };
       },
       {
         operationName: `Approve transfer ${transfer.transferNumber}`,
         maxRetries: 3
       }
     );
+      },
+      {
+        operationName: `Approve transfer ${transfer.transferNumber} (serialized)`
+      }
+    );
 
     logger.info(
-      `Transfer approved: ${result.transferNumber} by user ${userId} for company: ${companyId}`
+      `Transfer approved: ${result.transfer.transferNumber} by user ${userId} for company: ${companyId}` +
+      (result.backorders.length > 0 ? ` with ${result.backorders.length} backorder(s) created` : '')
     );
 
     return result;
@@ -403,8 +466,13 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
       );
     }
 
-    // Execute with transaction and retry logic
-    const result = await withTransactionAndRetry(
+    // Serialize transfers between same location pairs to prevent deadlocks
+    const result = await withTransferSerialization(
+      transfer.fromLocation,
+      transfer.toLocation,
+      async () => {
+        // Execute with transaction and retry logic
+        return await withTransactionAndRetry(
       companyDB,
       async (session) => {
         // Re-fetch transfer within transaction to ensure latest state
@@ -519,6 +587,11 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
       {
         operationName: `Complete transfer ${transfer.transferNumber}`,
         maxRetries: 3
+      }
+    );
+      },
+      {
+        operationName: `Complete transfer ${transfer.transferNumber} (serialized)`
       }
     );
 
@@ -881,8 +954,13 @@ export const returnTransfer = async (transferId, userId, returnReason, companyId
       );
     }
 
-    // Execute with transaction and retry logic
-    const result = await withTransactionAndRetry(
+    // Serialize transfers between same location pairs to prevent deadlocks
+    const result = await withTransferSerialization(
+      transfer.fromLocation,
+      transfer.toLocation,
+      async () => {
+        // Execute with transaction and retry logic
+        return await withTransactionAndRetry(
       companyDB,
       async (session) => {
         // Re-fetch transfer within transaction to ensure latest state
@@ -1017,6 +1095,11 @@ export const returnTransfer = async (transferId, userId, returnReason, companyId
         maxRetries: 3
       }
     );
+      },
+      {
+        operationName: `Return transfer ${transfer.transferNumber} (serialized)`
+      }
+    );
 
     logger.info(
       `Transfer returned: ${result.transferNumber} by user ${userId} for company: ${companyId}. Reason: ${returnReason}`
@@ -1029,3 +1112,275 @@ export const returnTransfer = async (transferId, userId, returnReason, companyId
   }
 };
 
+
+/**
+ * Fulfill a backorder by creating a new transfer
+ * Links the new transfer to the original backorder
+ * Updates backorder status to fulfilled
+ * @param {string} backorderId - Backorder ID
+ * @param {string} userId - User fulfilling the backorder
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Object containing the new transfer and updated backorder
+ */
+export const fulfillBackorder = async (backorderId, userId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockBackorder = getStockBackorderModel(companyDB);
+    const StockTransfer = getStockTransferModel(companyDB);
+
+    // Get backorder (outside transaction to validate early)
+    const backorder = await StockBackorder.findById(backorderId);
+    
+    if (!backorder) {
+      throw new Error(`Backorder not found: ${backorderId}`);
+    }
+
+    // Validate backorder status
+    if (backorder.status !== 'pending') {
+      throw new Error(
+        `Cannot fulfill backorder with status '${backorder.status}'. ` +
+        `Backorder must be in 'pending' status.`
+      );
+    }
+
+    // Execute with transaction
+    const result = await withTransactionAndRetry(
+      companyDB,
+      async (session) => {
+        // Re-fetch backorder within transaction to ensure latest state
+        const currentBackorder = await StockBackorder.findById(backorderId).session(session);
+        
+        if (!currentBackorder) {
+          throw new Error(`Backorder not found: ${backorderId}`);
+        }
+
+        // Re-validate status (may have changed)
+        if (currentBackorder.status !== 'pending') {
+          throw new Error(
+            `Cannot fulfill backorder with status '${currentBackorder.status}'`
+          );
+        }
+
+        // Get original transfer for reference
+        const originalTransfer = await StockTransfer.findById(
+          currentBackorder.originalTransferId
+        ).session(session);
+
+        if (!originalTransfer) {
+          throw new Error(
+            `Original transfer not found: ${currentBackorder.originalTransferId}`
+          );
+        }
+
+        // Generate new transfer number
+        const transferNumber = await generateTransferNumber(companyDB);
+
+        // Create new transfer for backorder fulfillment
+        const newTransfer = new StockTransfer({
+          transferNumber,
+          fromLocation: currentBackorder.fromLocation,
+          toLocation: currentBackorder.toLocation,
+          transferType: originalTransfer.transferType,
+          items: [{
+            inventoryItem: currentBackorder.inventoryItem,
+            requestedQuantity: currentBackorder.backorderedQuantity,
+            sentQuantity: currentBackorder.backorderedQuantity,
+            backorderedQuantity: 0,
+            unit: currentBackorder.unit,
+            notes: `Backorder fulfillment for transfer ${originalTransfer.transferNumber}`
+          }],
+          status: 'pending',
+          requestedBy: userId,
+          requestDate: new Date(),
+          notes: `Backorder fulfillment for transfer ${originalTransfer.transferNumber} (Backorder ID: ${currentBackorder._id})`
+        });
+
+        await newTransfer.save({ session });
+
+        // Update backorder status
+        currentBackorder.status = 'fulfilled';
+        currentBackorder.fulfilledTransferId = newTransfer._id;
+        currentBackorder.fulfilledDate = new Date();
+        currentBackorder.fulfilledBy = userId;
+        await currentBackorder.save({ session });
+
+        return { transfer: newTransfer, backorder: currentBackorder };
+      },
+      {
+        operationName: `Fulfill backorder ${backorderId}`,
+        maxRetries: 3
+      }
+    );
+
+    logger.info(
+      `Backorder fulfilled: ${backorderId} with new transfer ${result.transfer.transferNumber} ` +
+      `by user ${userId} for company: ${companyId}`
+    );
+
+    return result;
+  } catch (error) {
+    logger.error('Error fulfilling backorder:', error);
+    throw error;
+  }
+};
+
+/**
+ * Cancel a backorder
+ * Updates backorder status to cancelled with reason
+ * @param {string} backorderId - Backorder ID
+ * @param {string} userId - User cancelling the backorder
+ * @param {string} cancellationReason - Reason for cancellation
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Cancelled backorder
+ */
+export const cancelBackorder = async (backorderId, userId, cancellationReason, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockBackorder = getStockBackorderModel(companyDB);
+
+    // Validate cancellation reason
+    if (!cancellationReason || cancellationReason.trim().length === 0) {
+      throw new Error('Cancellation reason is required');
+    }
+
+    // Get backorder (outside transaction to validate early)
+    const backorder = await StockBackorder.findById(backorderId);
+    
+    if (!backorder) {
+      throw new Error(`Backorder not found: ${backorderId}`);
+    }
+
+    // Validate backorder status
+    if (backorder.status !== 'pending') {
+      throw new Error(
+        `Cannot cancel backorder with status '${backorder.status}'. ` +
+        `Backorder must be in 'pending' status.`
+      );
+    }
+
+    // Execute with transaction
+    const result = await withTransactionAndRetry(
+      companyDB,
+      async (session) => {
+        // Re-fetch backorder within transaction to ensure latest state
+        const currentBackorder = await StockBackorder.findById(backorderId).session(session);
+        
+        if (!currentBackorder) {
+          throw new Error(`Backorder not found: ${backorderId}`);
+        }
+
+        // Re-validate status (may have changed)
+        if (currentBackorder.status !== 'pending') {
+          throw new Error(
+            `Cannot cancel backorder with status '${currentBackorder.status}'`
+          );
+        }
+
+        // Update backorder status
+        currentBackorder.status = 'cancelled';
+        currentBackorder.cancelledDate = new Date();
+        currentBackorder.cancelledBy = userId;
+        currentBackorder.cancellationReason = cancellationReason;
+        await currentBackorder.save({ session });
+
+        return currentBackorder;
+      },
+      {
+        operationName: `Cancel backorder ${backorderId}`,
+        maxRetries: 3
+      }
+    );
+
+    logger.info(
+      `Backorder cancelled: ${backorderId} by user ${userId} for company: ${companyId}. ` +
+      `Reason: ${cancellationReason}`
+    );
+
+    return result;
+  } catch (error) {
+    logger.error('Error cancelling backorder:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get pending backorders by location and optionally by item
+ * @param {string} locationId - Location ID (can be fromLocation or toLocation)
+ * @param {string} direction - 'from' or 'to' to specify location role
+ * @param {string} companyId - Company ID
+ * @param {Object} options - Query options (itemId, limit, skip)
+ * @returns {Promise<Array>} List of pending backorders
+ */
+export const getPendingBackorders = async (locationId, direction, companyId, options = {}) => {
+  try {
+    const { itemId, limit = 100, skip = 0 } = options;
+    
+    const companyDB = getCompanyDB(companyId);
+    const StockBackorder = getStockBackorderModel(companyDB);
+
+    // Build query
+    const query = {
+      status: 'pending'
+    };
+
+    if (direction === 'from') {
+      query.fromLocation = locationId;
+    } else if (direction === 'to') {
+      query.toLocation = locationId;
+    } else {
+      // Both directions
+      query.$or = [
+        { fromLocation: locationId },
+        { toLocation: locationId }
+      ];
+    }
+
+    if (itemId) {
+      query.inventoryItem = itemId;
+    }
+
+    const backorders = await StockBackorder.find(query)
+      .populate('inventoryItem', 'name code')
+      .populate('fromLocation', 'name code')
+      .populate('toLocation', 'name code')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip)
+      .lean();
+
+    return backorders;
+  } catch (error) {
+    logger.error('Error getting pending backorders:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get backorder by ID
+ * @param {string} backorderId - Backorder ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Backorder
+ */
+export const getBackorder = async (backorderId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockBackorder = getStockBackorderModel(companyDB);
+
+    const backorder = await StockBackorder.findById(backorderId)
+      .populate('inventoryItem', 'name code')
+      .populate('fromLocation', 'name code')
+      .populate('toLocation', 'name code')
+      .populate('originalTransferId')
+      .populate('fulfilledTransferId')
+      .lean();
+
+    if (!backorder) {
+      throw new Error(`Backorder not found: ${backorderId}`);
+    }
+
+    return backorder;
+  } catch (error) {
+    logger.error('Error getting backorder:', error);
+    throw error;
+  }
+};

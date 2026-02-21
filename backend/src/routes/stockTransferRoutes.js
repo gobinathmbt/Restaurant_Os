@@ -16,6 +16,7 @@ import {
   getTransfersByStatus
 } from '../controllers/stockTransferController.js';
 import { authenticate } from '../middlewares/auth.js';
+import { idempotencyMiddleware } from '../middlewares/idempotency.js';
 
 const router = express.Router();
 
@@ -28,8 +29,8 @@ router.post('/', createTransfer);
 // Get a single transfer by ID
 router.get('/:id', getTransferById);
 
-// Approve a stock transfer
-router.put('/:id/approve', approveTransfer);
+// Approve a stock transfer (with idempotency support)
+router.put('/:id/approve', idempotencyMiddleware('TRANSFER_APPROVAL'), approveTransfer);
 
 // Reject a stock transfer
 router.put('/:id/reject', rejectTransfer);

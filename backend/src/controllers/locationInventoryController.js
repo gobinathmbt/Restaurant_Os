@@ -8,6 +8,7 @@ import { getCompanyDB } from '../config/database.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getLocationModel } from '../models/company/Location.js';
+import { convertToTimezone } from '../utils/timezoneHelper.js';
 import * as locationInventoryService from '../services/locationInventoryService.js';
 import * as inventoryBatchLocationService from '../services/inventoryBatchLocationService.js';
 
@@ -193,6 +194,7 @@ export const getBatchesAtLocation = async (req, res, next) => {
 /**
  * GET /api/inventory/location/:locationId/expiring
  * Get batches expiring within specified days at a location
+ * Converts timestamps to location timezone for display
  */
 export const getExpiringBatches = async (req, res, next) => {
   try {
@@ -203,14 +205,16 @@ export const getExpiringBatches = async (req, res, next) => {
     const companyDB = getCompanyDB(companyId);
     const Location = getLocationModel(companyDB);
 
-    // Verify location exists
-    const location = await Location.findById(locationId);
+    // Verify location exists and get timezone
+    const location = await Location.findById(locationId).select('name timezone');
     if (!location) {
       return res.status(404).json({
         success: false,
         message: 'Location not found'
       });
     }
+
+    const timezone = location.timezone || 'UTC';
 
     // Get expiring batches
     const batches = await inventoryBatchLocationService.getExpiringBatches(
@@ -220,9 +224,21 @@ export const getExpiringBatches = async (req, res, next) => {
       itemId || null
     );
 
+    // Convert timestamps to location timezone for display
+    const batchesWithTimezone = batches.map(batch => ({
+      ...batch,
+      expiryDate: batch.expiryDate,
+      expiryDateDisplay: batch.expiryDate ? convertToTimezone(batch.expiryDate, timezone) : null,
+      manufacturingDate: batch.manufacturingDate,
+      manufacturingDateDisplay: batch.manufacturingDate ? convertToTimezone(batch.manufacturingDate, timezone) : null,
+      createdAt: batch.createdAt,
+      createdAtDisplay: convertToTimezone(batch.createdAt, timezone),
+      timezone
+    }));
+
     // Apply pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const paginatedBatches = batches.slice(skip, skip + parseInt(limit));
+    const paginatedBatches = batchesWithTimezone.slice(skip, skip + parseInt(limit));
 
     res.status(200).json({
       success: true,
@@ -232,7 +248,8 @@ export const getExpiringBatches = async (req, res, next) => {
         limit: parseInt(limit),
         total: batches.length,
         pages: Math.ceil(batches.length / parseInt(limit))
-      }
+      },
+      locationTimezone: timezone
     });
   } catch (error) {
     next(error);
@@ -242,6 +259,7 @@ export const getExpiringBatches = async (req, res, next) => {
 /**
  * GET /api/inventory/location/:locationId/expired
  * Get expired batches at a location
+ * Converts timestamps to location timezone for display
  */
 export const getExpiredBatches = async (req, res, next) => {
   try {
@@ -252,14 +270,16 @@ export const getExpiredBatches = async (req, res, next) => {
     const companyDB = getCompanyDB(companyId);
     const Location = getLocationModel(companyDB);
 
-    // Verify location exists
-    const location = await Location.findById(locationId);
+    // Verify location exists and get timezone
+    const location = await Location.findById(locationId).select('name timezone');
     if (!location) {
       return res.status(404).json({
         success: false,
         message: 'Location not found'
       });
     }
+
+    const timezone = location.timezone || 'UTC';
 
     // Get expired batches
     const batches = await inventoryBatchLocationService.getExpiredBatches(
@@ -268,9 +288,21 @@ export const getExpiredBatches = async (req, res, next) => {
       itemId || null
     );
 
+    // Convert timestamps to location timezone for display
+    const batchesWithTimezone = batches.map(batch => ({
+      ...batch,
+      expiryDate: batch.expiryDate,
+      expiryDateDisplay: batch.expiryDate ? convertToTimezone(batch.expiryDate, timezone) : null,
+      manufacturingDate: batch.manufacturingDate,
+      manufacturingDateDisplay: batch.manufacturingDate ? convertToTimezone(batch.manufacturingDate, timezone) : null,
+      createdAt: batch.createdAt,
+      createdAtDisplay: convertToTimezone(batch.createdAt, timezone),
+      timezone
+    }));
+
     // Apply pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const paginatedBatches = batches.slice(skip, skip + parseInt(limit));
+    const paginatedBatches = batchesWithTimezone.slice(skip, skip + parseInt(limit));
 
     res.status(200).json({
       success: true,
@@ -280,7 +312,8 @@ export const getExpiredBatches = async (req, res, next) => {
         limit: parseInt(limit),
         total: batches.length,
         pages: Math.ceil(batches.length / parseInt(limit))
-      }
+      },
+      locationTimezone: timezone
     });
   } catch (error) {
     next(error);

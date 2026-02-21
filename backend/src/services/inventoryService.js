@@ -1598,6 +1598,7 @@ export const createStockAdjustment = async (adjustmentData, companyId, branchId,
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
     const InventoryItem = getInventoryItemModel(companyDB);
+    const Branch = getBranchModel(companyDB);
     const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
 
