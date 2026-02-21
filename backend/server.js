@@ -30,6 +30,7 @@ import categoryRoutes from './src/routes/categories.js';
 import menuRoutes from './src/routes/menuRoutes.js';
 import stockTransferRoutes from './src/routes/stockTransferRoutes.js';
 import stockAdjustmentRoutes from './src/routes/stockAdjustmentRoutes.js';
+import stockCountSessionRoutes from './src/routes/stockCountSessionRoutes.js';
 import grnRoutes from './src/routes/grnRoutes.js';
 import reportingRoutes from './src/routes/reportingRoutes.js';
 import socketManager from './src/config/socket.js';
@@ -87,6 +88,7 @@ const startServer = async () => {
     app.use('/api/menu', menuRoutes);
     app.use('/api/transfers', stockTransferRoutes);
     app.use('/api/adjustments', stockAdjustmentRoutes);
+    app.use('/api/stock-count-sessions', stockCountSessionRoutes);
     app.use('/api/grn', grnRoutes);
     app.use('/api/reports', reportingRoutes);
 
