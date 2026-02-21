@@ -492,3 +492,62 @@ export const consumeReservation = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * GET /api/inventory/negative
+ * Get negative inventory report across all locations or for a specific location
+ * Requirement 35.5, 35.7
+ */
+export const getNegativeInventoryReport = async (req, res, next) => {
+  try {
+    const { locationId, page = 1, limit = 100 } = req.query;
+    const { companyId } = req.user;
+
+    const filters = {
+      page: parseInt(page),
+      limit: parseInt(limit)
+    };
+
+    if (locationId) {
+      filters.locationId = locationId;
+    }
+
+    const report = await locationInventoryService.getNegativeInventoryReport(
+      companyId,
+      filters
+    );
+
+    res.status(200).json({
+      success: true,
+      data: report.items,
+      pagination: {
+        page: report.page,
+        limit: report.limit,
+        total: report.total,
+        pages: report.pages
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/inventory/negative/summary
+ * Get summary statistics for negative inventory
+ * Requirement 35.5
+ */
+export const getNegativeInventorySummary = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+
+    const summary = await locationInventoryService.getNegativeInventorySummary(companyId);
+
+    res.status(200).json({
+      success: true,
+      data: summary
+    });
+  } catch (error) {
+    next(error);
+  }
+};

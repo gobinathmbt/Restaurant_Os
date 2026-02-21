@@ -61,6 +61,8 @@ export const updateAvailableQuantity = async (params) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const { getLocationModel } = await import('../models/company/Location.js');
+    const Location = getLocationModel(companyDB);
 
     // Get current inventory state
     const inventory = await InventoryItemLocation.findOne({
@@ -73,15 +75,34 @@ export const updateAvailableQuantity = async (params) => {
       throw new Error(`Inventory item ${itemId} not found at location ${locationId}`);
     }
 
+    // Get location for negative inventory policy (Requirement 35.1)
+    const location = await Location.findById(locationId).session(session);
+    if (!location) {
+      throw new Error(`Location ${locationId} not found`);
+    }
+
     // Calculate new quantity
     const newAvailableQuantity = inventory.availableQuantity + delta;
 
-    // Validate non-negativity (Requirement 2.6)
+    // Check negative inventory policy (Requirement 35.2, 35.3, 35.4)
     if (newAvailableQuantity < 0) {
-      throw new Error(
-        `Insufficient available quantity. Current: ${inventory.availableQuantity}, ` +
-        `Requested change: ${delta}, Would result in: ${newAvailableQuantity}`
-      );
+      const negativeInventoryPolicy = location.negativeInventoryPolicy || 'allow_never';
+      
+      if (negativeInventoryPolicy === 'allow_never') {
+        // Reject operation if policy is allow_never (Requirement 35.2)
+        throw new Error(
+          `Insufficient available quantity. Current: ${inventory.availableQuantity}, ` +
+          `Requested change: ${delta}, Would result in: ${newAvailableQuantity}. ` +
+          `Location policy does not allow negative inventory.`
+        );
+      } else if (negativeInventoryPolicy === 'allow_temporarily') {
+        // Flag for resolution if policy is allow_temporarily (Requirement 35.3)
+        logger.warn(
+          `Negative inventory flagged at location ${locationId} for item ${itemId}: ` +
+          `${inventory.availableQuantity} -> ${newAvailableQuantity}. Policy: allow_temporarily`
+        );
+      }
+      // If policy is 'allow_always', proceed without restriction (Requirement 35.4)
     }
 
     // Store before state for ledger
@@ -92,6 +113,23 @@ export const updateAvailableQuantity = async (params) => {
     // Update inventory quantity
     inventory.availableQuantity = newAvailableQuantity;
     inventory.version += 1; // Increment version for optimistic locking
+
+    // Update negative inventory flags (Requirement 35.7)
+    if (newAvailableQuantity < 0) {
+      if (!inventory.negativeInventoryFlags.isNegative) {
+        // First time going negative
+        inventory.negativeInventoryFlags.isNegative = true;
+        inventory.negativeInventoryFlags.negativeSince = new Date();
+      }
+      inventory.negativeInventoryFlags.negativeQuantity = Math.abs(newAvailableQuantity);
+    } else {
+      // Quantity is now positive, clear negative flags
+      if (inventory.negativeInventoryFlags.isNegative) {
+        inventory.negativeInventoryFlags.isNegative = false;
+        inventory.negativeInventoryFlags.negativeSince = null;
+        inventory.negativeInventoryFlags.negativeQuantity = 0;
+      }
+    }
 
     await inventory.save({ session });
 
@@ -690,6 +728,154 @@ export const getInventoryByLocation = async (locationId, companyId, filters = {}
     };
   } catch (error) {
     logger.error('Error getting inventory by location:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get locations with negative inventory
+ * Calculates duration of negative state for each item
+ * 
+ * @param {string} companyId - Company ID
+ * @param {Object} filters - Optional filters
+ * @param {string} filters.locationId - Filter by specific location
+ * @param {number} filters.page - Page number (default: 1)
+ * @param {number} filters.limit - Items per page (default: 100)
+ * @returns {Promise<Object>} Paginated negative inventory results with duration
+ */
+export const getNegativeInventoryReport = async (companyId, filters = {}) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+
+    // Build query for negative inventory (Requirement 35.5)
+    const query = {
+      'negativeInventoryFlags.isNegative': true,
+      isActive: true
+    };
+
+    // Filter by location if specified
+    if (filters.locationId) {
+      query.locationId = filters.locationId;
+    }
+
+    // Pagination parameters
+    const page = filters.page || 1;
+    const limit = filters.limit || 100;
+    const skip = (page - 1) * limit;
+
+    // Execute query with pagination
+    const [items, total] = await Promise.all([
+      InventoryItemLocation.find(query)
+        .populate('inventoryItem')
+        .populate('locationId')
+        .populate('supplier')
+        .sort({ 'negativeInventoryFlags.negativeSince': 1 }) // Oldest negative first
+        .skip(skip)
+        .limit(limit),
+      InventoryItemLocation.countDocuments(query)
+    ]);
+
+    // Calculate duration of negative state for each item (Requirement 35.7)
+    const now = new Date();
+    const itemsWithDuration = items.map(item => {
+      const negativeSince = item.negativeInventoryFlags.negativeSince;
+      let durationDays = 0;
+      let durationHours = 0;
+      
+      if (negativeSince) {
+        const durationMs = now - negativeSince;
+        durationDays = Math.floor(durationMs / (1000 * 60 * 60 * 24));
+        durationHours = Math.floor((durationMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      }
+
+      return {
+        ...item.toObject(),
+        negativeDuration: {
+          days: durationDays,
+          hours: durationHours,
+          totalHours: Math.floor((now - negativeSince) / (1000 * 60 * 60))
+        }
+      };
+    });
+
+    return {
+      items: itemsWithDuration,
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit)
+    };
+  } catch (error) {
+    logger.error('Error getting negative inventory report:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get summary statistics for negative inventory across all locations
+ * 
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Summary statistics
+ */
+export const getNegativeInventorySummary = async (companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+
+    // Count total negative inventory items
+    const totalNegativeItems = await InventoryItemLocation.countDocuments({
+      'negativeInventoryFlags.isNegative': true,
+      isActive: true
+    });
+
+    // Get locations with negative inventory
+    const locationsWithNegative = await InventoryItemLocation.aggregate([
+      {
+        $match: {
+          'negativeInventoryFlags.isNegative': true,
+          isActive: true
+        }
+      },
+      {
+        $group: {
+          _id: '$locationId',
+          negativeItemCount: { $sum: 1 },
+          totalNegativeQuantity: { $sum: '$negativeInventoryFlags.negativeQuantity' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'locations',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'location'
+        }
+      },
+      {
+        $unwind: '$location'
+      },
+      {
+        $project: {
+          locationId: '$_id',
+          locationName: '$location.name',
+          locationCode: '$location.code',
+          negativeItemCount: 1,
+          totalNegativeQuantity: 1
+        }
+      },
+      {
+        $sort: { negativeItemCount: -1 }
+      }
+    ]);
+
+    return {
+      totalNegativeItems,
+      affectedLocationsCount: locationsWithNegative.length,
+      locationBreakdown: locationsWithNegative
+    };
+  } catch (error) {
+    logger.error('Error getting negative inventory summary:', error);
     throw error;
   }
 };

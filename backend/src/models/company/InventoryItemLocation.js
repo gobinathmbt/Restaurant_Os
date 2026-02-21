@@ -21,8 +21,8 @@ const inventoryItemLocationSchema = new mongoose.Schema({
   availableQuantity: {
     type: Number,
     required: true,
-    default: 0,
-    min: 0
+    default: 0
+    // Note: No min constraint - negative inventory is controlled by location policy
   },
   reservedQuantity: {
     type: Number,

@@ -47,7 +47,9 @@ import {
   getExpiredBatches,
   reserveInventory,
   releaseReservation,
-  consumeReservation
+  consumeReservation,
+  getNegativeInventoryReport,
+  getNegativeInventorySummary
 } from '../controllers/locationInventoryController.js';
 import {
   getLedgerForItemAtLocation,
@@ -137,6 +139,13 @@ router.get('/location/:locationId/expired', getExpiredBatches);
 router.post('/reserve', reserveInventory);
 router.post('/release', releaseReservation);
 router.post('/consume', consumeReservation);
+
+// Negative inventory reporting (NEW - Task 37.4)
+// Get negative inventory report (all locations or filtered by location)
+router.get('/negative', getNegativeInventoryReport);
+
+// Get negative inventory summary statistics
+router.get('/negative/summary', getNegativeInventorySummary);
 
 // Inventory Ledger routes (NEW - Task 14)
 // Get ledger entries for a specific item at a specific location
