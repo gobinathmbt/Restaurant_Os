@@ -11,6 +11,7 @@ import { getLocationModel } from '../models/company/Location.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
+import { publishDomainEvent } from './domainEventService.js';
 import { logger } from '../utils/logger.js';
 import { withTransactionAndRetry } from '../utils/concurrencyControl.js';
 
@@ -137,6 +138,22 @@ export const createAdjustment = async (adjustmentData, companyId) => {
     });
 
     await adjustment.save();
+
+    // Publish domain event
+    await publishDomainEvent(companyDB, {
+      eventType: 'ADJUSTMENT_CREATED',
+      entityType: 'ADJUSTMENT',
+      entityId: adjustment._id,
+      payload: {
+        adjustmentNumber: adjustment.adjustmentNumber,
+        adjustmentType: adjustment.adjustmentType,
+        locationId: adjustment.locationId,
+        itemCount: adjustment.items.length,
+        status: adjustment.status
+      },
+      userId: adjustmentData.createdBy,
+      locationId: adjustment.locationId
+    }, companyId);
 
     logger.info(
       `Stock adjustment created: ${adjustment.adjustmentNumber} ` +
@@ -298,6 +315,21 @@ export const approveAdjustment = async (adjustmentId, userId, companyId) => {
         currentAdjustment.approvedDate = new Date();
         await currentAdjustment.save({ session });
 
+        // Publish domain event
+        await publishDomainEvent(companyDB, {
+          eventType: 'ADJUSTMENT_APPROVED',
+          entityType: 'ADJUSTMENT',
+          entityId: currentAdjustment._id,
+          payload: {
+            adjustmentNumber: currentAdjustment.adjustmentNumber,
+            adjustmentType: currentAdjustment.adjustmentType,
+            locationId: currentAdjustment.locationId,
+            itemCount: currentAdjustment.items.length
+          },
+          userId: userId,
+          locationId: currentAdjustment.locationId
+        }, companyId);
+
         return currentAdjustment;
       },
       {
@@ -357,6 +389,21 @@ export const rejectAdjustment = async (adjustmentId, userId, rejectionReason, co
     adjustment.rejectionReason = rejectionReason;
     
     await adjustment.save();
+
+    // Publish domain event
+    await publishDomainEvent(companyDB, {
+      eventType: 'ADJUSTMENT_REJECTED',
+      entityType: 'ADJUSTMENT',
+      entityId: adjustment._id,
+      payload: {
+        adjustmentNumber: adjustment.adjustmentNumber,
+        adjustmentType: adjustment.adjustmentType,
+        locationId: adjustment.locationId,
+        rejectionReason: rejectionReason
+      },
+      userId: userId,
+      locationId: adjustment.locationId
+    }, companyId);
 
     logger.info(
       `Stock adjustment rejected: ${adjustment.adjustmentNumber} by user ${userId} for company: ${companyId}`

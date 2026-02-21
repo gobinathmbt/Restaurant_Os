@@ -12,6 +12,7 @@ import { getLocationModel } from '../models/company/Location.js';
 import { validateCapability } from './locationService.js';
 import { createOrUpdateBatch } from './inventoryBatchLocationService.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
+import { publishDomainEvent } from './domainEventService.js';
 import { logger } from '../utils/logger.js';
 import { withTransactionAndRetry } from '../utils/concurrencyControl.js';
 
@@ -218,6 +219,22 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
       maxRetries: 3
     }
   );
+  
+  // Publish domain event
+  await publishDomainEvent(companyDB, {
+    eventType: 'GRN_CREATED',
+    entityType: 'GRN',
+    entityId: grn._id,
+    payload: {
+      grnNumber: grn.grnNumber,
+      locationId: grn.locationId,
+      supplierId: grn.supplier,
+      itemCount: grn.items.length,
+      totalAmount: grn.totalAmount
+    },
+    userId: userId,
+    locationId: grn.locationId
+  }, companyId);
   
   logger.info(`GRN created with batches: ${grn._id} (${grn.grnNumber}) for location: ${grnData.locationId}, company: ${companyId}`);
   

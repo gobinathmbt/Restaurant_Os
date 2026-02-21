@@ -181,6 +181,77 @@ class SocketManager {
   setupCompanyHandlers(socket) {
     const { userId, companyId } = socket.user;
 
+    // Domain event subscription
+    socket.on('domainEvents:subscribe', (data, callback) => {
+      try {
+        const { eventTypes, entityTypes, locationIds } = data || {};
+        
+        // Join rooms for specific event types
+        if (eventTypes && Array.isArray(eventTypes)) {
+          eventTypes.forEach(eventType => {
+            socket.join(`company-${companyId}-event-${eventType}`);
+          });
+        }
+        
+        // Join rooms for specific entity types
+        if (entityTypes && Array.isArray(entityTypes)) {
+          entityTypes.forEach(entityType => {
+            socket.join(`company-${companyId}-entity-${entityType}`);
+          });
+        }
+        
+        // Join rooms for specific locations
+        if (locationIds && Array.isArray(locationIds)) {
+          locationIds.forEach(locationId => {
+            socket.join(`company-${companyId}-location-${locationId}`);
+          });
+        }
+        
+        // Join general domain events room
+        socket.join(`company-${companyId}-domain-events`);
+        
+        logger.info(`User ${userId} subscribed to domain events in company ${companyId}`);
+        callback({ success: true, message: 'Subscribed to domain events' });
+      } catch (error) {
+        logger.error('Error subscribing to domain events:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+    
+    // Domain event unsubscribe
+    socket.on('domainEvents:unsubscribe', (data, callback) => {
+      try {
+        const { eventTypes, entityTypes, locationIds } = data || {};
+        
+        // Leave rooms for specific event types
+        if (eventTypes && Array.isArray(eventTypes)) {
+          eventTypes.forEach(eventType => {
+            socket.leave(`company-${companyId}-event-${eventType}`);
+          });
+        }
+        
+        // Leave rooms for specific entity types
+        if (entityTypes && Array.isArray(entityTypes)) {
+          entityTypes.forEach(entityType => {
+            socket.leave(`company-${companyId}-entity-${entityType}`);
+          });
+        }
+        
+        // Leave rooms for specific locations
+        if (locationIds && Array.isArray(locationIds)) {
+          locationIds.forEach(locationId => {
+            socket.leave(`company-${companyId}-location-${locationId}`);
+          });
+        }
+        
+        logger.info(`User ${userId} unsubscribed from domain events in company ${companyId}`);
+        callback({ success: true, message: 'Unsubscribed from domain events' });
+      } catch (error) {
+        logger.error('Error unsubscribing from domain events:', error);
+        callback({ success: false, error: error.message });
+      }
+    });
+
     // Get notifications
     socket.on('notifications:get', async (data, callback) => {
       try {
@@ -353,6 +424,27 @@ class SocketManager {
   // Emit to specific role in company
   emitToCompanyRole(companyId, role, event, data) {
     this.companyNamespace.to(`company-${companyId}-${role}`).emit(event, data);
+  }
+
+  // Emit domain event to subscribers
+  emitDomainEvent(companyId, domainEvent) {
+    // Emit to general domain events room
+    this.companyNamespace.to(`company-${companyId}-domain-events`).emit('domainEvent', domainEvent);
+    
+    // Emit to event type specific room
+    if (domainEvent.eventType) {
+      this.companyNamespace.to(`company-${companyId}-event-${domainEvent.eventType}`).emit('domainEvent', domainEvent);
+    }
+    
+    // Emit to entity type specific room
+    if (domainEvent.entityType) {
+      this.companyNamespace.to(`company-${companyId}-entity-${domainEvent.entityType}`).emit('domainEvent', domainEvent);
+    }
+    
+    // Emit to location specific room
+    if (domainEvent.locationId) {
+      this.companyNamespace.to(`company-${companyId}-location-${domainEvent.locationId}`).emit('domainEvent', domainEvent);
+    }
   }
 
   getIO() {

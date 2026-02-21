@@ -14,6 +14,7 @@ import { getInventoryBatchLocationModel } from '../models/company/InventoryBatch
 import { validateCapability } from './locationService.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
 import { consumeInventoryFIFO } from './inventoryCostingService.js';
+import { publishDomainEvent } from './domainEventService.js';
 import { logger } from '../utils/logger.js';
 import { 
   withTransactionAndRetry, 
@@ -170,6 +171,23 @@ export const createTransfer = async (transferData, companyId) => {
     });
 
     await transfer.save();
+
+    // Publish domain event
+    await publishDomainEvent(companyDB, {
+      eventType: 'TRANSFER_CREATED',
+      entityType: 'TRANSFER',
+      entityId: transfer._id,
+      payload: {
+        transferNumber: transfer.transferNumber,
+        transferType: transfer.transferType,
+        fromLocation: transfer.fromLocation,
+        toLocation: transfer.toLocation,
+        itemCount: transfer.items.length,
+        status: transfer.status
+      },
+      userId: transferData.requestedBy,
+      locationId: transfer.fromLocation
+    }, companyId);
 
     logger.info(
       `Transfer created: ${transfer.transferNumber} (${transfer.transferType}) ` +
@@ -474,6 +492,23 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
         currentTransfer.approvedDate = new Date();
         await currentTransfer.save({ session });
 
+        // Publish domain event
+        await publishDomainEvent(companyDB, {
+          eventType: 'TRANSFER_APPROVED',
+          entityType: 'TRANSFER',
+          entityId: currentTransfer._id,
+          payload: {
+            transferNumber: currentTransfer.transferNumber,
+            transferType: currentTransfer.transferType,
+            fromLocation: currentTransfer.fromLocation,
+            toLocation: currentTransfer.toLocation,
+            itemCount: currentTransfer.items.length,
+            backordersCreated: backordersCreated.length
+          },
+          userId: userId,
+          locationId: currentTransfer.fromLocation
+        }, companyId);
+
         return { transfer: currentTransfer, backorders: backordersCreated };
       },
       {
@@ -693,6 +728,22 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
         currentTransfer.completedDate = new Date();
         await currentTransfer.save({ session });
 
+        // Publish domain event
+        await publishDomainEvent(companyDB, {
+          eventType: 'TRANSFER_COMPLETED',
+          entityType: 'TRANSFER',
+          entityId: currentTransfer._id,
+          payload: {
+            transferNumber: currentTransfer.transferNumber,
+            transferType: currentTransfer.transferType,
+            fromLocation: currentTransfer.fromLocation,
+            toLocation: currentTransfer.toLocation,
+            itemCount: currentTransfer.items.length
+          },
+          userId: userId,
+          locationId: currentTransfer.toLocation
+        }, companyId);
+
         return currentTransfer;
       },
       {
@@ -760,6 +811,22 @@ export const rejectTransfer = async (transferId, userId, rejectionReason, compan
     transfer.rejectionReason = rejectionReason;
     await transfer.save();
 
+    // Publish domain event
+    await publishDomainEvent(companyDB, {
+      eventType: 'TRANSFER_REJECTED',
+      entityType: 'TRANSFER',
+      entityId: transfer._id,
+      payload: {
+        transferNumber: transfer.transferNumber,
+        transferType: transfer.transferType,
+        fromLocation: transfer.fromLocation,
+        toLocation: transfer.toLocation,
+        rejectionReason: rejectionReason
+      },
+      userId: userId,
+      locationId: transfer.fromLocation
+    }, companyId);
+
     logger.info(
       `Transfer rejected: ${transfer.transferNumber} by user ${userId} for company: ${companyId}. Reason: ${rejectionReason}`
     );
@@ -813,6 +880,22 @@ export const cancelTransfer = async (transferId, userId, cancellationReason, com
     transfer.cancelledDate = new Date();
     transfer.cancellationReason = cancellationReason;
     await transfer.save();
+
+    // Publish domain event
+    await publishDomainEvent(companyDB, {
+      eventType: 'TRANSFER_CANCELLED',
+      entityType: 'TRANSFER',
+      entityId: transfer._id,
+      payload: {
+        transferNumber: transfer.transferNumber,
+        transferType: transfer.transferType,
+        fromLocation: transfer.fromLocation,
+        toLocation: transfer.toLocation,
+        cancellationReason: cancellationReason
+      },
+      userId: userId,
+      locationId: transfer.fromLocation
+    }, companyId);
 
     logger.info(
       `Transfer cancelled: ${transfer.transferNumber} by user ${userId} for company: ${companyId}. Reason: ${cancellationReason}`
@@ -1198,6 +1281,22 @@ export const returnTransfer = async (transferId, userId, returnReason, companyId
         currentTransfer.returnedDate = new Date();
         currentTransfer.returnReason = returnReason;
         await currentTransfer.save({ session });
+
+        // Publish domain event
+        await publishDomainEvent(companyDB, {
+          eventType: 'TRANSFER_RETURNED',
+          entityType: 'TRANSFER',
+          entityId: currentTransfer._id,
+          payload: {
+            transferNumber: currentTransfer.transferNumber,
+            transferType: currentTransfer.transferType,
+            fromLocation: currentTransfer.fromLocation,
+            toLocation: currentTransfer.toLocation,
+            returnReason: returnReason
+          },
+          userId: userId,
+          locationId: currentTransfer.toLocation
+        }, companyId);
 
         return currentTransfer;
       },

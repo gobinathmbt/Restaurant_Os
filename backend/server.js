@@ -34,6 +34,7 @@ import stockCountSessionRoutes from './src/routes/stockCountSessionRoutes.js';
 import grnRoutes from './src/routes/grnRoutes.js';
 import reportingRoutes from './src/routes/reportingRoutes.js';
 import inventoryPeriodRoutes from './src/routes/inventoryPeriodRoutes.js';
+import domainEventRoutes from './src/routes/domainEventRoutes.js';
 import socketManager from './src/config/socket.js';
 
 // Load environment variables from .env file
@@ -93,6 +94,7 @@ const startServer = async () => {
     app.use('/api/grn', grnRoutes);
     app.use('/api/reports', reportingRoutes);
     app.use('/api/inventory-periods', inventoryPeriodRoutes);
+    app.use('/api/domain-events', domainEventRoutes);
 
     // Health check endpoint
     app.get('/health', (req, res) => {
