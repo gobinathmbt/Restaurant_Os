@@ -16,7 +16,6 @@ import PlatformDashboard from "@/pages/platform/PlatformDashboard";
 import PlatformSettings from "@/pages/platform/PlatformSettings";
 import CompanyDashboard from "@/pages/company/CompanyDashboard";
 import CompanySettings from "@/pages/company/CompanySettings";
-import Branches from "@/pages/company/Branches";
 import Staff from "@/pages/company/Staff";
 import { isElectron } from "@/utils/platform";
 import { lazy, Suspense } from "react";
@@ -130,7 +129,6 @@ const App = () => {
                   <Route path="staff" element={<Staff />} />
                   <Route path="reports" element={<div className="p-8">Reports Page Coming Soon</div>} />
                   <Route path="billing" element={<div className="p-8">Billing Page Coming Soon</div>} />
-                  <Route path="branches" element={<Branches />} />
                   <Route path="settings" element={<CompanySettings />} />
                 </Route>
                 
