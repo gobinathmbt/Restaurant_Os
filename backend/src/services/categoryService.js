@@ -173,19 +173,23 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
 
     // Filter categories based on user's branch access for editing
     const categoriesWithPermissions = categories.map(category => {
-      let editableBranches = category.branchIds;
+      let editableBranches = category.branchIds || [];
       
       // If user is company_admin, only show branches they have access to
       if (userBranchIds && userBranchIds.length > 0) {
-        editableBranches = category.branchIds.filter(branch => 
-          userBranchIds.includes(branch._id.toString())
+        editableBranches = editableBranches.filter(branch => 
+          branch && branch._id && userBranchIds.includes(branch._id.toString())
         );
       }
+      
+      // Super admin can always edit (userBranchIds is null/empty)
+      // Company admin can edit if they have access to at least one branch
+      const canEdit = (!userBranchIds || userBranchIds.length === 0) || editableBranches.length > 0;
       
       return {
         ...category,
         editableBranches,
-        canEdit: editableBranches.length > 0
+        canEdit
       };
     });
 
@@ -228,12 +232,12 @@ export const getCategoryById = async (categoryId, companyId, userBranchIds = nul
     }
 
     // Determine which branches the user can edit
-    let editableBranches = category.branchIds;
+    let editableBranches = category.branchIds || [];
     
     // If user is company_admin, filter to only their accessible branches
     if (userBranchIds && userBranchIds.length > 0) {
-      editableBranches = category.branchIds.filter(branch => 
-        userBranchIds.includes(branch._id.toString())
+      editableBranches = editableBranches.filter(branch => 
+        branch && branch._id && userBranchIds.includes(branch._id.toString())
       );
       
       // User must have access to at least one branch to view the category
@@ -242,10 +246,14 @@ export const getCategoryById = async (categoryId, companyId, userBranchIds = nul
       }
     }
 
+    // Super admin can always edit (userBranchIds is null/empty)
+    // Company admin can edit if they have access to at least one branch
+    const canEdit = (!userBranchIds || userBranchIds.length === 0) || editableBranches.length > 0;
+
     return {
       ...category,
       editableBranches,
-      canEdit: editableBranches.length > 0
+      canEdit
     };
   } catch (error) {
     logger.error('Error getting category by ID:', error);
