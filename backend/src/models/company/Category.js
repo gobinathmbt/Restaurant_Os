@@ -12,7 +12,7 @@ const categorySchema = new mongoose.Schema({
   },
   branchIds: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch',
+    ref: 'Location',
     required: true
   }],
   type: {

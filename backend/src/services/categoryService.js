@@ -5,7 +5,7 @@
 
 import { getCompanyDB } from '../config/database.js';
 import { getCategoryModel } from '../models/company/Category.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -19,8 +19,8 @@ export const createCategory = async (categoryData, companyId, userBranchIds = nu
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     // Validate required fields
     if (!categoryData.name || !categoryData.branchIds || categoryData.branchIds.length === 0) {
@@ -80,8 +80,8 @@ export const getCategories = async (companyId, filters = {}, userBranchIds = nul
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     const {
       page = 1,
@@ -215,8 +215,8 @@ export const getCategoryById = async (categoryId, companyId, userBranchIds = nul
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     const category = await Category.findById(categoryId)
       .populate('branchIds', 'name code')
@@ -265,8 +265,8 @@ export const updateCategory = async (categoryId, updateData, companyId, userBran
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     // Get existing category
     const existingCategory = await Category.findById(categoryId);
@@ -360,8 +360,8 @@ export const deleteCategory = async (categoryId, companyId, userBranchIds = null
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     const category = await Category.findById(categoryId);
     if (!category) {
@@ -409,8 +409,8 @@ export const permanentlyDeleteCategory = async (categoryId, companyId, userBranc
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     const category = await Category.findById(categoryId);
     if (!category) {
@@ -456,8 +456,8 @@ export const getCategoryTree = async (branchIds, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     // Convert single branchId to array
     const branchIdArray = Array.isArray(branchIds) ? branchIds : [branchIds];
@@ -482,8 +482,8 @@ export const reorderCategories = async (updates, companyId, userBranchIds = null
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     // Validate all categories exist and user has access
     for (const update of updates) {
@@ -534,8 +534,8 @@ export const removeBranchFromCategory = async (categoryId, branchId, companyId, 
   try {
     const companyDB = getCompanyDB(companyId);
     const Category = getCategoryModel(companyDB);
-    // Ensure Branch model is registered for population
-    getBranchModel(companyDB);
+    // Ensure Location model is registered for population
+    getLocationModel(companyDB);
 
     // Get existing category
     const category = await Category.findById(categoryId);
@@ -594,7 +594,7 @@ export const getCategoryBranchAuditLogs = async (companyId, filters = {}, userBr
     
     // Ensure models are registered for population
     getCategoryModel(companyDB);
-    getBranchModel(companyDB);
+    getLocationModel(companyDB);
     const CompanyUser = companyDB.model('CompanyUser');
 
     const {
@@ -685,3 +685,4 @@ export const getCategoryBranchAuditLogs = async (companyId, filters = {}, userBr
     throw error;
   }
 };
+

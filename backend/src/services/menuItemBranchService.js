@@ -6,7 +6,7 @@
 import { getCompanyDB } from '../config/database.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getMenuItemBranchModel } from '../models/company/MenuItemBranch.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -116,7 +116,7 @@ export const createBranchConfig = async (menuItemId, branchId, configData, compa
     const companyDB = getCompanyDB(companyId);
     const MenuItem = getMenuItemModel(companyDB);
     const MenuItemBranch = getMenuItemBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     // Validate branch access
     if (!validateBranchAccess(branchId, userBranchIds)) {
@@ -851,7 +851,7 @@ export const bulkAssignToBranches = async (menuItemId, branchConfigs, companyId,
     const companyDB = getCompanyDB(companyId);
     const MenuItem = getMenuItemModel(companyDB);
     const MenuItemBranch = getMenuItemBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     // Validate menu item exists
     const menuItem = await MenuItem.findById(menuItemId);
@@ -938,7 +938,7 @@ export const bulkUpdateBranchConfigs = async (menuItemId, branchConfigs, company
     const companyDB = getCompanyDB(companyId);
     const MenuItem = getMenuItemModel(companyDB);
     const MenuItemBranch = getMenuItemBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     // Validate menu item exists
     const menuItem = await MenuItem.findById(menuItemId).populate('category');
@@ -1049,3 +1049,4 @@ export const bulkUpdateBranchConfigs = async (menuItemId, branchConfigs, company
     throw error;
   }
 };
+

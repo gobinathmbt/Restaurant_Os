@@ -1,5 +1,5 @@
 import { getCompanyDB } from '../config/database.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import notificationService from '../services/notificationService.js';
 import { logger } from '../utils/logger.js';
@@ -15,9 +15,9 @@ export const getBranches = async (req, res, next) => {
     const { page = 1, limit = 10, search, isActive } = req.query;
 
     const companyDB = getCompanyDB(companyId);
-    const Branch = getBranchModel(companyDB);
+    const Location = getLocationModel(companyDB);
 
-    const query = {};
+    const query = { type: 'branch' }; // Only get branch-type locations
     
     // If user is company_admin, filter by their assigned branches
     if (role === 'company_admin') {
@@ -80,11 +80,11 @@ export const getBranches = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     const [branches, total] = await Promise.all([
-      Branch.find(query)
+      Location.find(query)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit)),
-      Branch.countDocuments(query)
+      Location.countDocuments(query)
     ]);
 
     res.json({
@@ -115,9 +115,9 @@ export const getBranchById = async (req, res, next) => {
     const { id } = req.params;
 
     const companyDB = getCompanyDB(companyId);
-    const Branch = getBranchModel(companyDB);
+    const Location = getLocationModel(companyDB);
 
-    const branch = await Branch.findById(id);
+    const branch = await Location.findOne({ _id: id, type: 'branch' });
 
     if (!branch) {
       return res.status(404).json({
@@ -165,10 +165,10 @@ export const createBranch = async (req, res, next) => {
     }
 
     const companyDB = getCompanyDB(companyId);
-    const Branch = getBranchModel(companyDB);
+    const Location = getLocationModel(companyDB);
 
     // Check if branch code already exists
-    const existingBranch = await Branch.findOne({ code: req.body.code });
+    const existingBranch = await Location.findOne({ code: req.body.code, type: 'branch' });
     if (existingBranch) {
       return res.status(400).json({
         success: false,
@@ -176,9 +176,17 @@ export const createBranch = async (req, res, next) => {
       });
     }
 
-    // Create branch
-    const branch = await Branch.create({
+    // Create branch as location with type='branch'
+    const branch = await Location.create({
       ...req.body,
+      type: 'branch',
+      capabilities: {
+        canProcureDirectly: req.body.capabilities?.canProcureDirectly ?? true,
+        canDispatchStock: req.body.capabilities?.canDispatchStock ?? true,
+        canReceiveStock: req.body.capabilities?.canReceiveStock ?? true,
+        isProductionUnit: req.body.capabilities?.isProductionUnit ?? false,
+        allowsCustomerOrders: req.body.capabilities?.allowsCustomerOrders ?? true
+      },
       createdBy: userId
     });
 
@@ -270,10 +278,10 @@ export const updateBranch = async (req, res, next) => {
     }
 
     const companyDB = getCompanyDB(companyId);
-    const Branch = getBranchModel(companyDB);
+    const Location = getLocationModel(companyDB);
 
     // Check if branch exists
-    const branch = await Branch.findById(id);
+    const branch = await Location.findOne({ _id: id, type: 'branch' });
     if (!branch) {
       return res.status(404).json({
         success: false,
@@ -283,7 +291,7 @@ export const updateBranch = async (req, res, next) => {
 
     // If code is being updated, check for duplicates
     if (req.body.code && req.body.code !== branch.code) {
-      const existingBranch = await Branch.findOne({ code: req.body.code });
+      const existingBranch = await Location.findOne({ code: req.body.code, type: 'branch' });
       if (existingBranch) {
         return res.status(400).json({
           success: false,
@@ -328,10 +336,10 @@ export const deleteBranch = async (req, res, next) => {
     }
 
     const companyDB = getCompanyDB(companyId);
-    const Branch = getBranchModel(companyDB);
+    const Location = getLocationModel(companyDB);
 
     // Check if branch exists
-    const branch = await Branch.findById(id);
+    const branch = await Location.findOne({ _id: id, type: 'branch' });
     if (!branch) {
       return res.status(404).json({
         success: false,
@@ -387,9 +395,9 @@ export const toggleBranchStatus = async (req, res, next) => {
     }
 
     const companyDB = getCompanyDB(companyId);
-    const Branch = getBranchModel(companyDB);
+    const Location = getLocationModel(companyDB);
 
-    const branch = await Branch.findById(id);
+    const branch = await Location.findOne({ _id: id, type: 'branch' });
     if (!branch) {
       return res.status(404).json({
         success: false,

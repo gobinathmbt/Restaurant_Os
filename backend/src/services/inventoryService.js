@@ -9,7 +9,7 @@ import { getGRNModel } from '../models/company/GRN.js';
 import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
 import { getCategoryModel } from '../models/company/Category.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
 import { logger } from '../utils/logger.js';
 import CapacityValidator from './capacityValidator.js';
@@ -27,7 +27,7 @@ export const createInventoryItem = async (itemData, companyId, userBranchIds, us
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
     const Category = getCategoryModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     // Validate required fields
     const requiredFields = ['name', 'type', 'unit', 'minimumStock', 'branchIds', 'category'];
@@ -197,7 +197,7 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
     const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const Category = getCategoryModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
     const Supplier = getSupplierModel(companyDB);
 
     // Validate required fields
@@ -477,7 +477,7 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
     const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const Category = getCategoryModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     const {
       page = 1,
@@ -617,7 +617,7 @@ export const getInventoryItemById = async (itemId, companyId, userBranchIds = nu
     const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
-    const Branch = getBranchModel(companyDB); // Register Branch model
+    const Branch = getLocationModel(companyDB); // Register Location model
     const Category = getCategoryModel(companyDB); // Register Category model
 
     // Fetch inventory item with category and subcategory populated
@@ -893,7 +893,7 @@ export const checkLowStock = async (companyId, branchId, userBranchIds = [], use
     
     // Register all models needed for populate
     const InventoryItem = getInventoryItemModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
     const Category = getCategoryModel(companyDB);
     const Supplier = getSupplierModel(companyDB);
 
@@ -950,7 +950,7 @@ export const checkExpiringItems = async (companyId, branchId, daysAhead = 7, use
     
     // Register all models needed for populate
     const InventoryItem = getInventoryItemModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
     const Category = getCategoryModel(companyDB);
     const Supplier = getSupplierModel(companyDB);
 
@@ -1507,7 +1507,7 @@ export const getGRNDetails = async (grnId, companyId, branchId) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const GRN = getGRNModel(companyDB);
-    const Branch = getBranchModel(companyDB); // Register Branch model
+    const Branch = getLocationModel(companyDB); // Register Location model
     const Supplier = getSupplierModel(companyDB); // Register Supplier model
     const InventoryItem = getInventoryItemModel(companyDB); // Register InventoryItem model
 
@@ -1598,7 +1598,7 @@ export const createStockAdjustment = async (adjustmentData, companyId, branchId,
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
     const InventoryItem = getInventoryItemModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
     const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
 
@@ -2492,3 +2492,4 @@ export {
   verifyGRN,
   cancelGRN
 } from './grnService.js';
+

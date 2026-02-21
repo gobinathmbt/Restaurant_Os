@@ -60,6 +60,193 @@ export const branchServices = {
   toggleBranchStatus: (id: string) => apiClient.patch(`/api/branches/${id}/toggle-status`),
 };
 
+// Location Services
+export const locationServices = {
+  // Get all locations
+  getLocations: (params?: { 
+    page?: number; 
+    limit?: number; 
+    search?: string; 
+    type?: string; 
+    isActive?: boolean; 
+    capability?: string;
+  }) => apiClient.get("/api/locations", { params }),
+
+  // Get single location
+  getLocation: (id: string) => apiClient.get(`/api/locations/${id}`),
+
+  // Create location
+  createLocation: (data: any) => apiClient.post("/api/locations", data),
+
+  // Update location (with version for optimistic locking)
+  updateLocation: (id: string, data: any) => apiClient.put(`/api/locations/${id}`, data),
+
+  // Archive location (soft delete)
+  archiveLocation: (id: string) => apiClient.delete(`/api/locations/${id}`),
+
+  // Get locations by capability
+  getLocationsByCapability: (capability: string) => 
+    apiClient.get(`/api/locations/by-capability/${capability}`),
+};
+
+// Location Inventory Services
+export const locationInventoryServices = {
+  // Get inventory by location
+  getInventoryByLocation: (params: {
+    locationId: string;
+    page?: number;
+    limit?: number;
+    search?: string;
+    category?: string;
+    lowStock?: boolean;
+  }) => apiClient.get(`/api/inventory/location/${params.locationId}`, { 
+    params: { 
+      page: params.page,
+      limit: params.limit,
+      search: params.search,
+      category: params.category,
+      lowStock: params.lowStock,
+    } 
+  }),
+
+  // Get inventory by item (across all locations)
+  getInventoryByItem: (itemId: string) => 
+    apiClient.get(`/api/inventory/item/${itemId}`),
+
+  // Get batches at location
+  getBatchesByLocation: (params: {
+    locationId: string;
+    itemId: string;
+  }) => apiClient.get(`/api/inventory/location/${params.locationId}/item/${params.itemId}/batches`),
+
+  // Get expiring batches
+  getExpiringBatches: (params: {
+    locationId: string;
+    daysUntilExpiry: number;
+  }) => apiClient.get(`/api/inventory/location/${params.locationId}/expiring`, { 
+    params: { days: params.daysUntilExpiry } 
+  }),
+
+  // Get expired batches
+  getExpiredBatches: (params: {
+    locationId: string;
+  }) => apiClient.get(`/api/inventory/location/${params.locationId}/expired`),
+};
+
+// Inventory Ledger Services (with cursor-based pagination)
+export const inventoryLedgerServices = {
+  // Get ledger entries for item at location (CURSOR-BASED PAGINATION)
+  getLedgerEntries: (params: {
+    locationId: string;
+    itemId: string;
+    dateRange?: { startDate: string; endDate: string };
+    movementType?: string;
+    cursor?: string; // Cursor-based pagination instead of page number
+    limit?: number;
+  }) => apiClient.get(`/api/inventory/ledger/location/${params.locationId}/item/${params.itemId}`, { 
+    params: { 
+      startDate: params.dateRange?.startDate,
+      endDate: params.dateRange?.endDate,
+      movementType: params.movementType,
+      cursor: params.cursor,
+      limit: params.limit,
+    } 
+  }),
+
+  // Get all inventory movements (for reporting) - CURSOR-BASED
+  getInventoryMovements: (params: {
+    locationId?: string;
+    dateRange?: { startDate: string; endDate: string };
+    movementType?: string;
+    cursor?: string; // Cursor-based pagination
+    limit?: number;
+  }) => apiClient.get('/api/inventory/ledger/movements', { 
+    params: {
+      locationId: params.locationId,
+      startDate: params.dateRange?.startDate,
+      endDate: params.dateRange?.endDate,
+      movementType: params.movementType,
+      cursor: params.cursor,
+      limit: params.limit,
+    }
+  }),
+};
+
+// Report Services
+export const reportServices = {
+  // Get inventory valuation report
+  getInventoryValuation: (params: {
+    locationId?: string;
+    asOfDate?: string;
+  }) => apiClient.get('/api/reports/inventory-valuation', { params }),
+
+  // Get stock movement report
+  getStockMovementReport: (params: {
+    dateRange: { startDate: string; endDate: string };
+    sourceLocation?: string;
+    destinationLocation?: string;
+  }) => apiClient.get('/api/reports/transfer-summary', { 
+    params: {
+      startDate: params.dateRange.startDate,
+      endDate: params.dateRange.endDate,
+      sourceLocation: params.sourceLocation,
+      destinationLocation: params.destinationLocation,
+    }
+  }),
+
+  // Get expiry forecast report
+  getExpiryForecast: (params: {
+    locationId?: string;
+    daysAhead?: number;
+  }) => apiClient.get('/api/reports/expiry-forecast', { params }),
+
+  // Background job methods for large reports
+  initiateReport: (reportType: string, params: any) =>
+    apiClient.post('/api/reports/initiate', { reportType, params }),
+
+  getReportStatus: (jobId: string) =>
+    apiClient.get(`/api/reports/status/${jobId}`),
+
+  downloadReport: (jobId: string) =>
+    apiClient.get(`/api/reports/download/${jobId}`, { responseType: 'blob' }),
+};
+
+// Inventory Period Services
+export const inventoryPeriodServices = {
+  // Get active inventory period for a location
+  getActivePeriod: (locationId: string) =>
+    apiClient.get(`/api/inventory/periods/active`, { params: { locationId } }),
+
+  // Get all inventory periods for a location
+  getPeriods: (locationId: string, params?: { page?: number; limit?: number }) =>
+    apiClient.get(`/api/inventory/periods`, { params: { locationId, ...params } }),
+
+  // Get single inventory period
+  getPeriod: (id: string) =>
+    apiClient.get(`/api/inventory/periods/${id}`),
+
+  // Create inventory period
+  createPeriod: (data: {
+    locationId: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    isLocked?: boolean;
+  }) => apiClient.post('/api/inventory/periods', data),
+
+  // Update inventory period
+  updatePeriod: (id: string, data: any) =>
+    apiClient.put(`/api/inventory/periods/${id}`, data),
+
+  // Lock inventory period
+  lockPeriod: (id: string) =>
+    apiClient.put(`/api/inventory/periods/${id}/lock`),
+
+  // Unlock inventory period
+  unlockPeriod: (id: string) =>
+    apiClient.put(`/api/inventory/periods/${id}/unlock`),
+};
+
 // User Services
 export const userServices = {
   // Get all users
@@ -133,24 +320,67 @@ export const inventoryServices = {
   getInventoryCategories: (branchId: string) =>
     apiClient.get("/api/inventory/items/categories", { params: { branchId } }),
 
-  // GRN (Goods Receipt Notes)
-  getGRNs: (branchId: string, params?: { page?: number; limit?: number; search?: string; supplier?: string; status?: string; startDate?: string; endDate?: string }) =>
-    apiClient.get("/api/inventory/grn", { params: { branchId, ...params } }),
+  // GRN (Goods Receipt Notes) - Updated to support locationId and batch information
+  getGRNs: (params?: { 
+    locationId?: string; 
+    branchId?: string; // Keep for backward compatibility
+    page?: number; 
+    limit?: number; 
+    search?: string; 
+    supplier?: string; 
+    status?: string; 
+    startDate?: string; 
+    endDate?: string;
+  }) => {
+    // Use locationId if provided, otherwise fall back to branchId
+    const queryParams = { ...params };
+    if (params?.locationId) {
+      queryParams.branchId = params.locationId;
+      delete queryParams.locationId;
+    }
+    return apiClient.get("/api/inventory/grn", { params: queryParams });
+  },
 
   getGRN: (id: string) =>
     apiClient.get(`/api/inventory/grn/${id}`),
 
-  getGRNDetails: (branchId: string, grnId: string) =>
-    apiClient.get(`/api/inventory/grn/${branchId}/${grnId}`),
+  getGRNDetails: (locationId: string, grnId: string) =>
+    apiClient.get(`/api/inventory/grn/${locationId}/${grnId}`),
 
-  resendGRNInAppNotifications: (branchId: string, grnId: string) =>
-    apiClient.post(`/api/inventory/grn/${branchId}/${grnId}/resend-inapp-notifications`),
+  resendGRNInAppNotifications: (locationId: string, grnId: string) =>
+    apiClient.post(`/api/inventory/grn/${locationId}/${grnId}/resend-inapp-notifications`),
 
-  resendGRNEmailNotifications: (branchId: string, grnId: string, includeSupplier: boolean = false) =>
-    apiClient.post(`/api/inventory/grn/${branchId}/${grnId}/resend-email-notifications`, { includeSupplier }),
+  resendGRNEmailNotifications: (locationId: string, grnId: string, includeSupplier: boolean = false) =>
+    apiClient.post(`/api/inventory/grn/${locationId}/${grnId}/resend-email-notifications`, { includeSupplier }),
 
-  createGRN: (branchId: string, data: any) =>
-    apiClient.post("/api/inventory/grn", { ...data, branchId }),
+  createGRN: (data: {
+    locationId?: string;
+    branchId?: string; // Keep for backward compatibility
+    supplierId: string;
+    receivedDate: string;
+    items: Array<{
+      inventoryItem: string;
+      quantity: number;
+      unit: string;
+      unitPrice: number;
+      totalPrice: number;
+      batchNumber?: string; // NEW: Batch information
+      expiryDate?: string; // NEW: Batch information
+      manufacturingDate?: string; // NEW: Batch information
+      notes?: string;
+    }>;
+    invoiceNumber?: string;
+    invoiceDate?: string;
+    notes?: string;
+  }) => {
+    // Use locationId if provided, otherwise fall back to branchId
+    const requestData = { ...data };
+    if (data.locationId) {
+      requestData.branchId = data.locationId;
+      delete requestData.locationId;
+    }
+    return apiClient.post("/api/inventory/grn", requestData);
+  },
 
   // Get suppliers for a specific branch
   getSuppliersForBranch: (branchId: string) =>
@@ -164,31 +394,129 @@ export const inventoryServices = {
   getStockLevelsForBranch: (branchId: string, itemIds: string[]) =>
     apiClient.post(`/api/inventory/branches/${branchId}/stock-levels`, { itemIds }),
 
-  // Stock Adjustments
-  getStockAdjustments: (branchId: string, params?: { page?: number; limit?: number; search?: string; startDate?: string; endDate?: string; type?: string; reason?: string }) =>
-    apiClient.get("/api/inventory/adjustments", { params: { branchId, ...params } }),
+  // Stock Adjustments - Updated to support locationId and adjustment types
+  getStockAdjustments: (params?: { 
+    locationId?: string;
+    branchId?: string; // Keep for backward compatibility
+    page?: number; 
+    limit?: number; 
+    search?: string; 
+    startDate?: string; 
+    endDate?: string; 
+    type?: string; 
+    reason?: string;
+  }) => {
+    // Use locationId if provided, otherwise fall back to branchId
+    const queryParams = { ...params };
+    if (params?.locationId) {
+      queryParams.branchId = params.locationId;
+      delete queryParams.locationId;
+    }
+    return apiClient.get("/api/inventory/adjustments", { params: queryParams });
+  },
 
-  createStockAdjustment: (branchId: string, data: any) =>
-    apiClient.post("/api/inventory/adjustments", { ...data, branchId }),
+  createStockAdjustment: (data: {
+    locationId?: string;
+    branchId?: string; // Keep for backward compatibility
+    adjustmentType?: string; // NEW: adjustment type
+    items: Array<{
+      inventoryItem: string;
+      currentQuantity: number;
+      adjustedQuantity: number;
+      quantityDelta: number;
+      reason: string;
+      notes?: string;
+    }>;
+    notes?: string;
+  }) => {
+    // Use locationId if provided, otherwise fall back to branchId
+    const requestData = { ...data };
+    if (data.locationId) {
+      requestData.branchId = data.locationId;
+      delete requestData.locationId;
+    }
+    return apiClient.post("/api/inventory/adjustments", requestData);
+  },
 
-  getStockAdjustmentDetails: (branchId: string, adjustmentId: string) =>
-    apiClient.get(`/api/inventory/adjustments/${branchId}/${adjustmentId}`),
+  getStockAdjustmentDetails: (locationId: string, adjustmentId: string) =>
+    apiClient.get(`/api/inventory/adjustments/${locationId}/${adjustmentId}`),
 
-  resendStockAdjustmentInAppNotifications: (branchId: string, adjustmentId: string) =>
-    apiClient.post(`/api/inventory/adjustments/${branchId}/${adjustmentId}/resend-inapp-notifications`),
+  resendStockAdjustmentInAppNotifications: (locationId: string, adjustmentId: string) =>
+    apiClient.post(`/api/inventory/adjustments/${locationId}/${adjustmentId}/resend-inapp-notifications`),
 
-  // Stock Transfers
-  getStockTransfers: (branchId: string, params?: { page?: number; limit?: number; search?: string; status?: string }) =>
-    apiClient.get("/api/inventory/transfers", { params: { branchId, ...params } }),
+  approveStockAdjustment: (id: string) =>
+    apiClient.put(`/api/inventory/adjustments/${id}/approve`),
 
-  createStockTransfer: (data: any) =>
-    apiClient.post("/api/inventory/transfers", data),
+  rejectStockAdjustment: (id: string, reason: string) =>
+    apiClient.put(`/api/inventory/adjustments/${id}/reject`, { rejectionReason: reason }),
+
+  // Stock Transfers - Updated to support location parameters
+  getStockTransfers: (params?: { 
+    locationId?: string;
+    branchId?: string; // Keep for backward compatibility
+    direction?: 'from' | 'to' | 'both';
+    page?: number; 
+    limit?: number; 
+    search?: string; 
+    status?: string;
+  }) => {
+    // Use locationId if provided, otherwise fall back to branchId
+    const queryParams = { ...params };
+    if (params?.locationId) {
+      queryParams.branchId = params.locationId;
+      delete queryParams.locationId;
+    }
+    return apiClient.get("/api/inventory/transfers", { params: queryParams });
+  },
+
+  createStockTransfer: (data: {
+    fromLocation?: string;
+    toLocation?: string;
+    fromBranch?: string; // Keep for backward compatibility
+    toBranch?: string; // Keep for backward compatibility
+    transferType?: 'push' | 'request'; // NEW
+    items: Array<{
+      inventoryItem: string;
+      sentQuantity: number;
+      unit: string;
+      notes?: string;
+    }>;
+    notes?: string;
+  }) => {
+    // Use location parameters if provided, otherwise fall back to branch parameters
+    const requestData = { ...data };
+    if (data.fromLocation) {
+      requestData.fromBranch = data.fromLocation;
+      delete requestData.fromLocation;
+    }
+    if (data.toLocation) {
+      requestData.toBranch = data.toLocation;
+      delete requestData.toLocation;
+    }
+    return apiClient.post("/api/inventory/transfers", requestData);
+  },
 
   approveStockTransfer: (id: string) =>
     apiClient.put(`/api/inventory/transfers/${id}/approve`),
 
   rejectStockTransfer: (id: string, reason: string) =>
     apiClient.put(`/api/inventory/transfers/${id}/reject`, { reason }),
+
+  cancelStockTransfer: (id: string, reason: string) =>
+    apiClient.put(`/api/inventory/transfers/${id}/cancel`, { cancellationReason: reason }),
+
+  completeStockTransfer: (id: string, receivedQuantities?: Record<string, number>) =>
+    apiClient.put(`/api/inventory/transfers/${id}/complete`, { receivedQuantities }),
+
+  returnStockTransfer: (id: string, reason: string) =>
+    apiClient.put(`/api/inventory/transfers/${id}/return`, { returnReason: reason }),
+
+  // NEW: Backorder management
+  fulfillBackorder: (transferId: string, backorderId: string) =>
+    apiClient.put(`/api/inventory/transfers/${transferId}/backorders/${backorderId}/fulfill`),
+
+  cancelBackorder: (transferId: string, backorderId: string, reason: string) =>
+    apiClient.put(`/api/inventory/transfers/${transferId}/backorders/${backorderId}/cancel`, { reason }),
 };
 
 // Inventory Item Branch Services
@@ -527,10 +855,15 @@ export default {
   auth: authServices,
   notifications: notificationServices,
   branches: branchServices,
+  locations: locationServices,
   users: userServices,
   platformConfig: platformConfigServices,
   inventory: inventoryServices,
   inventoryItemBranches: inventoryItemBranchServices,
+  locationInventory: locationInventoryServices,
+  inventoryLedger: inventoryLedgerServices,
+  reports: reportServices,
+  inventoryPeriods: inventoryPeriodServices,
   recipes: recipeServices,
   recipeBranches: recipeBranchServices,
   unitConversion: unitConversionServices,

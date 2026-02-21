@@ -16,6 +16,7 @@ import CategoriesTab from '@/components/inventory/CategoriesTab';
 import GRNTab from '@/components/inventory/GRNTab';
 import StockAdjustmentsTab from '@/components/inventory/StockAdjustmentsTab';
 import StockTransfersTab from '@/components/inventory/StockTransfersTab';
+import LocationsTab from '@/components/inventory/LocationsTab';
 import { STORAGE_KEYS } from '@/utils/storage';
 import { useTabStorage } from '@/hooks/useStorage';
 
@@ -118,9 +119,10 @@ export default function Inventory() {
   return (
     <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-        <TabsList className="mx-6 mt-6 mb-0 grid w-full grid-cols-5 lg:w-auto flex-shrink-0">
+        <TabsList className="mx-6 mt-6 mb-0 grid w-full grid-cols-6 lg:w-auto flex-shrink-0">
           <TabsTrigger value="items">Items</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>
+          <TabsTrigger value="locations">Locations</TabsTrigger>
           <TabsTrigger value="grn">GRN</TabsTrigger>
           <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
           <TabsTrigger value="transfers">Transfers</TabsTrigger>
@@ -144,6 +146,10 @@ export default function Inventory() {
             isSuperAdmin={isSuperAdmin}
             isMultiBranchAdmin={isMultiBranchAdmin}
           />
+        </TabsContent>
+
+        <TabsContent value="locations" className="m-0 flex-1 min-h-0 overflow-hidden">
+          <LocationsTab />
         </TabsContent>
 
         <TabsContent value="grn" className="m-0 flex-1 min-h-0 overflow-hidden">

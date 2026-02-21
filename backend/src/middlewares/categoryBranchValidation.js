@@ -10,7 +10,7 @@ import CategoryBranchValidationService from '../services/categoryBranchValidatio
 import { logger } from '../utils/logger.js';
 import { isFeatureEnabled, logFeatureDisabledWarning } from '../config/featureFlags.js';
 import { getCategoryModel } from '../models/company/Category.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 
 /**
  * Middleware to validate and auto-assign categories when creating/updating inventory items
@@ -309,8 +309,8 @@ export const validateCategoryBranchRemoval = async (req, res, next) => {
       const categoryName = category ? category.name : 'Unknown';
 
       // Get branch name for error message
-      const Branch = getBranchModel(companyDB);
-      const branch = await Branch.findById(branchId).select('name').lean();
+      const Branch = getLocationModel(companyDB);
+      const branch = await Location({ _id: branchId, type: 'branch' }).select('name').lean();
       const branchName = branch ? branch.name : 'Unknown';
 
       logger.warn('Branch removal blocked due to dependencies', {
@@ -463,8 +463,8 @@ export const validateCategoryUpdate = async (req, res, next) => {
 
       if (!validationResult.canRemove) {
         // Get branch name for error message
-        const Branch = getBranchModel(companyDB);
-        const branch = await Branch.findById(branchId).select('name').lean();
+        const Branch = getLocationModel(companyDB);
+        const branch = await Location({ _id: branchId, type: 'branch' }).select('name').lean();
         const branchName = branch ? branch.name : 'Unknown';
 
         validationErrors.push({
@@ -609,8 +609,8 @@ export const validateCategoryDeletion = async (req, res, next) => {
 
       if (!validationResult.canRemove) {
         // Get branch name for error message
-        const Branch = getBranchModel(companyDB);
-        const branch = await Branch.findById(branchId).select('name').lean();
+        const Branch = getLocationModel(companyDB);
+        const branch = await Location({ _id: branchId, type: 'branch' }).select('name').lean();
         const branchName = branch ? branch.name : 'Unknown';
 
         branchDependencies.push({
@@ -678,3 +678,4 @@ export const validateCategoryDeletion = async (req, res, next) => {
     });
   }
 };
+

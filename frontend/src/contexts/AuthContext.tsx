@@ -11,7 +11,8 @@ interface User {
   userType?: 'company' | 'platform';
   companyId?: string;
   companyName?: string;
-  branchIds?: string[];
+  branchIds?: string[]; // Legacy field - will be migrated to locationIds
+  locationIds?: string[]; // New field for location-based access control
   platformAdminPrimary?: boolean;
   permissions?: string[];
   isActive: boolean;

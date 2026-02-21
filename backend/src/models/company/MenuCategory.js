@@ -14,7 +14,7 @@ const menuCategorySchema = new mongoose.Schema({
   },
   branchIds: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch',
+    ref: 'Location',
     required: true
   }],
   displayOrder: {

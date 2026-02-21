@@ -2,7 +2,7 @@ import emailService from '../emailService.js';
 import CompanyUser from '../../models/platform/CompanyUser.js';
 import Company from '../../models/platform/Company.js';
 import { getCompanyDB } from '../../config/database.js';
-import { getBranchModel } from '../../models/company/Branch.js';
+import { getLocationModel } from '../../models/company/Location.js';
 import { logger } from '../../utils/logger.js';
 import { ENV } from '../../config/env.js';
 
@@ -28,8 +28,8 @@ class StaffWelcomeEmailService {
       let branches = [];
       if (branchIds.length > 0) {
         const companyDB = getCompanyDB(companyId);
-        const Branch = getBranchModel(companyDB);
-        branches = await Branch.find({ _id: { $in: branchIds } }).select('name code address');
+        const Location = getLocationModel(companyDB);
+        branches = await Location.find({ _id: { $in: branchIds }, type: 'branch' }).select('name code address');
       }
 
       // Reinitialize if transporter doesn't exist

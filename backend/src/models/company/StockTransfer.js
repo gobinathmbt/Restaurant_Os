@@ -82,11 +82,11 @@ const stockTransferSchema = new mongoose.Schema({
   // Legacy branch references (for backward compatibility during migration)
   fromBranch: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch'
+    ref: 'Location'
   },
   toBranch: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch'
+    ref: 'Location'
   },
   
   // Transfer type: push (source-initiated) or request (destination-initiated)

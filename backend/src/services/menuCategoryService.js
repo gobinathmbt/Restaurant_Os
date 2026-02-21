@@ -7,7 +7,7 @@ import { getCompanyDB } from '../config/database.js';
 import { getMenuCategoryModel } from '../models/company/MenuCategory.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getMenuItemBranchModel } from '../models/company/MenuItemBranch.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import MenuCategoryBranchValidationService from './menuCategoryBranchValidationService.js';
 import { logger } from '../utils/logger.js';
 
@@ -83,8 +83,8 @@ export const getMenuCategories = async (companyId, filters = {}, userBranchIds =
     const companyDB = getCompanyDB(companyId);
     const MenuCategory = getMenuCategoryModel(companyDB);
     const MenuItem = getMenuItemModel(companyDB);
-    // Register Branch model on this connection before populate
-    const Branch = getBranchModel(companyDB);
+    // Register Location model on this connection before populate
+    const Branch = getLocationModel(companyDB);
 
     const {
       page = 1,
@@ -379,3 +379,4 @@ export const deleteMenuCategory = async (categoryId, companyId) => {
     throw error;
   }
 };
+

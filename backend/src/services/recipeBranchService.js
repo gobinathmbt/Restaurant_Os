@@ -6,7 +6,7 @@
 import { getCompanyDB } from '../config/database.js';
 import { getRecipeModel } from '../models/company/Recipe.js';
 import { getRecipeBranchModel } from '../models/company/RecipeBranch.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { logger } from '../utils/logger.js';
@@ -19,7 +19,7 @@ import { logger } from '../utils/logger.js';
  */
 const populateRecipeBranch = async (recipeBranch, companyDB) => {
   const Recipe = getRecipeModel(companyDB);
-  const Branch = getBranchModel(companyDB);
+  const Branch = getLocationModel(companyDB);
   const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
   const InventoryItem = getInventoryItemModel(companyDB);
 
@@ -181,7 +181,7 @@ export const createRecipeBranch = async (recipeId, branchId, configData, company
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
     const RecipeBranch = getRecipeBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     // Validate branch access
     if (!validateBranchAccess(branchId, userBranchIds)) {
@@ -283,7 +283,7 @@ export const getRecipeBranches = async (recipeId, filters = {}, companyId, userB
 
     // Query RecipeBranch
     const Recipe = getRecipeModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const InventoryItem = getInventoryItemModel(companyDB);
 
@@ -334,7 +334,7 @@ export const getRecipeBranch = async (recipeId, branchId, companyId, userBranchI
     }
 
     const Recipe = getRecipeModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
     const InventoryItem = getInventoryItemModel(companyDB);
 
@@ -503,7 +503,7 @@ export const bulkUpsertRecipeBranches = async (recipeId, branchConfigs, companyI
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
     const RecipeBranch = getRecipeBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     // Validate recipe exists
     const recipe = await Recipe.findById(recipeId);
@@ -685,3 +685,4 @@ export const calculateRecipeCost = async (recipeBranchId, companyId) => {
     throw error;
   }
 };
+

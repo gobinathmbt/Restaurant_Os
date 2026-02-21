@@ -10,7 +10,7 @@ import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getCategoryModel } from '../models/company/Category.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -204,7 +204,7 @@ export const getRecipes = async (companyId, filters = {}) => {
       const RecipeBranch = getRecipeBranchModel(companyDB);
       const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
       const InventoryItem = getInventoryItemModel(companyDB);
-      const Branch = getBranchModel(companyDB);
+      const Branch = getLocationModel(companyDB);
 
       const recipeIds = recipes.map(r => r._id);
 
@@ -306,7 +306,7 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
       const RecipeBranch = getRecipeBranchModel(companyDB);
       const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
       const InventoryItem = getInventoryItemModel(companyDB);
-      const Branch = getBranchModel(companyDB); // Ensure Branch model is registered
+      const Branch = getLocationModel(companyDB); // Ensure Location model is registered
       
       const branchQuery = { recipe: recipeId, isActive: true };
       if (branch) {
@@ -592,3 +592,4 @@ export const deductInventoryByRecipe = async (finishedGoodId, quantity, companyI
     throw error;
   }
 };
+

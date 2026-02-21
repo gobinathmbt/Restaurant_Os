@@ -8,7 +8,7 @@ import { getCompanyDB } from '../config/database.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getMenuCategoryModel } from '../models/company/MenuCategory.js';
 import { getMenuItemBranchModel } from '../models/company/MenuItemBranch.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import MenuCategoryBranchValidationService from './menuCategoryBranchValidationService.js';
 import { logger } from '../utils/logger.js';
 
@@ -164,8 +164,8 @@ export const getMenuItemById = async (menuItemId, companyId, branchId = null, us
     const MenuItem = getMenuItemModel(companyDB);
     const MenuItemBranch = getMenuItemBranchModel(companyDB);
     const MenuCategory = getMenuCategoryModel(companyDB);
-    // Register Branch model on this connection before populate
-    const Branch = getBranchModel(companyDB);
+    // Register Location model on this connection before populate
+    const Branch = getLocationModel(companyDB);
     
     const menuItem = await MenuItem.findById(menuItemId)
       .populate('category', 'name description color icon')
@@ -762,3 +762,4 @@ export const createMenuItemWithBranches = async (
     }
   }
 };
+

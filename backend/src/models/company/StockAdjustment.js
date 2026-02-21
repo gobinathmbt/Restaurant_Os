@@ -60,7 +60,7 @@ const stockAdjustmentSchema = new mongoose.Schema({
   // Legacy branch reference (for backward compatibility during migration)
   branch: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch'
+    ref: 'Location'
   },
   
   // Adjustment type

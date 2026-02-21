@@ -14,7 +14,7 @@ const recipeBranchSchema = new mongoose.Schema({
   },
   branch: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch',
+    ref: 'Location',
     required: true,
     index: true
   },

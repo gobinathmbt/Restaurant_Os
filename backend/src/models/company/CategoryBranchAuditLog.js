@@ -36,7 +36,7 @@ const categoryBranchAuditLogSchema = new mongoose.Schema({
   },
   branchIds: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Branch'
+    ref: 'Location'
   }],
   reason: {
     type: String,

@@ -7,7 +7,7 @@ import { getCompanyDB } from '../config/database.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getCategoryModel } from '../models/company/Category.js';
 import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
-import { getBranchModel } from '../models/company/Branch.js';
+import { getLocationModel } from '../models/company/Location.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
 import { logger } from '../utils/logger.js';
 
@@ -421,7 +421,7 @@ export const bulkUpdateBranchConfigs = async (itemId, branchConfigs, companyId, 
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
     const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
-    const Branch = getBranchModel(companyDB);
+    const Branch = getLocationModel(companyDB);
 
     // Validate inventory item exists
     const inventoryItem = await InventoryItem.findById(itemId)
@@ -633,3 +633,4 @@ export const deleteBranchConfig = async (itemId, branchId, companyId, userBranch
     throw error;
   }
 };
+
