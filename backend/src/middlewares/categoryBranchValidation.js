@@ -438,8 +438,8 @@ export const validateCategoryUpdate = async (req, res, next) => {
     }
 
     // Determine which branches are being removed
-    const existingBranchIds = existingCategory.branchIds.map(id => id.toString());
-    const newBranchIds = updateData.branchIds.map(id => id.toString());
+    const existingBranchIds = (existingCategory.branchIds || []).map(id => id.toString());
+    const newBranchIds = (updateData.branchIds || []).map(id => id.toString());
     const removedBranchIds = existingBranchIds.filter(id => !newBranchIds.includes(id));
 
     // If no branches are being removed, skip validation
