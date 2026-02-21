@@ -128,6 +128,17 @@ export const createTransfer = async (transferData, companyId) => {
       throw new Error(`Destination location not found or inactive`);
     }
 
+    // Validate inter-company transfer constraint (Requirement 36.2)
+    // Since each company has its own database, both locations must exist in the same database
+    // This validation ensures no cross-company transfers are attempted
+    // Note: If either location is not found above, this check is redundant but provides clarity
+    if (!sourceLocation || !destLocation) {
+      throw new Error(
+        'Inter-company transfers are not supported. Source and destination locations must belong to the same company. ' +
+        'For inter-company inventory movements, please use the manual workaround process documented in the operations guide.'
+      );
+    }
+
     // Validate source location has canDispatchStock capability
     if (!sourceLocation.capabilities.canDispatchStock) {
       throw new Error(

@@ -63,7 +63,8 @@ export const createTransfer = async (req, res, next) => {
         error.message.includes('must be different') ||
         error.message.includes('not found or inactive') ||
         error.message.includes('cannot dispatch stock') ||
-        error.message.includes('cannot receive stock')) {
+        error.message.includes('cannot receive stock') ||
+        error.message.includes('Inter-company transfers are not supported')) {
       return res.status(400).json({
         success: false,
         message: error.message
