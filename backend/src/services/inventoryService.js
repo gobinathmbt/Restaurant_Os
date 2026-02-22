@@ -179,7 +179,27 @@ export const createInventoryItem = async (itemData, companyId, userBranchIds, us
  * @param {Array|null} userBranchIds - User's accessible branch IDs (null for super admin)
  * @returns {Promise<Object>} Created inventory item with branch configs and auto-assignment results
  */
+// Alias for backward compatibility - delegates to createInventoryItemWithLocations
 export const createInventoryItemWithBranches = async (inventoryItemData, branchConfigs, companyId, userId, userBranchIds = null) => {
+  // Convert branchConfigs to locationConfigs
+  const locationConfigs = branchConfigs.map(config => ({
+    ...config,
+    locationId: config.branchId || config.locationId
+  }));
+  
+  return createInventoryItemWithLocations(inventoryItemData, locationConfigs, companyId, userId, userBranchIds);
+};
+
+/**
+ * Create inventory item with location configurations
+ * @param {Object} inventoryItemData - Inventory item data (global properties)
+ * @param {Array} locationConfigs - Array of location configurations
+ * @param {string} companyId - Company ID
+ * @param {string} userId - User ID for audit
+ * @param {Array|null} userLocationIds - User's accessible location IDs (null for super admin)
+ * @returns {Promise<Object>} Created inventory item with location configs and auto-assignment results
+ */
+export const createInventoryItemWithLocations = async (inventoryItemData, locationConfigs, companyId, userId, userLocationIds = null) => {
   // Get company database connection first
   const companyDB = getCompanyDB(companyId);
   
@@ -194,10 +214,10 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 
   try {
     const InventoryItem = getInventoryItemModel(companyDB);
-    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const { getInventoryItemLocationModel } = await import('../models/company/InventoryItemLocation.js');
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const Category = getCategoryModel(companyDB);
-    const Branch = getLocationModel(companyDB);
+    const Location = getLocationModel(companyDB);
     const Supplier = getSupplierModel(companyDB);
 
     // Validate required fields
@@ -208,35 +228,35 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
       throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
     }
 
-    // Validate branch configs
-    if (!branchConfigs || !Array.isArray(branchConfigs) || branchConfigs.length === 0) {
-      throw new Error('At least one branch configuration is required');
+    // Validate location configs
+    if (!locationConfigs || !Array.isArray(locationConfigs) || locationConfigs.length === 0) {
+      throw new Error('At least one location configuration is required');
     }
 
-    // Extract branch IDs from configs
-    const branchIds = branchConfigs.map(config => config.branchId);
+    // Extract location IDs from configs
+    const locationIds = locationConfigs.map(config => config.locationId);
 
-    // Validate branch access
-    if (userBranchIds !== null) {
-      const invalidBranches = branchIds.filter(
-        branchId => !userBranchIds.includes(branchId.toString())
+    // Validate location access
+    if (userLocationIds !== null) {
+      const invalidLocations = locationIds.filter(
+        locationId => !userLocationIds.includes(locationId.toString())
       );
       
-      if (invalidBranches.length > 0) {
-        throw new Error(`No access to branch: ${invalidBranches[0]}`);
+      if (invalidLocations.length > 0) {
+        throw new Error(`No access to location: ${invalidLocations[0]}`);
       }
     }
 
-    // Validate that all branch IDs exist
-    const branchQuery = Branch.find({ 
-      _id: { $in: branchIds },
+    // Validate that all location IDs exist
+    const locationQuery = Location.find({ 
+      _id: { $in: locationIds },
       isActive: true 
     });
-    if (session) branchQuery.session(session);
-    const branches = await branchQuery;
+    if (session) locationQuery.session(session);
+    const locations = await locationQuery;
     
-    if (branches.length !== branchIds.length) {
-      throw new Error('Invalid branch ID detected');
+    if (locations.length !== locationIds.length) {
+      throw new Error('Invalid location ID detected');
     }
 
     // Validate category exists
@@ -284,11 +304,11 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
       }
     }
 
-    // Auto-assign category and subcategory to branches
+    // Auto-assign category and subcategory to locations
     const categoryId = inventoryItemData.category;
     const subcategoryId = inventoryItemData.subcategory;
 
-    logger.info(`Auto-assigning inventory category ${categoryId} to branches: ${branchIds.join(', ')}`);
+    logger.info(`Auto-assigning inventory category ${categoryId} to locations: ${locationIds.join(', ')}`);
 
     const CategoryBranchValidationService = (await import('./categoryBranchValidationService.js')).default;
     const validationService = new CategoryBranchValidationService(companyDB);
@@ -297,7 +317,7 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
     const subcategoryIdsToAssign = subcategoryId ? [subcategoryId] : [];
     
     const assignmentResult = await validationService.assignCategoriesToBranches(
-      branchIds,
+      locationIds,
       categoryIdsToAssign,
       subcategoryIdsToAssign,
       userId,
@@ -307,9 +327,9 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 
     logger.info(`Category assignment result:`, assignmentResult);
 
-    // Auto-assign suppliers to branches (per branch configuration)
+    // Auto-assign suppliers to locations (per location configuration)
     const supplierAssignments = [];
-    for (const config of branchConfigs) {
+    for (const config of locationConfigs) {
       if (config.supplier) {
         // Validate supplier exists
         const supplierQuery = Supplier.findById(config.supplier);
@@ -317,15 +337,15 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
         const supplier = await supplierQuery;
         
         if (!supplier) {
-          logger.warn(`Supplier ${config.supplier} not found, skipping auto-assignment for branch ${config.branchId}`);
+          logger.warn(`Supplier ${config.supplier} not found, skipping auto-assignment for location ${config.locationId}`);
           continue;
         }
 
-        // Check if supplier is already assigned to this branch
-        const supplierBranchIds = supplier.branchIds || [];
-        if (!supplierBranchIds.includes(config.branchId.toString())) {
-          // Add branch to supplier's branchIds
-          supplier.branchIds = [...supplierBranchIds, config.branchId];
+        // Check if supplier is already assigned to this location
+        const supplierLocationIds = supplier.branchIds || [];
+        if (!supplierLocationIds.includes(config.locationId.toString())) {
+          // Add location to supplier's branchIds (field name kept for backward compatibility)
+          supplier.branchIds = [...supplierLocationIds, config.locationId];
           if (session) {
             await supplier.save({ session });
           } else {
@@ -335,15 +355,15 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
           supplierAssignments.push({
             supplierId: config.supplier,
             supplierName: supplier.name,
-            branchId: config.branchId
+            locationId: config.locationId
           });
           
-          logger.info(`Auto-assigned supplier ${supplier.name} to branch ${config.branchId}`);
+          logger.info(`Auto-assigned supplier ${supplier.name} to location ${config.locationId}`);
         }
       }
     }
 
-    // Create inventory item (without branch-specific data)
+    // Create inventory item (without location-specific data)
     let inventoryItem;
     if (session) {
       const items = await InventoryItem.create(
@@ -356,9 +376,9 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
           sku: inventoryItemData.sku,
           barcode: inventoryItemData.barcode,
           description: inventoryItemData.description,
-          branchIds: branchIds, // Store branch IDs for backward compatibility
-          currentStock: 0, // Will be managed per branch
-          minimumStock: 0, // Will be managed per branch
+          branchIds: locationIds, // Store location IDs for backward compatibility
+          currentStock: 0, // Will be managed per location
+          minimumStock: 0, // Will be managed per location
           isActive: true
         }],
         { session }
@@ -374,7 +394,7 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
         sku: inventoryItemData.sku,
         barcode: inventoryItemData.barcode,
         description: inventoryItemData.description,
-        branchIds: branchIds,
+        branchIds: locationIds,
         currentStock: 0,
         minimumStock: 0,
         isActive: true
@@ -383,40 +403,38 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 
     logger.info(`Inventory item created: ${inventoryItem._id} for company: ${companyId}`);
 
-    // Create branch configurations
-    const branchConfigDocs = branchConfigs.map(config => {
-      const { branchId, ...configData } = config;
+    // Create location configurations
+    const locationConfigDocs = locationConfigs.map(config => {
+      const { locationId, ...configData } = config;
       
       return {
         inventoryItem: inventoryItem._id,
-        branch: branchId,
-        currentStock: configData.currentStock !== undefined ? configData.currentStock : 0,
+        locationId: locationId,
+        availableQuantity: configData.availableQuantity !== undefined ? configData.availableQuantity : 0,
+        reservedQuantity: 0,
+        inTransitQuantity: 0,
         minimumStock: configData.minimumStock !== undefined ? configData.minimumStock : 0,
         maximumStock: configData.maximumStock,
         reorderPoint: configData.reorderPoint,
-        costPrice: configData.costPrice,
+        costingMethod: configData.costingMethod || 'FIFO',
+        standardCost: configData.standardCost || configData.costPrice,
         lastPurchasePrice: configData.lastPurchasePrice,
         lastPurchaseDate: configData.lastPurchaseDate,
         supplier: configData.supplier,
         storageLocation: configData.storageLocation,
-        batchNumber: configData.batchNumber,
-        expiryDate: configData.expiryDate,
-        branchSKU: configData.branchSKU,
-        branchBarcode: configData.branchBarcode,
         isActive: true,
-        isAvailable: configData.isAvailable !== undefined ? configData.isAvailable : true,
-        notes: configData.notes
+        version: 0
       };
     });
 
-    let createdBranchConfigs;
+    let createdLocationConfigs;
     if (session) {
-      createdBranchConfigs = await InventoryItemBranch.create(branchConfigDocs, { session });
+      createdLocationConfigs = await InventoryItemLocation.create(locationConfigDocs, { session });
     } else {
-      createdBranchConfigs = await InventoryItemBranch.create(branchConfigDocs);
+      createdLocationConfigs = await InventoryItemLocation.create(locationConfigDocs);
     }
 
-    logger.info(`Created ${createdBranchConfigs.length} branch configs for inventory item: ${inventoryItem._id}`);
+    logger.info(`Created ${createdLocationConfigs.length} location configs for inventory item: ${inventoryItem._id}`);
 
     // Commit transaction if using transactions
     if (session) {
@@ -430,10 +448,10 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
       .populate('subcategory', 'name description color type parent')
       .lean();
 
-    const populatedBranchConfigs = await InventoryItemBranch.find({
-      _id: { $in: createdBranchConfigs.map(c => c._id) }
+    const populatedLocationConfigs = await InventoryItemLocation.find({
+      _id: { $in: createdLocationConfigs.map(c => c._id) }
     })
-      .populate('branch', 'name code address')
+      .populate('locationId', 'name code address')
       .populate('supplier', 'name contactPerson phone email')
       .lean();
 
@@ -448,7 +466,8 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 
     return {
       inventoryItem: populatedItem,
-      branchConfigs: populatedBranchConfigs,
+      locationConfigs: populatedLocationConfigs,
+      branchConfigs: populatedLocationConfigs, // Alias for backward compatibility
       autoAssignments // Return auto-assignment info including suppliers
     };
   } catch (error) {
@@ -458,7 +477,7 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
       session.endSession();
     }
     
-    logger.error('Error creating inventory item with branches:', error);
+    logger.error('Error creating inventory item with locations:', error);
     throw error;
   }
 };
@@ -466,18 +485,18 @@ export const createInventoryItemWithBranches = async (inventoryItemData, branchC
 /**
  * Get inventory items with filtering and pagination
  * @param {string} companyId - Company ID
- * @param {Object} filters - Filter options (page, limit, search, type, category, subcategory, branchId)
- * @param {Array|null} userBranchIds - User's accessible branch IDs (null for super admins)
+ * @param {Object} filters - Filter options (page, limit, search, type, category, subcategory, locationId)
+ * @param {Array|null} userLocationIds - User's accessible location IDs (null for super admins)
  * @returns {Promise<Object>} Paginated inventory items
  */
-export const getInventoryItems = async (companyId, filters = {}, userBranchIds = null) => {
+export const getInventoryItems = async (companyId, filters = {}, userLocationIds = null) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const InventoryItem = getInventoryItemModel(companyDB);
-    const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const { getInventoryItemLocationModel } = await import('../models/company/InventoryItemLocation.js');
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const Category = getCategoryModel(companyDB);
-    const Branch = getLocationModel(companyDB);
+    const Location = getLocationModel(companyDB);
 
     const {
       page = 1,
@@ -486,8 +505,12 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
       type = '',
       category = '',
       subcategory = '',
-      branchId = ''
+      locationId = '',
+      branchId = '' // Backward compatibility alias for locationId
     } = filters;
+
+    // Use locationId or branchId (backward compatibility)
+    const effectiveLocationId = locationId || branchId;
 
     // Build base query for InventoryItem
     const itemQuery = {
@@ -518,40 +541,37 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
       itemQuery.subcategory = subcategory;
     }
 
-    // Branch filtering logic - query InventoryItemBranch to find relevant items
-    let itemIdsFromBranches = null;
+    // Location filtering logic - query InventoryItemLocation to find relevant items
+    let itemIdsFromLocations = null;
     
-    if (branchId === 'all') {
-      // Super admin viewing all items - no branch filter needed
-      if (userBranchIds !== null) {
-        // Company admins cannot use 'all' - filter by their branches
-        const branchItems = await InventoryItemBranch.find({
-          branch: { $in: userBranchIds }
-          // Removed isActive filter - show all items
+    if (effectiveLocationId === 'all') {
+      // Super admin viewing all items - no location filter needed
+      if (userLocationIds !== null) {
+        // Company admins cannot use 'all' - filter by their locations
+        const locationItems = await InventoryItemLocation.find({
+          locationId: { $in: userLocationIds }
         }).distinct('inventoryItem');
-        itemIdsFromBranches = branchItems;
+        itemIdsFromLocations = locationItems;
       }
-      // Super admin with 'all' - no branch filter, show everything
-    } else if (branchId) {
-      // Specific branch selected - find items assigned to that branch
-      const branchItems = await InventoryItemBranch.find({
-        branch: branchId
-        // Removed isActive filter - show all items
+      // Super admin with 'all' - no location filter, show everything
+    } else if (effectiveLocationId) {
+      // Specific location selected - find items assigned to that location
+      const locationItems = await InventoryItemLocation.find({
+        locationId: effectiveLocationId
       }).distinct('inventoryItem');
-      itemIdsFromBranches = branchItems;
-    } else if (userBranchIds !== null && userBranchIds.length > 0) {
-      // Company admin with no specific branch - show items from their branches
-      const branchItems = await InventoryItemBranch.find({
-        branch: { $in: userBranchIds}
-        // Removed isActive filter - show all items
+      itemIdsFromLocations = locationItems;
+    } else if (userLocationIds !== null && userLocationIds.length > 0) {
+      // Company admin with no specific location - show items from their locations
+      const locationItems = await InventoryItemLocation.find({
+        locationId: { $in: userLocationIds}
       }).distinct('inventoryItem');
-      itemIdsFromBranches = branchItems;
+      itemIdsFromLocations = locationItems;
     }
-    // Super admin with no branchId specified - show all items
+    // Super admin with no locationId specified - show all items
 
-    // Apply branch filter to item query if needed
-    if (itemIdsFromBranches !== null) {
-      itemQuery._id = { $in: itemIdsFromBranches };
+    // Apply location filter to item query if needed
+    if (itemIdsFromLocations !== null) {
+      itemQuery._id = { $in: itemIdsFromLocations };
     }
 
     // Calculate pagination
@@ -569,27 +589,29 @@ export const getInventoryItems = async (companyId, filters = {}, userBranchIds =
       InventoryItem.countDocuments(itemQuery)
     ]);
 
-    // For each item, fetch branch count and branch details
-    const itemsWithBranches = await Promise.all(
+    // For each item, fetch location count and location details
+    const itemsWithLocations = await Promise.all(
       items.map(async (item) => {
-        const branchConfigs = await InventoryItemBranch.find({
+        const locationConfigs = await InventoryItemLocation.find({
           inventoryItem: item._id
-          // Removed isActive filter - show all branch configs
         })
-          .populate('branch', 'name code')
-          .select('branch')
+          .populate('locationId', 'name code')
+          .select('locationId')
           .lean();
 
         return {
           ...item,
-          branches: branchConfigs,
-          branchCount: branchConfigs.length
+          locations: locationConfigs,
+          locationCount: locationConfigs.length,
+          // Backward compatibility aliases
+          branches: locationConfigs,
+          branchCount: locationConfigs.length
         };
       })
     );
 
     return {
-      items: itemsWithBranches,
+      items: itemsWithLocations,
       pagination: {
         total,
         page: parseInt(page),

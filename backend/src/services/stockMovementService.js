@@ -4,9 +4,8 @@
  * Handles all inventory movements with proper concurrency control
  */
 
-import mongoose from 'mongoose';
 import { getCompanyDB } from '../config/database.js';
-import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
+import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getInventoryLedgerModel } from '../models/company/InventoryLedger.js';
 import { logger } from '../utils/logger.js';
 
@@ -14,7 +13,8 @@ import { logger } from '../utils/logger.js';
  * Atomically deduct stock with ledger entry
  * Uses MongoDB atomic operations to prevent race conditions
  * 
- * @param {string} inventoryItemBranchId - Inventory item branch ID
+ * @param {string} itemId - Inventory item ID
+ * @param {string} locationId - Location ID
  * @param {number} quantity - Quantity to deduct
  * @param {Object} options - Movement options
  * @param {string} options.movementType - Type of movement (consumption, reservation, etc.)
@@ -29,7 +29,7 @@ import { logger } from '../utils/logger.js';
  * @param {string} options.correlationId - Correlation ID for tracking related operations
  * @returns {Promise<Object>} Movement result with ledger entry
  */
-export const atomicStockDeduction = async (inventoryItemBranchId, quantity, options) => {
+export const atomicStockDeduction = async (itemId, locationId, quantity, options) => {
   const {
     movementType = 'consumption',
     referenceType,
@@ -45,63 +45,70 @@ export const atomicStockDeduction = async (inventoryItemBranchId, quantity, opti
 
   try {
     const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const InventoryLedger = getInventoryLedgerModel(companyDB);
 
-    // Atomic update with stock check
-    const updateResult = await InventoryItemBranch.findOneAndUpdate(
+    // Atomic update with stock check and optimistic locking
+    const updateResult = await InventoryItemLocation.findOneAndUpdate(
       {
-        _id: inventoryItemBranchId,
-        currentStock: { $gte: quantity }, // Ensure sufficient stock
+        inventoryItem: itemId,
+        locationId: locationId,
+        availableQuantity: { $gte: quantity }, // Ensure sufficient stock
         isActive: true
       },
       {
-        $inc: { currentStock: -quantity }
+        $inc: { 
+          availableQuantity: -quantity,
+          version: 1 // Increment version for optimistic locking
+        }
       },
       {
         new: true, // Return updated document
         session // Use transaction session if provided
       }
     ).populate('inventoryItem', 'name code unit')
-     .populate('branch', 'name code');
+     .populate('locationId', 'name code');
 
     if (!updateResult) {
       // Either item not found or insufficient stock
-      const item = await InventoryItemBranch.findById(inventoryItemBranchId)
+      const item = await InventoryItemLocation.findOne({
+        inventoryItem: itemId,
+        locationId: locationId
+      })
         .populate('inventoryItem', 'name')
         .session(session);
       
       if (!item) {
-        throw new Error(`Inventory item branch not found: ${inventoryItemBranchId}`);
+        throw new Error(`Inventory item location not found: itemId=${itemId}, locationId=${locationId}`);
       }
       
       throw new Error(
         `Insufficient stock for ${item.inventoryItem?.name || 'item'}. ` +
-        `Available: ${item.currentStock}, Required: ${quantity}`
+        `Available: ${item.availableQuantity}, Required: ${quantity}`
       );
     }
 
     // Calculate before/after values
-    const beforeStock = updateResult.currentStock + quantity;
-    const afterStock = updateResult.currentStock;
+    const beforeStock = updateResult.availableQuantity + quantity;
+    const afterStock = updateResult.availableQuantity;
 
     // Create immutable ledger entry
     const ledgerEntry = new InventoryLedger({
       inventoryItem: updateResult.inventoryItem._id,
-      locationId: updateResult.branch._id || updateResult.branch,
+      locationId: updateResult.locationId._id || updateResult.locationId,
       movementType,
       quantityDelta: -quantity,
       beforeAvailable: beforeStock,
       afterAvailable: afterStock,
-      beforeReserved: 0, // TODO: Implement reservation tracking
-      afterReserved: 0,
-      beforeInTransit: 0,
-      afterInTransit: 0,
+      beforeReserved: updateResult.reservedQuantity,
+      afterReserved: updateResult.reservedQuantity,
+      beforeInTransit: updateResult.inTransitQuantity,
+      afterInTransit: updateResult.inTransitQuantity,
       referenceType,
       referenceId,
       referenceNumber,
-      unitCost: updateResult.costPrice || 0,
-      totalValue: (updateResult.costPrice || 0) * quantity,
+      unitCost: updateResult.standardCost || updateResult.lastPurchasePrice || 0,
+      totalValue: (updateResult.standardCost || updateResult.lastPurchasePrice || 0) * quantity,
       performedBy,
       reason,
       notes,
@@ -112,12 +119,12 @@ export const atomicStockDeduction = async (inventoryItemBranchId, quantity, opti
 
     logger.info(
       `Stock deducted atomically: ${quantity} units of ${updateResult.inventoryItem?.name} ` +
-      `at branch ${updateResult.branch?.name}. New stock: ${afterStock}`
+      `at location ${updateResult.locationId?.name}. New stock: ${afterStock}`
     );
 
     return {
       success: true,
-      inventoryItemBranch: updateResult,
+      inventoryItemLocation: updateResult,
       beforeStock,
       afterStock,
       deducted: quantity,
@@ -132,12 +139,13 @@ export const atomicStockDeduction = async (inventoryItemBranchId, quantity, opti
 /**
  * Atomically add stock with ledger entry
  * 
- * @param {string} inventoryItemBranchId - Inventory item branch ID
+ * @param {string} itemId - Inventory item ID
+ * @param {string} locationId - Location ID
  * @param {number} quantity - Quantity to add
  * @param {Object} options - Movement options (same as deduction)
  * @returns {Promise<Object>} Movement result with ledger entry
  */
-export const atomicStockAddition = async (inventoryItemBranchId, quantity, options) => {
+export const atomicStockAddition = async (itemId, locationId, quantity, options) => {
   const {
     movementType = 'grn',
     referenceType,
@@ -154,50 +162,54 @@ export const atomicStockAddition = async (inventoryItemBranchId, quantity, optio
 
   try {
     const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const InventoryLedger = getInventoryLedgerModel(companyDB);
 
-    // Atomic update
-    const updateResult = await InventoryItemBranch.findOneAndUpdate(
+    // Atomic update with optimistic locking
+    const updateResult = await InventoryItemLocation.findOneAndUpdate(
       {
-        _id: inventoryItemBranchId,
+        inventoryItem: itemId,
+        locationId: locationId,
         isActive: true
       },
       {
-        $inc: { currentStock: quantity }
+        $inc: { 
+          availableQuantity: quantity,
+          version: 1 // Increment version for optimistic locking
+        }
       },
       {
         new: true,
         session
       }
     ).populate('inventoryItem', 'name code unit')
-     .populate('branch', 'name code');
+     .populate('locationId', 'name code');
 
     if (!updateResult) {
-      throw new Error(`Inventory item branch not found: ${inventoryItemBranchId}`);
+      throw new Error(`Inventory item location not found: itemId=${itemId}, locationId=${locationId}`);
     }
 
     // Calculate before/after values
-    const beforeStock = updateResult.currentStock - quantity;
-    const afterStock = updateResult.currentStock;
+    const beforeStock = updateResult.availableQuantity - quantity;
+    const afterStock = updateResult.availableQuantity;
 
     // Create ledger entry
     const ledgerEntry = new InventoryLedger({
       inventoryItem: updateResult.inventoryItem._id,
-      locationId: updateResult.branch._id || updateResult.branch,
+      locationId: updateResult.locationId._id || updateResult.locationId,
       movementType,
       quantityDelta: quantity,
       beforeAvailable: beforeStock,
       afterAvailable: afterStock,
-      beforeReserved: 0,
-      afterReserved: 0,
-      beforeInTransit: 0,
-      afterInTransit: 0,
+      beforeReserved: updateResult.reservedQuantity,
+      afterReserved: updateResult.reservedQuantity,
+      beforeInTransit: updateResult.inTransitQuantity,
+      afterInTransit: updateResult.inTransitQuantity,
       referenceType,
       referenceId,
       referenceNumber,
-      unitCost: unitCost || updateResult.costPrice || 0,
-      totalValue: (unitCost || updateResult.costPrice || 0) * quantity,
+      unitCost: unitCost || updateResult.standardCost || updateResult.lastPurchasePrice || 0,
+      totalValue: (unitCost || updateResult.standardCost || updateResult.lastPurchasePrice || 0) * quantity,
       performedBy,
       reason,
       notes,
@@ -208,12 +220,12 @@ export const atomicStockAddition = async (inventoryItemBranchId, quantity, optio
 
     logger.info(
       `Stock added atomically: ${quantity} units of ${updateResult.inventoryItem?.name} ` +
-      `at branch ${updateResult.branch?.name}. New stock: ${afterStock}`
+      `at location ${updateResult.locationId?.name}. New stock: ${afterStock}`
     );
 
     return {
       success: true,
-      inventoryItemBranch: updateResult,
+      inventoryItemLocation: updateResult,
       beforeStock,
       afterStock,
       added: quantity,
@@ -229,7 +241,7 @@ export const atomicStockAddition = async (inventoryItemBranchId, quantity, optio
  * Deduct multiple ingredients atomically within a transaction
  * All-or-nothing operation - if any ingredient fails, all rollback
  * 
- * @param {Array} ingredients - Array of {inventoryItemBranchId, quantity}
+ * @param {Array} ingredients - Array of {itemId, locationId, quantity}
  * @param {Object} options - Movement options
  * @returns {Promise<Object>} Deduction results
  */
@@ -246,7 +258,8 @@ export const atomicBulkStockDeduction = async (ingredients, options) => {
     
     for (const ingredient of ingredients) {
       const result = await atomicStockDeduction(
-        ingredient.inventoryItemBranchId,
+        ingredient.itemId,
+        ingredient.locationId,
         ingredient.quantity,
         {
           ...options,
@@ -283,27 +296,31 @@ export const atomicBulkStockDeduction = async (ingredients, options) => {
  * Check if sufficient stock is available for multiple ingredients
  * Does NOT deduct stock, only checks availability
  * 
- * @param {Array} ingredients - Array of {inventoryItemBranchId, quantity}
+ * @param {Array} ingredients - Array of {itemId, locationId, quantity}
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Availability check result
  */
 export const checkStockAvailability = async (ingredients, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
 
     const insufficientItems = [];
     const availableItems = [];
 
     for (const ingredient of ingredients) {
-      const item = await InventoryItemBranch.findById(ingredient.inventoryItemBranchId)
+      const item = await InventoryItemLocation.findOne({
+        inventoryItem: ingredient.itemId,
+        locationId: ingredient.locationId
+      })
         .populate('inventoryItem', 'name code unit')
-        .populate('branch', 'name code')
+        .populate('locationId', 'name code')
         .lean();
 
       if (!item) {
         insufficientItems.push({
-          inventoryItemBranchId: ingredient.inventoryItemBranchId,
+          itemId: ingredient.itemId,
+          locationId: ingredient.locationId,
           required: ingredient.quantity,
           available: 0,
           reason: 'Item not found'
@@ -311,23 +328,25 @@ export const checkStockAvailability = async (ingredients, companyId) => {
         continue;
       }
 
-      if (item.currentStock < ingredient.quantity) {
+      if (item.availableQuantity < ingredient.quantity) {
         insufficientItems.push({
-          inventoryItemBranchId: ingredient.inventoryItemBranchId,
+          itemId: ingredient.itemId,
+          locationId: ingredient.locationId,
           itemName: item.inventoryItem?.name,
-          branchName: item.branch?.name,
+          locationName: item.locationId?.name,
           required: ingredient.quantity,
-          available: item.currentStock,
-          shortfall: ingredient.quantity - item.currentStock,
+          available: item.availableQuantity,
+          shortfall: ingredient.quantity - item.availableQuantity,
           reason: 'Insufficient stock'
         });
       } else {
         availableItems.push({
-          inventoryItemBranchId: ingredient.inventoryItemBranchId,
+          itemId: ingredient.itemId,
+          locationId: ingredient.locationId,
           itemName: item.inventoryItem?.name,
-          branchName: item.branch?.name,
+          locationName: item.locationId?.name,
           required: ingredient.quantity,
-          available: item.currentStock
+          available: item.availableQuantity
         });
       }
     }
