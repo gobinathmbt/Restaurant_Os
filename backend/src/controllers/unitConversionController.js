@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 export const calculateSmartConversions = async (req, res, next) => {
   try {
     const { companyId } = req.user;
-    const { ingredients, branchId } = req.body;
+    const { ingredients, locationId } = req.body;
 
     if (!ingredients || !Array.isArray(ingredients)) {
       return res.status(400).json({
@@ -22,16 +22,16 @@ export const calculateSmartConversions = async (req, res, next) => {
       });
     }
 
-    if (!branchId) {
+    if (!locationId) {
       return res.status(400).json({
         success: false,
-        message: 'Branch ID is required'
+        message: 'Location ID is required'
       });
     }
 
     const results = await unitConversionService.calculateSmartConversions(
       ingredients,
-      branchId,
+      locationId,
       companyId
     );
 
@@ -52,12 +52,19 @@ export const calculateSmartConversions = async (req, res, next) => {
 export const getConversionSuggestion = async (req, res, next) => {
   try {
     const { companyId } = req.user;
-    const { inventoryItemBranchId, targetUnit } = req.body;
+    const { inventoryItemId, locationId, targetUnit } = req.body;
 
-    if (!inventoryItemBranchId) {
+    if (!inventoryItemId) {
       return res.status(400).json({
         success: false,
-        message: 'Inventory item branch ID is required'
+        message: 'Inventory item ID is required'
+      });
+    }
+
+    if (!locationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Location ID is required'
       });
     }
 
@@ -69,7 +76,8 @@ export const getConversionSuggestion = async (req, res, next) => {
     }
 
     const suggestion = await unitConversionService.getConversionSuggestion(
-      inventoryItemBranchId,
+      inventoryItemId,
+      locationId,
       targetUnit,
       companyId
     );
@@ -81,7 +89,7 @@ export const getConversionSuggestion = async (req, res, next) => {
   } catch (error) {
     logger.error('Get conversion suggestion error', error);
     
-    if (error.message === 'Inventory item not found') {
+    if (error.message === 'Inventory item not found at this location') {
       return res.status(404).json({
         success: false,
         message: error.message

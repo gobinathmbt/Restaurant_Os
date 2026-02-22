@@ -4,50 +4,51 @@
  */
 
 import { getCompanyDB } from '../config/database.js';
-import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
+import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { logger } from '../utils/logger.js';
 import * as unitConversion from '../utils/unitConversion.js';
 
 /**
  * Calculate smart conversion for recipe ingredients
- * @param {Array} ingredients - Array of ingredient objects with inventoryItemBranch IDs
- * @param {string} branchId - Branch ID
+ * @param {Array} ingredients - Array of ingredient objects with inventoryItem IDs and locationId
+ * @param {string} locationId - Location ID
  * @param {string} companyId - Company ID
  * @returns {Promise<Array>} Array of ingredients with conversion calculations
  */
-export const calculateSmartConversions = async (ingredients, branchId, companyId) => {
+export const calculateSmartConversions = async (ingredients, locationId, companyId) => {
   try {
     console.log('🔧 calculateSmartConversions called', {
       ingredientsCount: ingredients.length,
-      branchId,
+      locationId,
       companyId,
     });
 
     const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
 
     const results = [];
 
     for (const ingredient of ingredients) {
       console.log('📦 Processing ingredient:', ingredient);
 
-      // Fetch inventory item branch details
-      const inventoryItemBranch = await InventoryItemBranch.findById(
-        ingredient.inventoryItemBranch
-      ).populate('inventoryItem');
+      // Fetch inventory item location details
+      const inventoryItemLocation = await InventoryItemLocation.findOne({
+        inventoryItem: ingredient.inventoryItem,
+        locationId: locationId
+      }).populate('inventoryItem');
 
-      if (!inventoryItemBranch) {
-        console.error('❌ Inventory item not found:', ingredient.inventoryItemBranch);
+      if (!inventoryItemLocation) {
+        console.error('❌ Inventory item not found:', ingredient.inventoryItem, 'at location:', locationId);
         results.push({
           ...ingredient,
-          error: 'Inventory item not found',
+          error: 'Inventory item not found at this location',
           conversionPossible: false,
         });
         continue;
       }
 
-      const inventoryUnit = inventoryItemBranch.inventoryItem.unit;
-      const inventoryPrice = inventoryItemBranch.costPrice || 0;
+      const inventoryUnit = inventoryItemLocation.inventoryItem.unit;
+      const inventoryPrice = inventoryItemLocation.standardCost || inventoryItemLocation.lastPurchasePrice || 0;
       const recipeUnit = ingredient.unit;
       const recipeQuantity = ingredient.quantity;
       const manualConversionFactor = ingredient.conversionFactor;
@@ -75,8 +76,9 @@ export const calculateSmartConversions = async (ingredients, branchId, companyId
       const suggestion = unitConversion.suggestConversionFactor(inventoryUnit, recipeUnit);
 
       const result = {
-        inventoryItemBranch: ingredient.inventoryItemBranch,
-        inventoryItemName: inventoryItemBranch.inventoryItem.name,
+        inventoryItem: ingredient.inventoryItem,
+        locationId: ingredient.locationId,
+        inventoryItemName: inventoryItemLocation.inventoryItem.name,
         quantity: recipeQuantity,
         unit: recipeUnit,
         inventoryUnit,
@@ -91,7 +93,7 @@ export const calculateSmartConversions = async (ingredients, branchId, companyId
       results.push(result);
     }
 
-    logger.info(`Smart conversion calculated for ${results.length} ingredients in branch ${branchId}`);
+    logger.info(`Smart conversion calculated for ${results.length} ingredients in location ${locationId}`);
     console.log('🎉 All conversions calculated:', results);
 
     return results;
@@ -110,7 +112,8 @@ export const calculateSmartConversions = async (ingredients, branchId, companyId
 export const applyConversionFactors = (ingredients) => {
   return ingredients.map(ingredient => {
     const {
-      inventoryItemBranch,
+      inventoryItem,
+      locationId,
       quantity,
       unit,
       conversionFactor,
@@ -118,7 +121,8 @@ export const applyConversionFactors = (ingredients) => {
     } = ingredient;
 
     const result = {
-      inventoryItemBranch,
+      inventoryItem,
+      locationId,
       quantity,
       unit,
     };
@@ -148,24 +152,27 @@ export const validateConversionFactor = (factor) => {
 
 /**
  * Get conversion suggestions for ingredient
- * @param {string} inventoryItemBranchId - Inventory item branch ID
+ * @param {string} inventoryItemId - Inventory item ID
+ * @param {string} locationId - Location ID
  * @param {string} targetUnit - Target unit for recipe
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Conversion suggestion
  */
-export const getConversionSuggestion = async (inventoryItemBranchId, targetUnit, companyId) => {
+export const getConversionSuggestion = async (inventoryItemId, locationId, targetUnit, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
 
-    const inventoryItemBranch = await InventoryItemBranch.findById(inventoryItemBranchId)
-      .populate('inventoryItem');
+    const inventoryItemLocation = await InventoryItemLocation.findOne({
+      inventoryItem: inventoryItemId,
+      locationId: locationId
+    }).populate('inventoryItem');
 
-    if (!inventoryItemBranch) {
-      throw new Error('Inventory item not found');
+    if (!inventoryItemLocation) {
+      throw new Error('Inventory item not found at this location');
     }
 
-    const inventoryUnit = inventoryItemBranch.inventoryItem.unit;
+    const inventoryUnit = inventoryItemLocation.inventoryItem.unit;
     const suggestion = unitConversion.suggestConversionFactor(inventoryUnit, targetUnit);
 
     return {
