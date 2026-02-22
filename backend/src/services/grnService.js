@@ -26,20 +26,44 @@ const generateGRNNumber = async (companyId, locationId) => {
   const companyDB = getCompanyDB(companyId);
   const GRN = getGRNModel(companyDB);
   
-  // Get location code for GRN number prefix
-  const Location = getLocationModel(companyDB);
-  const location = await Location.findById(locationId);
-  const locationCode = location ? location.code : 'LOC';
-  
-  // Get count of GRNs for this location
-  const count = await GRN.countDocuments({ locationId });
-  
-  // Generate GRN number: LOC-GRN-YYYYMMDD-NNNN
+  // Generate date string
   const date = new Date();
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const sequence = String(count + 1).padStart(4, '0');
   
-  return `GRN-${dateStr}-${sequence}`;
+  // Find all GRNs with today's date pattern in the number
+  const todayPattern = new RegExp(`^GRN-${dateStr}-(\\d{4})$`);
+  
+  const existingGRNs = await GRN.find({
+    grnNumber: todayPattern
+  }).select('grnNumber').lean();
+  
+  // Extract all sequence numbers and find the max
+  let maxSequence = 0;
+  for (const grn of existingGRNs) {
+    const match = grn.grnNumber.match(/-(\d{4})$/);
+    if (match) {
+      const seq = parseInt(match[1]);
+      if (seq > maxSequence) {
+        maxSequence = seq;
+      }
+    }
+  }
+  
+  // Increment to get next sequence
+  const nextSequence = maxSequence + 1;
+  const sequenceStr = String(nextSequence).padStart(4, '0');
+  
+  const grnNumber = `GRN-${dateStr}-${sequenceStr}`;
+  
+  console.log('🔢 [GRN] Number generation:', {
+    date: dateStr,
+    existingCount: existingGRNs.length,
+    maxSequence,
+    nextSequence,
+    generated: grnNumber
+  });
+  
+  return grnNumber;
 };
 
 /**
@@ -65,6 +89,14 @@ const generateGRNNumber = async (companyId, locationId) => {
  */
 export const createGRNWithBatches = async (grnData, companyId, userId) => {
   const companyDB = getCompanyDB(companyId);
+  
+  console.log('🚀 [GRN] Starting GRN creation:', {
+    locationId: grnData.locationId,
+    supplierId: grnData.supplierId,
+    itemCount: grnData.items?.length,
+    companyId,
+    userId
+  });
   
   // Validate required fields
   if (!grnData.locationId) {
@@ -94,14 +126,18 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
   
   // Requirement 8.1, 8.2: Validate location has canProcureDirectly capability
   // GRN is ONLY for direct supplier procurement
+  console.log('🔐 [GRN] Validating location capability');
   const canProcure = await validateCapability(grnData.locationId, 'canProcureDirectly', companyId);
   if (!canProcure) {
+    console.error('❌ [GRN] Location does not have procurement capability');
     const error = new Error('Location does not have permission to procure directly from suppliers. Use StockTransfer for internal movements.');
     error.statusCode = 403;
     throw error;
   }
+  console.log('✅ [GRN] Location capability validated');
   
   // Execute with transaction and retry logic
+  console.log('🔄 [GRN] Starting transaction');
   const grn = await withTransactionAndRetry(
     companyDB,
     async (session) => {
@@ -110,17 +146,26 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
       
       // Generate GRN number
       const grnNumber = await generateGRNNumber(companyId, grnData.locationId);
+      console.log('🔢 [GRN] Generated GRN number:', grnNumber);
       
       // Calculate line item totals
       const items = grnData.items.map(item => ({
         ...item,
-        totalPrice: item.quantity * item.unitPrice
+        quantity: Number(item.quantity), // Ensure quantity is a number
+        unitPrice: Number(item.unitPrice), // Ensure unitPrice is a number
+        totalPrice: Number(item.quantity) * Number(item.unitPrice)
       }));
+      
+      console.log('💰 [GRN] Calculated totals:', {
+        itemCount: items.length,
+        totalAmount: items.reduce((sum, item) => sum + item.totalPrice, 0)
+      });
       
       // Create GRN document
       const grnDoc = {
         grnNumber,
         locationId: grnData.locationId,
+        branch: grnData.locationId, // Set branch to locationId for backward compatibility with legacy index
         supplier: grnData.supplierId,
         purchaseOrder: grnData.purchaseOrder,
         items,
@@ -133,16 +178,33 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
         paymentTerms: grnData.paymentTerms
       };
       
+      console.log('📄 [GRN] Creating GRN document');
+      
       // Create GRN (with or without session)
       const grnArray = session 
         ? await GRN.create([grnDoc], { session })
         : await GRN.create([grnDoc]);
       const createdGrn = grnArray[0];
       
+      console.log('✅ [GRN] GRN document created:', {
+        id: createdGrn._id,
+        grnNumber: createdGrn.grnNumber,
+        totalAmount: createdGrn.totalAmount
+      });
+      
       // Requirement 17.2: For each item, create or update InventoryBatchLocation
       // Requirement 8.5: Update InventoryItemLocation availableQuantity
       // Requirement 16.1: Record ledger entry with GRN reference
+      console.log('🔄 [GRN] Starting inventory updates for', items.length, 'items');
+      
       for (const item of items) {
+        console.log('📦 [GRN] Processing item:', {
+          inventoryItem: item.inventoryItem,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          locationId: grnData.locationId
+        });
+        
         // Get or create InventoryItemLocation
         let query = InventoryItemLocation.findOne({
           inventoryItem: item.inventoryItem,
@@ -156,7 +218,13 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
         
         let inventoryItemLocation = await query;
         
+        console.log('📊 [GRN] Current inventory state:', {
+          found: !!inventoryItemLocation,
+          currentQuantity: inventoryItemLocation?.availableQuantity || 0
+        });
+        
         if (!inventoryItemLocation) {
+          console.log('➕ [GRN] Creating new InventoryItemLocation');
           // Create new InventoryItemLocation if it doesn't exist
           const newInventoryItemLocation = {
             inventoryItem: item.inventoryItem,
@@ -175,6 +243,7 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
             ? await InventoryItemLocation.create([newInventoryItemLocation], { session })
             : await InventoryItemLocation.create([newInventoryItemLocation]);
           inventoryItemLocation = result[0];
+          console.log('✅ [GRN] Created InventoryItemLocation:', inventoryItemLocation._id);
         }
         
         // Store before state for ledger
@@ -182,12 +251,34 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
         const beforeReserved = inventoryItemLocation.reservedQuantity;
         const beforeInTransit = inventoryItemLocation.inTransitQuantity;
         
+        // Ensure quantity is a number (safety check)
+        const quantityToAdd = Number(item.quantity);
+        if (isNaN(quantityToAdd)) {
+          console.error('❌ [GRN] Invalid quantity:', item.quantity);
+          throw new Error(`Invalid quantity for item ${item.inventoryItem}: ${item.quantity}`);
+        }
+        
         // Update availableQuantity
-        inventoryItemLocation.availableQuantity += item.quantity;
-        inventoryItemLocation.lastPurchasePrice = item.unitPrice;
+        inventoryItemLocation.availableQuantity = Number(inventoryItemLocation.availableQuantity) + quantityToAdd;
+        inventoryItemLocation.lastPurchasePrice = Number(item.unitPrice);
         inventoryItemLocation.lastPurchaseDate = createdGrn.receivedDate;
         inventoryItemLocation.supplier = grnData.supplierId;
         inventoryItemLocation.version += 1;
+        
+        // Warn if quantity seems suspiciously large (possible data corruption)
+        if (inventoryItemLocation.availableQuantity > 100000000) {
+          console.warn('⚠️  [GRN] WARNING: Suspiciously large quantity detected:', {
+            itemId: item.inventoryItem,
+            quantity: inventoryItemLocation.availableQuantity,
+            message: 'This might indicate data corruption from string concatenation'
+          });
+        }
+        
+        console.log('📈 [GRN] Updating inventory:', {
+          before: beforeAvailable,
+          adding: quantityToAdd,
+          after: inventoryItemLocation.availableQuantity
+        });
         
         // Save with or without session
         if (session) {
@@ -195,6 +286,8 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
         } else {
           await inventoryItemLocation.save();
         }
+        
+        console.log('💾 [GRN] Saved inventory update');
         
         // Create or update batch
         const batchData = {
@@ -209,9 +302,12 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
           grnReference: createdGrn._id
         };
         
+        console.log('🏷️ [GRN] Creating/updating batch:', batchData.batchNumber);
         await createOrUpdateBatch(batchData, companyId);
+        console.log('✅ [GRN] Batch created/updated');
         
         // Record ledger entry
+        console.log('📝 [GRN] Recording ledger entry');
         await recordLedgerEntry({
           inventoryItem: item.inventoryItem,
           locationId: grnData.locationId,
@@ -232,7 +328,10 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
           performedBy: userId,
           notes: item.notes
         }, companyId);
+        console.log('✅ [GRN] Ledger entry recorded');
       }
+      
+      console.log('✅ [GRN] All inventory updates completed successfully');
       
       return createdGrn;
     },
@@ -241,6 +340,11 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
       maxRetries: 3
     }
   );
+  
+  console.log('✅ [GRN] Transaction completed successfully:', {
+    grnId: grn._id,
+    grnNumber: grn.grnNumber
+  });
   
   // Publish domain event
   await publishDomainEvent(companyDB, {
@@ -377,6 +481,21 @@ export const getGRNsByLocation = async (locationId, companyId, options = {}) => 
       .skip(options.skip || 0)
       .lean();
     
+    // Manually populate receivedBy from platform database for each GRN
+    const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+    for (const grn of grns) {
+      if (grn.receivedBy) {
+        const user = await CompanyUser.findById(grn.receivedBy).select('name email').lean();
+        if (user) {
+          grn.receivedBy = {
+            _id: user._id,
+            name: user.name,
+            email: user.email
+          };
+        }
+      }
+    }
+    
     return grns;
   } catch (error) {
     logger.error('Error getting GRNs by location:', error);
@@ -458,6 +577,21 @@ export const getAllGRNs = async (companyId, options = {}) => {
         .lean(),
       GRN.countDocuments(query)
     ]);
+    
+    // Manually populate receivedBy from platform database for each GRN
+    const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+    for (const grn of grns) {
+      if (grn.receivedBy) {
+        const user = await CompanyUser.findById(grn.receivedBy).select('name email').lean();
+        if (user) {
+          grn.receivedBy = {
+            _id: user._id,
+            name: user.name,
+            email: user.email
+          };
+        }
+      }
+    }
     
     return { grns, total };
   } catch (error) {
