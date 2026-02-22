@@ -155,8 +155,8 @@ export default function LocationsTab() {
         isActive: filterStatus !== 'all' ? filterStatus === 'active' : undefined,
       });
 
-      const fetchedLocations = Array.isArray(response.data.data) ? response.data.data : [];
-      const pagination = response.data.pagination;
+      const fetchedLocations = Array.isArray(response.data.data.data) ? response.data.data.data : [];
+      const pagination = response.data.data.pagination;
 
       if (reset) {
         setLocations(fetchedLocations);
@@ -461,6 +461,7 @@ export default function LocationsTab() {
   // Table headers
   const tableHeaders = (
     <>
+      <TableHead className="w-16">S.No</TableHead>
       <TableHead>Name</TableHead>
       <TableHead>Code</TableHead>
       <TableHead>Type</TableHead>
@@ -471,8 +472,17 @@ export default function LocationsTab() {
   );
 
   // Table body
-  const tableBody = (Array.isArray(locations) ? locations : []).map((location) => (
+  const tableBody = (Array.isArray(locations) ? locations : []).map((location, index) => {
+    // Calculate serial number based on pagination mode
+    const serialNumber = paginationEnabled 
+      ? (currentPage - 1) * rowsPerPage + index + 1
+      : index + 1;
+    
+    return (
     <TableRow key={location._id}>
+      <TableCell className="font-medium text-muted-foreground">
+        {serialNumber}
+      </TableCell>
       <TableCell className="font-medium">{location.name}</TableCell>
       <TableCell>
         <code className="text-xs bg-muted px-2 py-1 rounded">{location.code}</code>
@@ -535,7 +545,8 @@ export default function LocationsTab() {
         </div>
       </TableCell>
     </TableRow>
-  ));
+    );
+  });
 
   // Empty state
   const emptyState = {

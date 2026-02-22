@@ -197,7 +197,9 @@ export default function LocationFormModal({
         isActive: true,
         limit: 100,
       });
-      setWarehouses(response.data.data.locations || []);
+      // Use the correct response format: response.data.data.data
+      const warehouseData = response.data.data.data || [];
+      setWarehouses(Array.isArray(warehouseData) ? warehouseData : []);
     } catch (error: any) {
       console.error('Failed to fetch warehouses:', error);
     }
