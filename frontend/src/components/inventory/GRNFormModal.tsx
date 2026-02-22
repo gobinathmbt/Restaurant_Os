@@ -696,7 +696,7 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
                               <Label>Inventory Item *</Label>
                               <div className="mt-1">
                                 <InventoryItemDropdown
-                                  branchId={selectedBranch}
+                                  locationId={selectedBranch}
                                   value={item.inventoryItem}
                                   onChange={(itemId, selectedItem) =>
                                     handleLineItemChange(index, 'inventoryItem', itemId, selectedItem)
