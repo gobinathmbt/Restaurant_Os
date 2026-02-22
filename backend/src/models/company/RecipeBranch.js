@@ -127,7 +127,7 @@ recipeBranchSchema.methods.calculateCost = async function() {
   });
 
   // Import unit conversion utility
-  const unitConversion = await import('../utils/unitConversion.js');
+  const unitConversion = await import('../../utils/unitConversion.js');
 
   let totalCost = 0;
   for (const ingredient of this.ingredients) {

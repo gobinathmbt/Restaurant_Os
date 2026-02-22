@@ -65,6 +65,9 @@ export const createRecipeWithBranches = async (recipeData, branchConfigs, compan
     const companyDB = getCompanyDB(companyId);
     const Recipe = getRecipeModel(companyDB);
     const RecipeBranch = getRecipeBranchModel(companyDB);
+    // Ensure required models are registered for populate operations
+    getInventoryItemBranchModel(companyDB);
+    getInventoryItemModel(companyDB);
 
     // Validate required fields
     const requiredFields = ['name', 'finishedGood'];
