@@ -11,19 +11,27 @@ import {
 } from '@/components/ui/command';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { inventoryItemBranchServices } from '@/api/services';
+import { inventoryItemLocationServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
 
-interface BranchConfig {
-  currentStock: number;
+interface LocationConfig {
+  availableQuantity: number;
+  reservedQuantity: number;
+  inTransitQuantity: number;
+  totalQuantity: number;
   minimumStock: number;
-  maximumStock: number;
+  maximumStock?: number;
+  reorderPoint?: number;
+  costingMethod: string;
+  standardCost?: number;
   lastPurchasePrice?: number;
   lastPurchaseDate?: string;
   supplier?: {
     _id: string;
     name: string;
   };
+  storageLocation?: string;
+  isLowStock: boolean;
 }
 
 interface InventoryItem {
@@ -32,11 +40,11 @@ interface InventoryItem {
   unit: string;
   category?: string | { _id: string; name: string };
   subcategory?: string | { _id: string; name: string };
-  branchConfig?: BranchConfig;
+  locationConfig?: LocationConfig;
 }
 
 interface InventoryItemDropdownProps {
-  branchId: string;
+  locationId: string;
   value: string;
   onChange: (itemId: string, item: InventoryItem) => void;
   disabled?: boolean;
@@ -46,7 +54,7 @@ interface InventoryItemDropdownProps {
 }
 
 export default function InventoryItemDropdown({
-  branchId,
+  locationId,
   value,
   onChange,
   disabled = false,
@@ -63,14 +71,14 @@ export default function InventoryItemDropdown({
 
   // Fetch initial items when dropdown opens
   useEffect(() => {
-    if (open && branchId && !searchQuery) {
+    if (open && locationId && !searchQuery) {
       fetchItems('');
     }
-  }, [open, branchId]);
+  }, [open, locationId]);
 
   // Debounced search effect
   useEffect(() => {
-    if (!branchId) return;
+    if (!locationId) return;
 
     // Clear previous timeout
     if (searchTimeout) {
@@ -90,7 +98,7 @@ export default function InventoryItemDropdown({
         clearTimeout(timeout);
       }
     };
-  }, [searchQuery, branchId]);
+  }, [searchQuery, locationId]);
 
   const fetchItems = async (search: string) => {
     try {
@@ -104,8 +112,8 @@ export default function InventoryItemDropdown({
         params.search = search;
       }
 
-      const response = await inventoryItemBranchServices.getInventoryItemsForBranch(
-        branchId,
+      const response = await inventoryItemLocationServices.getInventoryItemsForLocation(
+        locationId,
         params
       );
       const fetchedItems = response.data.data.items || [];
@@ -150,7 +158,7 @@ export default function InventoryItemDropdown({
             role="combobox"
             aria-expanded={open}
             className="w-full justify-between"
-            disabled={disabled || !branchId}
+            disabled={disabled || !locationId}
           >
             {selectedItem ? `${selectedItem.name} (${selectedItem.unit})` : placeholder}
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -169,7 +177,7 @@ export default function InventoryItemDropdown({
                 ? 'Searching...'
                 : searchQuery
                   ? `No items found matching "${searchQuery}"`
-                  : 'No inventory items available for this branch'}
+                  : 'No inventory items available for this location'}
             </CommandEmpty>
             <CommandList>
               <CommandGroup>
@@ -202,9 +210,14 @@ export default function InventoryItemDropdown({
                             ].filter(Boolean).join(' • ')}
                           </span>
                         )}
-                        {item.branchConfig && (
+                        {item.locationConfig && (
                           <span className="text-xs text-muted-foreground">
-                            Stock: {item.branchConfig.currentStock} {item.unit}
+                            Available: {item.locationConfig.availableQuantity} {item.unit}
+                            {item.locationConfig.reservedQuantity > 0 && ` • Reserved: ${item.locationConfig.reservedQuantity}`}
+                            {item.locationConfig.inTransitQuantity > 0 && ` • In Transit: ${item.locationConfig.inTransitQuantity}`}
+                            {item.locationConfig.isLowStock && (
+                              <span className="text-amber-600 dark:text-amber-400"> • Low Stock</span>
+                            )}
                           </span>
                         )}
                       </div>
