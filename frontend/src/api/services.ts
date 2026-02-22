@@ -291,9 +291,9 @@ export const platformConfigServices = {
 
 // Inventory Services
 export const inventoryServices = {
-  // Create inventory item with branch assignments
+  // Create inventory item with location configurations
   createInventoryItemWithBranches: (data: { inventoryItemData: any; branchConfigs: any[] }) =>
-    apiClient.post("/api/inventory/items/with-branches", data),
+    apiClient.post("/api/inventory/items", data),
 
   // Get inventory items with filters
   getInventoryItems: (params?: { page?: number; limit?: number; search?: string; type?: string; category?: string; subcategory?: string; branchId?: string }) =>

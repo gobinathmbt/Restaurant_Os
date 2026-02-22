@@ -26,6 +26,28 @@ export const getInventoryItemsForLocation = async (req, res, next) => {
       null // Pass null to skip location access validation for read operations
     );
 
+    // Transform locationConfig to branchConfig for frontend compatibility
+    if (result.items && Array.isArray(result.items)) {
+      result.items = result.items.map((item) => {
+        if (item.locationConfig) {
+          return {
+            ...item,
+            branchConfig: {
+              currentStock: item.locationConfig.availableQuantity,
+              minimumStock: item.locationConfig.minimumStock,
+              maximumStock: item.locationConfig.maximumStock,
+              costPrice: item.locationConfig.lastPurchasePrice,
+              supplier: item.locationConfig.supplier,
+              isLowStock: item.locationConfig.isLowStock,
+              isExpiringSoon: false, // TODO: Calculate based on expiry date
+              isAvailable: item.locationConfig.isActive
+            }
+          };
+        }
+        return item;
+      });
+    }
+
     res.json({
       success: true,
       data: result

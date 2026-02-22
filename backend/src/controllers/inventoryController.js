@@ -42,49 +42,99 @@ const verifyBranchAccess = async (userId, branchId, role, companyId) => {
 export const createInventoryItem = async (req, res, next) => {
   try {
     const { companyId, userId, role, branchIds: userBranchIds } = req.user;
-    const itemData = req.body;
+    const requestBody = req.body;
 
-    // Get user's branch IDs if not already in req.user (for company admins)
+    // Get user's branch/location IDs if not already in req.user (for company admins)
     let effectiveBranchIds = userBranchIds;
     if (!effectiveBranchIds && role === 'company_admin') {
       const user = await CompanyUser.findById(userId).select('branchIds');
       effectiveBranchIds = user?.branchIds?.map(id => id.toString()) || [];
     }
 
-    // Create inventory item with user's branch access and role
-    const item = await inventoryService.createInventoryItem(
-      itemData, 
-      companyId, 
-      effectiveBranchIds || [], 
-      role
-    );
+    // Detect payload format: new format has inventoryItemData + branchConfigs/locationConfigs
+    const isNewFormat = requestBody.inventoryItemData && (requestBody.branchConfigs || requestBody.locationConfigs);
 
-    logger.info('Inventory item created via API', { 
-      itemId: item._id, 
-      companyId, 
-      branchIds: itemData.branchIds,
-      userId 
-    });
+    if (isNewFormat) {
+      // New format: { inventoryItemData, branchConfigs/locationConfigs }
+      const { inventoryItemData, branchConfigs, locationConfigs } = requestBody;
+      const configs = locationConfigs || branchConfigs;
 
-    // Check if auto-assignments were made by middleware
-    if (req.autoAssignments && Object.keys(req.autoAssignments).length > 0) {
-      // Return success response with auto-assignment details
-      const response = formatSuccessWithAssignments({
-        data: item,
-        autoAssignments: req.autoAssignments,
-        entityType: 'item',
-        operation: 'created'
+      logger.info('Creating inventory item with location configs', { 
+        companyId, 
+        itemName: inventoryItemData.name,
+        locationCount: configs?.length,
+        userId 
       });
-      
-      return res.status(201).json(response);
-    }
 
-    // Return standard success response
-    res.status(201).json({
-      success: true,
-      message: 'Inventory item created successfully',
-      data: { item }
-    });
+      // Super admins have access to all locations (pass null to skip access check)
+      const userLocationIds = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role)
+        ? null
+        : effectiveBranchIds || [];
+
+      // Use the new service method that handles location configs
+      const result = await inventoryService.createInventoryItemWithLocations(
+        inventoryItemData,
+        configs,
+        companyId,
+        userId,
+        userLocationIds
+      );
+
+      // Return response with location configs
+      return res.status(201).json({
+        success: true,
+        message: 'Inventory item created successfully with location configurations',
+        data: {
+          item: result.inventoryItem,
+          locationConfigs: result.locationConfigs,
+          autoAssignments: result.autoAssignments
+        }
+      });
+    } else {
+      // Old format: flat structure with branchIds array
+      const itemData = requestBody;
+
+      logger.info('Creating inventory item (legacy format)', { 
+        companyId, 
+        branchIds: itemData.branchIds,
+        userId 
+      });
+
+      // Create inventory item with user's branch access and role
+      const item = await inventoryService.createInventoryItem(
+        itemData, 
+        companyId, 
+        effectiveBranchIds || [], 
+        role
+      );
+
+      logger.info('Inventory item created via API', { 
+        itemId: item._id, 
+        companyId, 
+        branchIds: itemData.branchIds,
+        userId 
+      });
+
+      // Check if auto-assignments were made by middleware
+      if (req.autoAssignments && Object.keys(req.autoAssignments).length > 0) {
+        // Return success response with auto-assignment details
+        const response = formatSuccessWithAssignments({
+          data: item,
+          autoAssignments: req.autoAssignments,
+          entityType: 'item',
+          operation: 'created'
+        });
+        
+        return res.status(201).json(response);
+      }
+
+      // Return standard success response
+      return res.status(201).json({
+        success: true,
+        message: 'Inventory item created successfully',
+        data: { item }
+      });
+    }
   } catch (error) {
     logger.error('Create inventory item error', error);
     
@@ -98,8 +148,11 @@ export const createInventoryItem = async (req, res, next) => {
         error.message.includes('Expiry date') ||
         error.message.includes('already exists') ||
         error.message.includes('At least one branch must be selected') ||
-        error.message.includes('You do not have access to one or more selected branches') ||
+        error.message.includes('At least one location') ||
+        error.message.includes('You do not have access') ||
+        error.message.includes('No access to location') ||
         error.message.includes('Invalid branch ID detected') ||
+        error.message.includes('Invalid location ID detected') ||
         error.message.includes('Selected category does not exist') ||
         error.message.includes('Selected subcategory does not exist') ||
         error.message.includes('Subcategory does not belong to the selected category')) {
@@ -141,6 +194,20 @@ export const getInventoryItems = async (req, res, next) => {
       accessibleBranchIds
     );
 
+    // Transform location configs to match old branch format for frontend compatibility
+    if (result.items && Array.isArray(result.items)) {
+      result.items = result.items.map((item) => {
+        if (item.branches && Array.isArray(item.branches)) {
+          item.branches = item.branches.map((config) => ({
+            ...config,
+            branch: config.locationId, // Map locationId to branch for backward compatibility
+            _id: config._id || config.locationId?._id
+          }));
+        }
+        return item;
+      });
+    }
+
     res.json({
       success: true,
       data: result
@@ -167,6 +234,21 @@ export const getInventoryItemById = async (req, res, next) => {
 
     // Get inventory item with ALL branch configurations
     const item = await inventoryService.getInventoryItemById(id, companyId, effectiveUserBranchIds);
+
+    // Transform location configs to match old branch format for frontend compatibility
+    if (item.branches && Array.isArray(item.branches)) {
+      item.branches = item.branches.map((config) => ({
+        ...config,
+        branch: config.locationId, // Map locationId to branch for backward compatibility
+        currentStock: config.availableQuantity, // Map availableQuantity to currentStock
+        minimumStock: config.minimumStock,
+        maximumStock: config.maximumStock,
+        reorderPoint: config.reorderPoint,
+        costingMethod: config.costingMethod,
+        lastPurchasePrice: config.lastPurchasePrice,
+        supplier: config.supplier
+      }));
+    }
 
     res.json({
       success: true,
