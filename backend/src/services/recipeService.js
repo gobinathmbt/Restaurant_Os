@@ -7,7 +7,7 @@ import { getCompanyDB } from '../config/database.js';
 import { getRecipeModel } from '../models/company/Recipe.js';
 import { getRecipeBranchModel } from '../models/company/RecipeBranch.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
-import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
+import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getMenuItemModel } from '../models/company/MenuItem.js';
 import { getCategoryModel } from '../models/company/Category.js';
 import { getLocationModel } from '../models/company/Location.js';
@@ -66,7 +66,7 @@ export const createRecipeWithBranches = async (recipeData, branchConfigs, compan
     const Recipe = getRecipeModel(companyDB);
     const RecipeBranch = getRecipeBranchModel(companyDB);
     // Ensure required models are registered for populate operations
-    getInventoryItemBranchModel(companyDB);
+    getInventoryItemLocationModel(companyDB);
     getInventoryItemModel(companyDB);
 
     // Validate required fields
@@ -205,7 +205,7 @@ export const getRecipes = async (companyId, filters = {}) => {
     // Populate branch configurations (with inventory item details) for returned recipes
     if (recipes.length > 0) {
       const RecipeBranch = getRecipeBranchModel(companyDB);
-      const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+      const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
       const InventoryItem = getInventoryItemModel(companyDB);
       const Branch = getLocationModel(companyDB);
 
@@ -227,16 +227,27 @@ export const getRecipes = async (companyId, filters = {}) => {
           select: 'name code location'
         })
         .populate({
-          path: 'ingredients.inventoryItemBranch',
-          model: InventoryItemBranch,
-          select: 'inventoryItem currentStock costPrice isActive',
-          populate: {
-            path: 'inventoryItem',
-            model: InventoryItem,
-            select: 'name unit type category'
-          }
+          path: 'ingredients.inventoryItem',
+          model: InventoryItem,
+          select: 'name unit type category'
         })
         .lean();
+
+      // For each recipe branch, fetch location configs for ingredients
+      for (const rb of recipeBranches) {
+        if (rb.ingredients && rb.ingredients.length > 0) {
+          for (const ingredient of rb.ingredients) {
+            if (ingredient.inventoryItem && ingredient.locationId) {
+              const locationConfig = await InventoryItemLocation.findOne({
+                inventoryItem: ingredient.inventoryItem._id,
+                locationId: ingredient.locationId
+              }).select('availableQuantity costingMethod standardCost lastPurchasePrice isActive').lean();
+              
+              ingredient.locationConfig = locationConfig;
+            }
+          }
+        }
+      }
 
       // Group branches by recipe id
       const branchesMap = {};
@@ -307,7 +318,7 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
     // Populate branch configurations if requested
     if (populateBranches) {
       const RecipeBranch = getRecipeBranchModel(companyDB);
-      const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+      const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
       const InventoryItem = getInventoryItemModel(companyDB);
       const Branch = getLocationModel(companyDB); // Ensure Location model is registered
       
@@ -323,16 +334,27 @@ export const getRecipeById = async (recipeId, companyId, options = {}) => {
           select: 'name code location'
         })
         .populate({
-          path: 'ingredients.inventoryItemBranch',
-          model: InventoryItemBranch,
-          select: 'inventoryItem currentStock costPrice isActive',
-          populate: {
-            path: 'inventoryItem',
-            model: InventoryItem,
-            select: 'name unit type category'
-          }
+          path: 'ingredients.inventoryItem',
+          model: InventoryItem,
+          select: 'name unit type category'
         })
         .lean();
+
+      // For each recipe branch, fetch location configs for ingredients
+      for (const rb of recipeBranches) {
+        if (rb.ingredients && rb.ingredients.length > 0) {
+          for (const ingredient of rb.ingredients) {
+            if (ingredient.inventoryItem && ingredient.locationId) {
+              const locationConfig = await InventoryItemLocation.findOne({
+                inventoryItem: ingredient.inventoryItem._id,
+                locationId: ingredient.locationId
+              }).select('availableQuantity costingMethod standardCost lastPurchasePrice isActive').lean();
+              
+              ingredient.locationConfig = locationConfig;
+            }
+          }
+        }
+      }
 
       // Add totalTime virtual to each branch
       recipe.branches = recipeBranches.map(rb => ({

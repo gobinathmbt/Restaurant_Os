@@ -7,7 +7,7 @@ import { getCompanyDB } from '../config/database.js';
 import { getRecipeModel } from '../models/company/Recipe.js';
 import { getRecipeBranchModel } from '../models/company/RecipeBranch.js';
 import { getLocationModel } from '../models/company/Location.js';
-import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
+import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { logger } from '../utils/logger.js';
 
@@ -20,7 +20,7 @@ import { logger } from '../utils/logger.js';
 const populateRecipeBranch = async (recipeBranch, companyDB) => {
   const Recipe = getRecipeModel(companyDB);
   const Branch = getLocationModel(companyDB);
-  const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+  const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
   const InventoryItem = getInventoryItemModel(companyDB);
 
   await recipeBranch.populate({
@@ -34,13 +34,23 @@ const populateRecipeBranch = async (recipeBranch, companyDB) => {
   });
   
   await recipeBranch.populate({
-    path: 'ingredients.inventoryItemBranch',
-    model: InventoryItemBranch,
-    populate: {
-      path: 'inventoryItem',
-      model: InventoryItem
-    }
+    path: 'ingredients.inventoryItem',
+    model: InventoryItem
   });
+
+  // Manually fetch location configs for each ingredient
+  if (recipeBranch.ingredients && recipeBranch.ingredients.length > 0) {
+    for (const ingredient of recipeBranch.ingredients) {
+      if (ingredient.inventoryItem && ingredient.locationId) {
+        const locationConfig = await InventoryItemLocation.findOne({
+          inventoryItem: ingredient.inventoryItem._id,
+          locationId: ingredient.locationId
+        }).lean();
+        
+        ingredient.locationConfig = locationConfig;
+      }
+    }
+  }
 
   return recipeBranch;
 };
@@ -62,63 +72,54 @@ const validateBranchAccess = (branchId, userBranchIds) => {
 };
 
 /**
- * Validate ingredient branch reference and auto-assign if needed
- * @param {string} inventoryItemBranchId - InventoryItemBranch ID
- * @param {string} branchId - Expected branch ID
+ * Validate ingredient location reference and auto-assign if needed
+ * @param {string} inventoryItemId - InventoryItem ID
+ * @param {string} locationId - Location ID
  * @param {string} companyId - Company ID
- * @returns {Promise<boolean>} Whether ingredient belongs to branch
+ * @returns {Promise<boolean>} Whether ingredient location config exists
  * @throws {Error} If validation fails
  */
-export const validateIngredientBranch = async (inventoryItemBranchId, branchId, companyId) => {
+export const validateIngredientLocation = async (inventoryItemId, locationId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
 
-    // Check if inventoryItemBranch exists
-    const inventoryItemBranch = await InventoryItemBranch.findById(inventoryItemBranchId);
+    // Check if inventory item exists
+    const inventoryItem = await InventoryItem.findById(inventoryItemId);
     
-    if (!inventoryItemBranch) {
-      throw new Error(`InventoryItemBranch ${inventoryItemBranchId} not found`);
+    if (!inventoryItem) {
+      throw new Error(`InventoryItem ${inventoryItemId} not found`);
     }
 
-    // Check if ingredient belongs to the same branch
-    if (inventoryItemBranch.branch.toString() !== branchId.toString()) {
-      // Instead of throwing error, auto-assign the inventory item to the branch
-      logger.info(`Auto-assigning inventory item ${inventoryItemBranch.inventoryItem} to branch ${branchId}`);
+    // Check if location config exists
+    let inventoryItemLocation = await InventoryItemLocation.findOne({
+      inventoryItem: inventoryItemId,
+      locationId: locationId
+    });
+
+    if (!inventoryItemLocation) {
+      // Auto-create location configuration for this inventory item
+      logger.info(`Auto-assigning inventory item ${inventoryItemId} to location ${locationId}`);
       
-      // Check if this inventory item already has a branch config for the target branch
-      const existingBranchConfig = await InventoryItemBranch.findOne({
-        inventoryItem: inventoryItemBranch.inventoryItem,
-        branch: branchId
-      });
-
-      if (existingBranchConfig) {
-        // Branch config already exists, just log it
-        logger.info(`Inventory item ${inventoryItemBranch.inventoryItem} already assigned to branch ${branchId}`);
-        return true;
-      }
-
-      // Create new branch configuration for this inventory item
-      const newBranchConfig = new InventoryItemBranch({
-        inventoryItem: inventoryItemBranch.inventoryItem,
-        branch: branchId,
-        quantity: 0, // Start with 0 quantity
-        minStockLevel: inventoryItemBranch.minStockLevel || 0,
-        maxStockLevel: inventoryItemBranch.maxStockLevel || 0,
-        reorderPoint: inventoryItemBranch.reorderPoint || 0,
-        reorderQuantity: inventoryItemBranch.reorderQuantity || 0,
-        costPrice: inventoryItemBranch.costPrice || 0,
-        isAvailable: true,
+      inventoryItemLocation = new InventoryItemLocation({
+        inventoryItem: inventoryItemId,
+        locationId: locationId,
+        availableQuantity: 0,
+        reservedQuantity: 0,
+        inTransitQuantity: 0,
+        minimumStock: 0,
+        costingMethod: 'FIFO',
         isActive: true
       });
 
-      await newBranchConfig.save();
-      logger.info(`Created new branch config for inventory item ${inventoryItemBranch.inventoryItem} in branch ${branchId}`);
+      await inventoryItemLocation.save();
+      logger.info(`Created new location config for inventory item ${inventoryItemId} in location ${locationId}`);
     }
 
     return true;
   } catch (error) {
-    logger.error('Error validating ingredient branch:', error);
+    logger.error('Error validating ingredient location:', error);
     throw error;
   }
 };
@@ -134,8 +135,12 @@ const validateIngredients = (ingredients) => {
   }
 
   for (const ingredient of ingredients) {
-    if (!ingredient.inventoryItemBranch) {
-      throw new Error('Each ingredient must have an inventoryItemBranch reference');
+    if (!ingredient.inventoryItem) {
+      throw new Error('Each ingredient must have an inventoryItem reference');
+    }
+
+    if (!ingredient.locationId) {
+      throw new Error('Each ingredient must have a locationId reference');
     }
 
     if (typeof ingredient.quantity !== 'number' || ingredient.quantity <= 0) {
@@ -204,9 +209,9 @@ export const createRecipeBranch = async (recipeId, branchId, configData, company
     if (configData.ingredients) {
       validateIngredients(configData.ingredients);
       
-      // Validate each ingredient belongs to the branch
+      // Validate each ingredient has location config
       for (const ingredient of configData.ingredients) {
-        await validateIngredientBranch(ingredient.inventoryItemBranch, branchId, companyId);
+        await validateIngredientLocation(ingredient.inventoryItem, ingredient.locationId, companyId);
       }
     }
 
@@ -284,7 +289,7 @@ export const getRecipeBranches = async (recipeId, filters = {}, companyId, userB
     // Query RecipeBranch
     const Recipe = getRecipeModel(companyDB);
     const Branch = getLocationModel(companyDB);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const InventoryItem = getInventoryItemModel(companyDB);
 
     const recipeBranches = await RecipeBranch.find(query)
@@ -297,14 +302,26 @@ export const getRecipeBranches = async (recipeId, filters = {}, companyId, userB
         model: Branch
       })
       .populate({
-        path: 'ingredients.inventoryItemBranch',
-        model: InventoryItemBranch,
-        populate: {
-          path: 'inventoryItem',
-          model: InventoryItem
-        }
+        path: 'ingredients.inventoryItem',
+        model: InventoryItem
       })
       .lean();
+
+    // For each recipe branch, fetch location configs for ingredients
+    for (const rb of recipeBranches) {
+      if (rb.ingredients && rb.ingredients.length > 0) {
+        for (const ingredient of rb.ingredients) {
+          if (ingredient.inventoryItem && ingredient.locationId) {
+            const locationConfig = await InventoryItemLocation.findOne({
+              inventoryItem: ingredient.inventoryItem._id,
+              locationId: ingredient.locationId
+            }).lean();
+            
+            ingredient.locationConfig = locationConfig;
+          }
+        }
+      }
+    }
 
     logger.info(`Retrieved ${recipeBranches.length} RecipeBranch configs for recipe: ${recipeId}, company: ${companyId}`);
 
@@ -335,7 +352,7 @@ export const getRecipeBranch = async (recipeId, branchId, companyId, userBranchI
 
     const Recipe = getRecipeModel(companyDB);
     const Branch = getLocationModel(companyDB);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const InventoryItem = getInventoryItemModel(companyDB);
 
     const recipeBranch = await RecipeBranch.findOne({
@@ -351,17 +368,27 @@ export const getRecipeBranch = async (recipeId, branchId, companyId, userBranchI
         model: Branch
       })
       .populate({
-        path: 'ingredients.inventoryItemBranch',
-        model: InventoryItemBranch,
-        populate: {
-          path: 'inventoryItem',
-          model: InventoryItem
-        }
+        path: 'ingredients.inventoryItem',
+        model: InventoryItem
       })
       .lean();
 
     if (!recipeBranch) {
       throw new Error('RecipeBranch configuration not found');
+    }
+
+    // Fetch location configs for ingredients
+    if (recipeBranch.ingredients && recipeBranch.ingredients.length > 0) {
+      for (const ingredient of recipeBranch.ingredients) {
+        if (ingredient.inventoryItem && ingredient.locationId) {
+          const locationConfig = await InventoryItemLocation.findOne({
+            inventoryItem: ingredient.inventoryItem._id,
+            locationId: ingredient.locationId
+          }).lean();
+          
+          ingredient.locationConfig = locationConfig;
+        }
+      }
     }
 
     return recipeBranch;
@@ -413,7 +440,8 @@ export const updateRecipeBranch = async (recipeId, branchId, updateData, company
       // Log each ingredient with conversion data
       updateData.ingredients.forEach((ing, index) => {
         console.log(`Ingredient ${index}:`, {
-          inventoryItemBranch: ing.inventoryItemBranch,
+          inventoryItem: ing.inventoryItem,
+          locationId: ing.locationId,
           quantity: ing.quantity,
           unit: ing.unit,
           conversionFactor: ing.conversionFactor,
@@ -421,9 +449,9 @@ export const updateRecipeBranch = async (recipeId, branchId, updateData, company
         });
       });
       
-      // Validate each ingredient belongs to the branch
+      // Validate each ingredient has location config
       for (const ingredient of updateData.ingredients) {
-        await validateIngredientBranch(ingredient.inventoryItemBranch, branchId, companyId);
+        await validateIngredientLocation(ingredient.inventoryItem, ingredient.locationId, companyId);
       }
     }
 
@@ -531,9 +559,9 @@ export const bulkUpsertRecipeBranches = async (recipeId, branchConfigs, companyI
       if (configData.ingredients) {
         validateIngredients(configData.ingredients);
         
-        // Validate each ingredient belongs to the branch
+        // Validate each ingredient has location config
         for (const ingredient of configData.ingredients) {
-          await validateIngredientBranch(ingredient.inventoryItemBranch, branchId, companyId);
+          await validateIngredientLocation(ingredient.inventoryItem, ingredient.locationId, companyId);
         }
       }
 
@@ -580,63 +608,58 @@ export const bulkUpsertRecipeBranches = async (recipeId, branchConfigs, companyI
 };
 
 /**
- * Map ingredients from source branch to target branch
- * Finds corresponding inventory item branch IDs for the target branch
- * @param {Array} sourceIngredients - Ingredients from source branch
- * @param {string} targetBranchId - Target branch ID
+ * Map ingredients from source location to target location
+ * Ensures inventory items have location configs for the target location
+ * @param {Array} sourceIngredients - Ingredients from source location
+ * @param {string} targetLocationId - Target location ID
  * @param {string} companyId - Company ID
- * @returns {Promise<Array>} Mapped ingredients for target branch
+ * @returns {Promise<Array>} Mapped ingredients for target location
  */
-export const mapIngredientsToTargetBranch = async (sourceIngredients, targetBranchId, companyId) => {
+export const mapIngredientsToTargetBranch = async (sourceIngredients, targetLocationId, companyId) => {
   try {
     const companyDB = getCompanyDB(companyId);
-    const InventoryItemBranch = getInventoryItemBranchModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
 
     const mappedIngredients = [];
 
     for (const ingredient of sourceIngredients) {
-      // Get the source inventory item branch to find the base inventory item
-      const InventoryItem = getInventoryItemModel(companyDB);
-      const sourceItemBranch = await InventoryItemBranch.findById(ingredient.inventoryItemBranch)
-        .populate({
-          path: 'inventoryItem',
-          model: InventoryItem
-        });
+      // Get the inventory item
+      const inventoryItem = await InventoryItem.findById(ingredient.inventoryItem);
 
-      if (!sourceItemBranch) {
-        logger.warn(`Source inventory item branch not found: ${ingredient.inventoryItemBranch}`);
+      if (!inventoryItem) {
+        logger.warn(`Inventory item not found: ${ingredient.inventoryItem}`);
         continue;
       }
 
-      // Find the corresponding inventory item branch for the target branch
-      let targetItemBranch = await InventoryItemBranch.findOne({
-        inventoryItem: sourceItemBranch.inventoryItem._id,
-        branch: targetBranchId
+      // Find or create the location config for the target location
+      let targetLocationConfig = await InventoryItemLocation.findOne({
+        inventoryItem: inventoryItem._id,
+        locationId: targetLocationId
       });
 
       // If not found, create it (auto-assign)
-      if (!targetItemBranch) {
-        logger.info(`Auto-creating inventory item branch for item ${sourceItemBranch.inventoryItem._id} in branch ${targetBranchId}`);
+      if (!targetLocationConfig) {
+        logger.info(`Auto-creating inventory item location for item ${inventoryItem._id} in location ${targetLocationId}`);
         
-        targetItemBranch = new InventoryItemBranch({
-          inventoryItem: sourceItemBranch.inventoryItem._id,
-          branch: targetBranchId,
-          currentStock: 0,
-          minimumStock: sourceItemBranch.minimumStock || 0,
-          maximumStock: sourceItemBranch.maximumStock || 0,
-          reorderPoint: sourceItemBranch.reorderPoint || 0,
-          reorderQuantity: sourceItemBranch.reorderQuantity || 0,
-          costPrice: sourceItemBranch.costPrice || 0,
-          isAvailable: true,
+        targetLocationConfig = new InventoryItemLocation({
+          inventoryItem: inventoryItem._id,
+          locationId: targetLocationId,
+          availableQuantity: 0,
+          reservedQuantity: 0,
+          inTransitQuantity: 0,
+          minimumStock: 0,
+          costingMethod: 'FIFO',
           isActive: true
         });
 
-        await targetItemBranch.save();
+        await targetLocationConfig.save();
       }
 
-      // Map the ingredient with the target branch's inventory item branch ID
+      // Map the ingredient with the target location ID
       mappedIngredients.push({
-        inventoryItemBranch: targetItemBranch._id.toString(),
+        inventoryItem: inventoryItem._id.toString(),
+        locationId: targetLocationId,
         quantity: ingredient.quantity,
         unit: ingredient.unit,
         conversionFactor: ingredient.conversionFactor,
@@ -644,11 +667,11 @@ export const mapIngredientsToTargetBranch = async (sourceIngredients, targetBran
       });
     }
 
-    logger.info(`Mapped ${mappedIngredients.length} ingredients from source to target branch ${targetBranchId}`);
+    logger.info(`Mapped ${mappedIngredients.length} ingredients from source to target location ${targetLocationId}`);
 
     return mappedIngredients;
   } catch (error) {
-    logger.error('Error mapping ingredients to target branch:', error);
+    logger.error('Error mapping ingredients to target location:', error);
     throw error;
   }
 };

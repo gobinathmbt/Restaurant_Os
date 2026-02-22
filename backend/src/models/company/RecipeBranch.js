@@ -19,11 +19,16 @@ const recipeBranchSchema = new mongoose.Schema({
     index: true
   },
   
-  // Ingredients (branch-specific inventory references)
+  // Ingredients (location-based inventory references)
   ingredients: [{
-    inventoryItemBranch: {
+    inventoryItem: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'InventoryItemBranch',
+      ref: 'InventoryItem',
+      required: true
+    },
+    locationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Location',
       required: true
     },
     quantity: {
@@ -117,17 +122,18 @@ recipeBranchSchema.methods.calculateCost = async function() {
     return this.costPerUnit;
   }
 
-  // Populate ingredient branch data to access costPrice and inventory item details
+  // Populate ingredient location data to access costing information and inventory item details
   await this.populate({
-    path: 'ingredients.inventoryItemBranch',
-    populate: {
-      path: 'inventoryItem',
-      select: 'unit'
-    }
+    path: 'ingredients.inventoryItem',
+    select: 'unit'
   });
 
   // Import unit conversion utility
   const unitConversion = await import('../../utils/unitConversion.js');
+  
+  // Import InventoryItemLocation model
+  const { getInventoryItemLocationModel } = await import('./InventoryItemLocation.js');
+  const InventoryItemLocation = getInventoryItemLocationModel(this.constructor.db);
 
   let totalCost = 0;
   for (const ingredient of this.ingredients) {
@@ -138,24 +144,40 @@ recipeBranchSchema.methods.calculateCost = async function() {
       continue;
     }
 
-    // If ingredient has costPrice, calculate with unit conversion
-    if (ingredient.inventoryItemBranch && ingredient.inventoryItemBranch.costPrice) {
-      const inventoryPrice = ingredient.inventoryItemBranch.costPrice;
-      const inventoryUnit = ingredient.inventoryItemBranch.inventoryItem?.unit || ingredient.unit;
-      const recipeUnit = ingredient.unit;
-      const recipeQuantity = ingredient.quantity;
-      const manualConversionFactor = ingredient.conversionFactor;
+    // Fetch InventoryItemLocation for this ingredient
+    const inventoryItemLocation = await InventoryItemLocation.findOne({
+      inventoryItem: ingredient.inventoryItem._id || ingredient.inventoryItem,
+      locationId: ingredient.locationId
+    }).populate('inventoryItem');
 
-      // Calculate cost with unit conversion
-      const costCalc = unitConversion.calculateIngredientCost(
-        recipeQuantity,
-        recipeUnit,
-        inventoryPrice,
-        inventoryUnit,
-        manualConversionFactor
-      );
+    // If location config exists and has costing information, calculate with unit conversion
+    if (inventoryItemLocation) {
+      let inventoryPrice = 0;
+      
+      // Determine price based on costing method
+      if (inventoryItemLocation.costingMethod === 'STANDARD_COST' && inventoryItemLocation.standardCost) {
+        inventoryPrice = inventoryItemLocation.standardCost;
+      } else if (inventoryItemLocation.lastPurchasePrice) {
+        inventoryPrice = inventoryItemLocation.lastPurchasePrice;
+      }
+      
+      if (inventoryPrice > 0) {
+        const inventoryUnit = inventoryItemLocation.inventoryItem?.unit || ingredient.unit;
+        const recipeUnit = ingredient.unit;
+        const recipeQuantity = ingredient.quantity;
+        const manualConversionFactor = ingredient.conversionFactor;
 
-      totalCost += costCalc.totalCost;
+        // Calculate cost with unit conversion
+        const costCalc = unitConversion.calculateIngredientCost(
+          recipeQuantity,
+          recipeUnit,
+          inventoryPrice,
+          inventoryUnit,
+          manualConversionFactor
+        );
+
+        totalCost += costCalc.totalCost;
+      }
     }
   }
 
@@ -164,50 +186,42 @@ recipeBranchSchema.methods.calculateCost = async function() {
   return this.costPerUnit;
 };
 
-// Pre-save hook: Validate ingredient branches and auto-assign if needed
+// Pre-save hook: Validate ingredient locations and auto-assign if needed
 recipeBranchSchema.pre('save', async function(next) {
   if (this.isModified('ingredients') && this.ingredients.length > 0) {
-    const InventoryItemBranch = this.constructor.db.model('InventoryItemBranch');
+    const { getInventoryItemLocationModel } = await import('./InventoryItemLocation.js');
+    const InventoryItemLocation = getInventoryItemLocationModel(this.constructor.db);
     
     for (const ingredient of this.ingredients) {
-      // Check if inventoryItemBranch exists
-      const inventoryItemBranch = await InventoryItemBranch.findById(
-        ingredient.inventoryItemBranch
-      );
+      // Check if inventoryItemLocation exists for this item and location
+      const inventoryItemLocation = await InventoryItemLocation.findOne({
+        inventoryItem: ingredient.inventoryItem,
+        locationId: ingredient.locationId
+      });
       
-      if (!inventoryItemBranch) {
-        throw new Error(`InventoryItemBranch ${ingredient.inventoryItemBranch} not found`);
-      }
-      
-      // Check if ingredient belongs to the same branch
-      if (inventoryItemBranch.branch.toString() !== this.branch.toString()) {
-        // Instead of throwing error, auto-assign the inventory item to the branch
-        console.log(`Auto-assigning inventory item ${inventoryItemBranch.inventoryItem} to branch ${this.branch}`);
+      if (!inventoryItemLocation) {
+        // Auto-create location configuration for this inventory item
+        console.log(`Auto-assigning inventory item ${ingredient.inventoryItem} to location ${ingredient.locationId}`);
         
-        // Check if this inventory item already has a branch config for the target branch
-        const existingBranchConfig = await InventoryItemBranch.findOne({
-          inventoryItem: inventoryItemBranch.inventoryItem,
-          branch: this.branch
+        const newLocationConfig = new InventoryItemLocation({
+          inventoryItem: ingredient.inventoryItem,
+          locationId: ingredient.locationId,
+          availableQuantity: 0,
+          reservedQuantity: 0,
+          inTransitQuantity: 0,
+          minimumStock: 0,
+          costingMethod: 'FIFO',
+          isActive: true
         });
 
-        if (!existingBranchConfig) {
-          // Create new branch configuration for this inventory item
-          const newBranchConfig = new InventoryItemBranch({
-            inventoryItem: inventoryItemBranch.inventoryItem,
-            branch: this.branch,
-            quantity: 0, // Start with 0 quantity
-            minStockLevel: inventoryItemBranch.minStockLevel || 0,
-            maxStockLevel: inventoryItemBranch.maxStockLevel || 0,
-            reorderPoint: inventoryItemBranch.reorderPoint || 0,
-            reorderQuantity: inventoryItemBranch.reorderQuantity || 0,
-            costPrice: inventoryItemBranch.costPrice || 0,
-            isAvailable: true,
-            isActive: true
-          });
-
-          await newBranchConfig.save();
-          console.log(`Created new branch config for inventory item ${inventoryItemBranch.inventoryItem} in branch ${this.branch}`);
-        }
+        await newLocationConfig.save();
+        console.log(`Created new location config for inventory item ${ingredient.inventoryItem} in location ${ingredient.locationId}`);
+      }
+      
+      // Validate that ingredient location matches recipe branch location
+      if (ingredient.locationId.toString() !== this.branch.toString()) {
+        console.log(`Warning: Ingredient location ${ingredient.locationId} does not match recipe branch ${this.branch}`);
+        // Note: We allow this for flexibility, but log a warning
       }
     }
   }
