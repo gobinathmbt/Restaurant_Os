@@ -161,6 +161,15 @@ grnSchema.index({ locationId: 1, status: 1 });
 grnSchema.index({ branch: 1, grnNumber: 1 });
 grnSchema.index({ branch: 1, receivedDate: -1 });
 
+// Pre-validation hook to ensure data integrity
+grnSchema.pre('validate', function(next) {
+  // GRN is ONLY for supplier procurement
+  if (!this.supplier) {
+    return next(new Error('Supplier is required for GRN. Use StockTransfer for internal movements.'));
+  }
+  next();
+});
+
 export const getGRNModel = (companyDB) => {
   return companyDB.model('GRN', grnSchema);
 };

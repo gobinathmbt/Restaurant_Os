@@ -441,6 +441,7 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
       setLoading(true);
 
       const submitData = {
+        locationId: selectedBranch,
         supplierId: formData.supplierId,
         receivedDate: formData.receivedDate,
         invoiceNumber: formData.invoiceNumber.trim() || undefined,
@@ -458,7 +459,7 @@ export default function GRNFormModal({ open, onClose, branchId, onSuccess }: GRN
           })),
       };
 
-      await inventoryServices.createGRN(selectedBranch, submitData);
+      await inventoryServices.createGRN(submitData);
       toast({
         title: 'Success',
         description: 'GRN created successfully',

@@ -44,16 +44,21 @@ const generateGRNNumber = async (companyId, locationId) => {
 
 /**
  * Create GRN with batch tracking and ledger integration
+ * GRN is ONLY for supplier procurement (financial document)
+ * For internal warehouse transfers, use StockTransfer model
+ * 
  * Implements Requirements: 8.1, 8.2, 8.4, 8.5, 17.2, 16.1, 25.1, 25.6
  * 
  * @param {Object} grnData - GRN data
- * @param {string} grnData.locationId - Location ID
- * @param {string} grnData.supplierId - Supplier ID
+ * @param {string} grnData.locationId - Location ID receiving the goods
+ * @param {string} grnData.supplierId - Supplier ID (REQUIRED - this is procurement)
+ * @param {string} grnData.purchaseOrder - Optional purchase order reference
  * @param {Array} grnData.items - Array of items with quantity, unitPrice, batchNumber, expiryDate
  * @param {string} grnData.receivedDate - Date received
+ * @param {string} grnData.invoiceNumber - Invoice number
+ * @param {Date} grnData.invoiceDate - Invoice date
+ * @param {string} grnData.paymentTerms - Payment terms
  * @param {string} grnData.notes - Optional notes
- * @param {string} grnData.invoiceNumber - Optional invoice number
- * @param {Date} grnData.invoiceDate - Optional invoice date
  * @param {string} companyId - Company ID
  * @param {string} userId - User ID performing the operation
  * @returns {Promise<Object>} Created GRN
@@ -67,7 +72,7 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
   }
   
   if (!grnData.supplierId) {
-    throw new Error('Supplier ID is required');
+    throw new Error('Supplier ID is required. GRN is only for supplier procurement. Use StockTransfer for internal movements.');
   }
   
   if (!grnData.items || grnData.items.length === 0) {
@@ -88,9 +93,10 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
   }
   
   // Requirement 8.1, 8.2: Validate location has canProcureDirectly capability
+  // GRN is ONLY for direct supplier procurement
   const canProcure = await validateCapability(grnData.locationId, 'canProcureDirectly', companyId);
   if (!canProcure) {
-    const error = new Error('Location does not have permission to procure directly from suppliers');
+    const error = new Error('Location does not have permission to procure directly from suppliers. Use StockTransfer for internal movements.');
     error.statusCode = 403;
     throw error;
   }
@@ -236,7 +242,7 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
     locationId: grn.locationId
   }, companyId);
   
-  logger.info(`GRN created with batches: ${grn._id} (${grn.grnNumber}) for location: ${grnData.locationId}, company: ${companyId}`);
+  logger.info(`GRN created with batches: ${grn._id} (${grn.grnNumber}) for location: ${grnData.locationId}, supplier: ${grnData.supplierId}, company: ${companyId}`);
   
   return grn;
 };
@@ -309,6 +315,87 @@ export const getGRNsByLocation = async (locationId, companyId, options = {}) => 
 };
 
 /**
+ * Get count of GRNs by location
+ * @param {string} locationId - Location ID
+ * @param {string} companyId - Company ID
+ * @param {Object} options - Query options (status, startDate, endDate)
+ * @returns {Promise<number>} Count of GRNs
+ */
+export const getGRNsCountByLocation = async (locationId, companyId, options = {}) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const GRN = getGRNModel(companyDB);
+    
+    const query = { locationId };
+    
+    if (options.status) {
+      query.status = options.status;
+    }
+    
+    if (options.startDate || options.endDate) {
+      query.receivedDate = {};
+      if (options.startDate) query.receivedDate.$gte = new Date(options.startDate);
+      if (options.endDate) query.receivedDate.$lte = new Date(options.endDate);
+    }
+    
+    const count = await GRN.countDocuments(query);
+    
+    return count;
+  } catch (error) {
+    logger.error('Error getting GRNs count by location:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get all GRNs across all locations
+ * @param {string} companyId - Company ID
+ * @param {Object} options - Query options (status, startDate, endDate, search, limit, skip)
+ * @returns {Promise<Object>} Object with grns array and total count
+ */
+export const getAllGRNs = async (companyId, options = {}) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const GRN = getGRNModel(companyDB);
+    
+    const query = {};
+    
+    if (options.status) {
+      query.status = options.status;
+    }
+    
+    if (options.startDate || options.endDate) {
+      query.receivedDate = {};
+      if (options.startDate) query.receivedDate.$gte = new Date(options.startDate);
+      if (options.endDate) query.receivedDate.$lte = new Date(options.endDate);
+    }
+    
+    // Search across grnNumber and supplier name
+    if (options.search) {
+      query.$or = [
+        { grnNumber: { $regex: options.search, $options: 'i' } }
+      ];
+    }
+    
+    const [grns, total] = await Promise.all([
+      GRN.find(query)
+        .populate('locationId', 'name code type')
+        .populate('supplier', 'name contactPerson')
+        .sort({ receivedDate: -1 })
+        .limit(options.limit || 100)
+        .skip(options.skip || 0)
+        .lean(),
+      GRN.countDocuments(query)
+    ]);
+    
+    return { grns, total };
+  } catch (error) {
+    logger.error('Error getting all GRNs:', error);
+    throw error;
+  }
+};
+
+/**
  * Get GRNs by supplier
  * @param {string} supplierId - Supplier ID
  * @param {string} companyId - Company ID
@@ -346,6 +433,8 @@ export const getGRNsBySupplier = async (supplierId, companyId, options = {}) => 
     throw error;
   }
 };
+
+// Remove getGRNsByWarehouse - use StockTransfer instead
 
 /**
  * Verify GRN

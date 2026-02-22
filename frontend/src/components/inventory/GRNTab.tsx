@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Eye, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -88,22 +88,9 @@ export default function GRNTab({
         onBranchChange('all');
       }
     }
-  }, [branches, selectedBranch, isSuperAdmin, isMultiBranchAdmin]);
+  }, [branches, selectedBranch, isSuperAdmin, isMultiBranchAdmin, onBranchChange]);
 
-  useEffect(() => {
-    if (selectedBranch) {
-      if (paginationEnabled) {
-        fetchGRNs();
-      } else {
-        setGrns([]);
-        setInfiniteScrollPage(1);
-        setHasMore(true);
-        fetchGRNsInfinite(1, true);
-      }
-    }
-  }, [selectedBranch, currentPage, rowsPerPage, searchValue, paginationEnabled]);
-
-  const fetchGRNs = async () => {
+  const fetchGRNs = useCallback(async () => {
     if (!selectedBranch) return;
     
     try {
@@ -126,9 +113,9 @@ export default function GRNTab({
     } finally {
       setIsLoadingGrns(false);
     }
-  };
+  }, [selectedBranch, currentPage, rowsPerPage, searchValue, toast]);
 
-  const fetchGRNsInfinite = async (page: number, reset: boolean = false) => {
+  const fetchGRNsInfinite = useCallback(async (page: number, reset: boolean = false) => {
     if (!selectedBranch) return;
 
     try {
@@ -166,7 +153,20 @@ export default function GRNTab({
       setIsLoadingGrns(false);
       setIsLoadingMore(false);
     }
-  };
+  }, [selectedBranch, searchValue, toast]);
+
+  useEffect(() => {
+    if (selectedBranch) {
+      if (paginationEnabled) {
+        fetchGRNs();
+      } else {
+        setGrns([]);
+        setInfiniteScrollPage(1);
+        setHasMore(true);
+        fetchGRNsInfinite(1, true);
+      }
+    }
+  }, [selectedBranch, currentPage, rowsPerPage, searchValue, paginationEnabled, fetchGRNs, fetchGRNsInfinite]);
 
   const handleLoadMore = () => {
     if (!isLoadingMore && hasMore && !paginationEnabled) {
@@ -194,7 +194,12 @@ export default function GRNTab({
     }
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
+    // Refresh works for all branches now
+    if (!selectedBranch) {
+      return;
+    }
+    
     if (paginationEnabled) {
       fetchGRNs();
     } else {
@@ -203,7 +208,7 @@ export default function GRNTab({
       setHasMore(true);
       fetchGRNsInfinite(1, true);
     }
-  };
+  }, [selectedBranch, paginationEnabled, fetchGRNs, fetchGRNsInfinite]);
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-IN', {
@@ -334,7 +339,7 @@ export default function GRNTab({
                   searchValue
                     ? 'Try adjusting your search'
                     : 'Get started by creating your first GRN',
-                action: !searchValue ? (
+                action: !searchValue && selectedBranch !== 'all' ? (
                   <Button onClick={handleCreateGRN}>
                     <Plus className="h-4 w-4 mr-2" />
                     Create GRN

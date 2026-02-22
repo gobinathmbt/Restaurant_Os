@@ -320,10 +320,9 @@ export const inventoryServices = {
   getInventoryCategories: (branchId: string) =>
     apiClient.get("/api/inventory/items/categories", { params: { branchId } }),
 
-  // GRN (Goods Receipt Notes) - Updated to support locationId and batch information
-  getGRNs: (params?: { 
-    locationId?: string; 
-    branchId?: string; // Keep for backward compatibility
+  // GRN (Goods Receipt Notes) - ONLY for supplier procurement
+  // For internal warehouse transfers, use Stock Transfer
+  getGRNs: (locationId: string, params?: { 
     page?: number; 
     limit?: number; 
     search?: string; 
@@ -332,55 +331,44 @@ export const inventoryServices = {
     startDate?: string; 
     endDate?: string;
   }) => {
-    // Use locationId if provided, otherwise fall back to branchId
-    const queryParams = { ...params };
-    if (params?.locationId) {
-      queryParams.branchId = params.locationId;
-      delete queryParams.locationId;
+    // If locationId is 'all', use the all endpoint
+    if (locationId === 'all') {
+      return apiClient.get('/api/inventory/grn/all', { params });
     }
-    return apiClient.get("/api/inventory/grn", { params: queryParams });
+    return apiClient.get(`/api/inventory/grn/location/${locationId}`, { params });
   },
 
   getGRN: (id: string) =>
     apiClient.get(`/api/inventory/grn/${id}`),
 
-  getGRNDetails: (locationId: string, grnId: string) =>
-    apiClient.get(`/api/inventory/grn/${locationId}/${grnId}`),
-
-  resendGRNInAppNotifications: (locationId: string, grnId: string) =>
-    apiClient.post(`/api/inventory/grn/${locationId}/${grnId}/resend-inapp-notifications`),
-
-  resendGRNEmailNotifications: (locationId: string, grnId: string, includeSupplier: boolean = false) =>
-    apiClient.post(`/api/inventory/grn/${locationId}/${grnId}/resend-email-notifications`, { includeSupplier }),
-
   createGRN: (data: {
-    locationId?: string;
-    branchId?: string; // Keep for backward compatibility
+    locationId: string;
     supplierId: string;
+    purchaseOrder?: string;
     receivedDate: string;
     items: Array<{
       inventoryItem: string;
       quantity: number;
       unit: string;
       unitPrice: number;
-      totalPrice: number;
-      batchNumber?: string; // NEW: Batch information
-      expiryDate?: string; // NEW: Batch information
-      manufacturingDate?: string; // NEW: Batch information
+      batchNumber?: string;
+      expiryDate?: string;
+      manufacturingDate?: string;
       notes?: string;
     }>;
     invoiceNumber?: string;
     invoiceDate?: string;
+    paymentTerms?: string;
     notes?: string;
   }) => {
-    // Use locationId if provided, otherwise fall back to branchId
-    const requestData = { ...data };
-    if (data.locationId) {
-      requestData.branchId = data.locationId;
-      delete requestData.locationId;
-    }
-    return apiClient.post("/api/inventory/grn", requestData);
+    return apiClient.post("/api/inventory/grn", data);
   },
+
+  verifyGRN: (id: string) =>
+    apiClient.put(`/api/inventory/grn/${id}/verify`),
+
+  cancelGRN: (id: string) =>
+    apiClient.put(`/api/inventory/grn/${id}/cancel`),
 
   // Get suppliers for a specific branch
   getSuppliersForBranch: (branchId: string) =>

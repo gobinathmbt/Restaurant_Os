@@ -8,12 +8,6 @@ import {
   getLowStockItems,
   getExpiringItems,
   getInventoryCategories,
-  createGRN,
-  getGRNs,
-  getGRNById,
-  getGRNDetails,
-  resendGRNInAppNotifications,
-  resendGRNEmailNotifications,
   createStockAdjustment,
   getStockAdjustments,
   getStockAdjustmentById,
@@ -27,6 +21,14 @@ import {
   getSuppliersForBranch,
   getInventoryItemsForBranch as getInventoryItemsForBranchGRN
 } from '../controllers/inventoryController.js';
+import {
+  createGRN,
+  getGRNById,
+  verifyGRN,
+  cancelGRN,
+  getGRNsByLocation,
+  getAllGRNs
+} from '../controllers/grnController.js';
 import {
   createBranchConfig,
   getBranchConfig,
@@ -94,13 +96,14 @@ router.post('/branches/:branchId/items/batch', getInventoryItemBranchesByIds);
 router.get('/branches/:branchId/suppliers', getSuppliersForBranch);
 router.get('/branches/:branchId/inventory-items', getInventoryItemsForBranchGRN);
 
-// GRN (Goods Receipt Note) routes
-router.get('/grn', getGRNs);
+// GRN (Goods Receipt Note) routes - using new location-based GRN controller
 router.post('/grn', createGRN);
-router.get('/grn/:branchId/:grnId', getGRNDetails);
-router.post('/grn/:branchId/:grnId/resend-inapp-notifications', resendGRNInAppNotifications);
-router.post('/grn/:branchId/:grnId/resend-email-notifications', resendGRNEmailNotifications);
+router.get('/grn/all', getAllGRNs);
 router.get('/grn/:id', getGRNById);
+router.put('/grn/:id/verify', verifyGRN);
+router.put('/grn/:id/cancel', cancelGRN);
+// Get GRNs by location (supports query params: status, startDate, endDate, limit, skip)
+router.get('/grn/location/:locationId', getGRNsByLocation);
 
 // Stock Adjustment routes
 router.get('/adjustments', getStockAdjustments);

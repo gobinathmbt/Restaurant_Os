@@ -27,7 +27,7 @@ export const createGRN = async (req, res, next) => {
     if (!grnData.supplierId) {
       return res.status(400).json({
         success: false,
-        message: 'supplierId is required'
+        message: 'supplierId is required. GRN is only for supplier procurement. Use StockTransfer for internal movements.'
       });
     }
 
@@ -226,6 +226,7 @@ export const cancelGRN = async (req, res, next) => {
 /**
  * Get GRNs by location
  * GET /api/grn/location/:locationId
+ * GET /api/inventory/grn/location/:locationId (alias)
  */
 export const getGRNsByLocation = async (req, res, next) => {
   try {
@@ -233,29 +234,88 @@ export const getGRNsByLocation = async (req, res, next) => {
     const { locationId } = req.params;
     
     // Extract query parameters for filtering and pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 100;
+    const skip = (page - 1) * limit;
+    
     const options = {
       status: req.query.status,
       startDate: req.query.startDate,
       endDate: req.query.endDate,
-      limit: parseInt(req.query.limit) || 100,
-      skip: parseInt(req.query.skip) || 0
+      limit,
+      skip
     };
 
     const grns = await grnService.getGRNsByLocation(locationId, companyId, options);
+    
+    // Get total count for pagination
+    const totalCount = await grnService.getGRNsCountByLocation(locationId, companyId, {
+      status: req.query.status,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate
+    });
 
     res.json({
       success: true,
       data: { 
         grns,
         pagination: {
-          limit: options.limit,
-          skip: options.skip,
-          count: grns.length
+          page,
+          limit,
+          skip,
+          count: grns.length,
+          total: totalCount,
+          pages: Math.ceil(totalCount / limit)
         }
       }
     });
   } catch (error) {
     logger.error('Get GRNs by location error', error);
+    next(error);
+  }
+};
+
+/**
+ * Get all GRNs across all locations (for super admin)
+ * GET /api/grn/all
+ * GET /api/inventory/grn/all (alias)
+ */
+export const getAllGRNs = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    
+    // Extract query parameters for filtering and pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 100;
+    const skip = (page - 1) * limit;
+    
+    const options = {
+      status: req.query.status,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      search: req.query.search,
+      limit,
+      skip
+    };
+
+    const result = await grnService.getAllGRNs(companyId, options);
+
+    res.json({
+      success: true,
+      data: { 
+        grns: result.grns,
+        pagination: {
+          page,
+          limit,
+          skip,
+          count: result.grns.length,
+          total: result.total,
+          pages: Math.ceil(result.total / limit)
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get all GRNs error', error);
     next(error);
   }
 };

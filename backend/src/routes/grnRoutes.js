@@ -11,7 +11,8 @@ import {
   verifyGRN,
   cancelGRN,
   getGRNsByLocation,
-  getGRNsBySupplier
+  getGRNsBySupplier,
+  getAllGRNs
 } from '../controllers/grnController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { idempotencyMiddleware } from '../middlewares/idempotency.js';
@@ -23,6 +24,9 @@ router.use(authenticate);
 
 // Create a new GRN with batch information (with idempotency support)
 router.post('/', idempotencyMiddleware('GRN_CREATION'), createGRN);
+
+// Get all GRNs across all locations (for super admin)
+router.get('/all', getAllGRNs);
 
 // Get a single GRN by ID
 router.get('/:id', getGRNById);
