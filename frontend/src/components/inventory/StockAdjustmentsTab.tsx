@@ -95,7 +95,8 @@ export default function StockAdjustmentsTab({
     
     try {
       setAdjustmentsLoading(true);
-      const response = await inventoryServices.getStockAdjustments(selectedBranch, {
+      const response = await inventoryServices.getStockAdjustments({
+        locationId: selectedBranch,
         page: adjustmentsPage,
         limit: adjustmentsRowsPerPage,
         search: adjustmentsSearch || undefined
@@ -103,7 +104,7 @@ export default function StockAdjustmentsTab({
 
       setAdjustments(response.data.data.adjustments || []);
       setAdjustmentsTotalCount(response.data.data.pagination.total);
-      setAdjustmentsTotalPages(response.data.data.pagination.page);
+      setAdjustmentsTotalPages(response.data.data.pagination.pages);
     } catch (error: any) {
       toast({
         title: "Error",
