@@ -11,7 +11,6 @@ import { getLocationModel } from '../models/company/Location.js';
 import { getSupplierModel } from '../models/company/Supplier.js';
 import { getCategoryModel } from '../models/company/Category.js';
 import { getInventoryItemModel } from '../models/company/InventoryItem.js';
-import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
 import { getGRNModel } from '../models/company/GRN.js';
 import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
@@ -123,7 +122,6 @@ export const getCompanyDB = (companyId) => {
       getSupplierModel(companyConnection);
       getCategoryModel(companyConnection);
       getInventoryItemModel(companyConnection);
-      getInventoryItemBranchModel(companyConnection);
       getGRNModel(companyConnection);
       getStockAdjustmentModel(companyConnection);
       getStockTransferModel(companyConnection);

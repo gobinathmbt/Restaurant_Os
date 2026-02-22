@@ -33,17 +33,7 @@ import {
   resendGRNInAppNotifications,
   resendGRNEmailNotifications
 } from '../controllers/inventoryController.js';
-import {
-  createBranchConfig,
-  getBranchConfig,
-  updateBranchConfig,
-  getInventoryItemBranchById,
-  getInventoryItemBranchesByIds,
-  deleteBranchConfig,
-  bulkUpdateBranchConfigs,
-  getInventoryItemsForBranch,
-  createInventoryItemWithBranches
-} from '../controllers/inventoryItemBranchController.js';
+// Legacy inventoryItemBranchController has been removed - use inventoryItemLocationController instead
 import {
   getInventoryItemsForLocation,
   getInventoryItemLocationById,
@@ -82,7 +72,7 @@ router.use(authenticate);
 // Inventory Item routes
 router.get('/items', getInventoryItems);
 router.post('/items', validateAndAssignItemCategories, createInventoryItem);
-router.post('/items/with-branches', createInventoryItemWithBranches); // Deprecated: Use /items/with-locations
+// DEPRECATED ROUTE REMOVED: POST /items/with-branches -> Use POST /items with location configs
 router.get('/items/low-stock', getLowStockItems);
 router.get('/items/expiring', getExpiringItems);
 router.get('/items/categories', getInventoryCategories);
@@ -98,20 +88,16 @@ router.put('/locations/:locationId/items/:itemId/config', updateLocationConfig);
 router.delete('/locations/:locationId/items/:itemId/config', deleteLocationConfig);
 router.post('/items/:itemId/locations/bulk', bulkUpdateLocationConfigs);
 
-// DEPRECATED: Inventory Item Branch Configuration routes (use location-based routes above)
-// These routes are maintained for backward compatibility but will be removed in future versions
-router.post('/items/:inventoryItemId/branches/:branchId', createBranchConfig); // Deprecated: Use /locations/:locationId/items/:itemId/config
-router.get('/items/:inventoryItemId/branches/:branchId', getBranchConfig); // Deprecated: Use /locations/:locationId/items/:itemId
-router.put('/items/:inventoryItemId/branches/:branchId', updateBranchConfig); // Deprecated: Use /locations/:locationId/items/:itemId/config
-router.delete('/items/:inventoryItemId/branches/:branchId', deleteBranchConfig); // Deprecated: Use /locations/:locationId/items/:itemId/config
-router.put('/items/:inventoryItemId/branches', bulkUpdateBranchConfigs); // Deprecated: Use /items/:itemId/locations/bulk
-
-// DEPRECATED: Get inventory items for a specific branch (use location-based routes above)
-router.get('/branches/:branchId/items', getInventoryItemsForBranch); // Deprecated: Use /locations/:locationId/items
-// Get a specific branch item by its id
-router.get('/branches/:branchId/items/:branchItemId', getInventoryItemBranchById); // Deprecated: Use /locations/:locationId/items/:itemId
-// Batch fetch multiple branch items by ids
-router.post('/branches/:branchId/items/batch', getInventoryItemBranchesByIds); // Deprecated
+// DEPRECATED ROUTES REMOVED: The following routes have been removed as part of the migration
+// from InventoryItemBranch to InventoryItemLocation. Use the location-based routes above instead.
+// - POST /items/:inventoryItemId/branches/:branchId -> Use POST /locations/:locationId/items/:itemId/config
+// - GET /items/:inventoryItemId/branches/:branchId -> Use GET /locations/:locationId/items/:itemId
+// - PUT /items/:inventoryItemId/branches/:branchId -> Use PUT /locations/:locationId/items/:itemId/config
+// - DELETE /items/:inventoryItemId/branches/:branchId -> Use DELETE /locations/:locationId/items/:itemId/config
+// - PUT /items/:inventoryItemId/branches -> Use POST /items/:itemId/locations/bulk
+// - GET /branches/:branchId/items -> Use GET /locations/:locationId/items
+// - GET /branches/:branchId/items/:branchItemId -> Use GET /locations/:locationId/items/:itemId
+// - POST /branches/:branchId/items/batch -> Removed (no replacement needed)
 
 // Branch-filtered endpoints for GRN creation
 router.get('/branches/:branchId/suppliers', getSuppliersForBranch);
