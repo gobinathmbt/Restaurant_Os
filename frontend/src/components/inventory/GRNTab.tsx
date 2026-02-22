@@ -317,8 +317,13 @@ export default function GRNTab({
                       size="sm"
                       title="View GRN details"
                       onClick={() => {
-                        const branchId = typeof grn.branch === 'string' ? grn.branch : grn.branch._id;
-                        handleViewGRN(grn._id, branchId);
+                        if (!grn._id) return;
+                        const branchId = typeof grn.branch === 'string' 
+                          ? grn.branch 
+                          : (grn.branch?._id || selectedBranch);
+                        if (branchId) {
+                          handleViewGRN(grn._id, branchId);
+                        }
                       }}
                     >
                       <Eye className="h-4 w-4" />

@@ -24,7 +24,25 @@ import pdfGenerator from '@/services/pdfGenerator';
 interface GRNDetails {
   _id: string;
   grnNumber: string;
-  branch: {
+  locationId?: {
+    _id: string;
+    name: string;
+    code: string;
+    type?: string;
+    address?:
+      | string
+      | {
+          street?: string;
+          city?: string;
+          state?: string;
+          pincode?: string;
+          country?: string;
+        };
+    city?: string;
+    state?: string;
+    pincode?: string;
+  };
+  branch?: {
     _id: string;
     name: string;
     code: string;
@@ -62,11 +80,11 @@ interface GRNDetails {
     gstNumber?: string;
   };
   receivedDate: string;
-  receivedBy: {
+  receivedBy?: {
     _id: string;
     name: string;
     email?: string;
-  };
+  } | string;
   items: Array<{
     inventoryItem: {
       _id: string;
@@ -280,35 +298,41 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
                     Branch Information
                   </h3>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Branch Name:</span>
-                      <span className="font-medium">{grnDetails.branch.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Branch Code:</span>
-                      <span className="font-medium">{grnDetails.branch.code}</span>
-                    </div>
-                    {grnDetails.branch.address && typeof grnDetails.branch.address === 'object' && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Address:</span>
-                        <span className="font-medium text-right">
-                          {[
-                            grnDetails.branch.address.street,
-                            grnDetails.branch.address.city,
-                            grnDetails.branch.address.state,
-                            grnDetails.branch.address.pincode,
-                            grnDetails.branch.address.country,
-                          ]
-                            .filter(Boolean)
-                            .join(', ')}
-                        </span>
-                      </div>
-                    )}
-                    {grnDetails.branch.address && typeof grnDetails.branch.address === 'string' && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Address:</span>
-                        <span className="font-medium text-right">{grnDetails.branch.address}</span>
-                      </div>
+                    {(grnDetails.branch || grnDetails.locationId) ? (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Branch Name:</span>
+                          <span className="font-medium">{grnDetails.branch?.name || grnDetails.locationId?.name || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Branch Code:</span>
+                          <span className="font-medium">{grnDetails.branch?.code || grnDetails.locationId?.code || 'N/A'}</span>
+                        </div>
+                        {(grnDetails.branch?.address || grnDetails.locationId?.address) && typeof (grnDetails.branch?.address || grnDetails.locationId?.address) === 'object' && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Address:</span>
+                            <span className="font-medium text-right">
+                              {[
+                                (grnDetails.branch?.address as any)?.street || (grnDetails.locationId?.address as any)?.street,
+                                (grnDetails.branch?.address as any)?.city || (grnDetails.locationId?.address as any)?.city,
+                                (grnDetails.branch?.address as any)?.state || (grnDetails.locationId?.address as any)?.state,
+                                (grnDetails.branch?.address as any)?.pincode || (grnDetails.locationId?.address as any)?.pincode,
+                                (grnDetails.branch?.address as any)?.country || (grnDetails.locationId?.address as any)?.country,
+                              ]
+                                .filter(Boolean)
+                                .join(', ')}
+                            </span>
+                          </div>
+                        )}
+                        {(grnDetails.branch?.address || grnDetails.locationId?.address) && typeof (grnDetails.branch?.address || grnDetails.locationId?.address) === 'string' && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Address:</span>
+                            <span className="font-medium text-right">{grnDetails.branch?.address || grnDetails.locationId?.address}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-muted-foreground">No branch information available</div>
                     )}
                   </div>
                 </div>
@@ -363,7 +387,7 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Received By:</span>
-                    <span className="font-medium">{grnDetails.receivedBy.name}</span>
+                    <span className="font-medium">{typeof grnDetails.receivedBy === 'object' ? (grnDetails.receivedBy?.name || 'N/A') : 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Status:</span>

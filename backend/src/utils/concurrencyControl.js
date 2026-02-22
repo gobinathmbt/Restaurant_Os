@@ -480,6 +480,7 @@ export const getTransferLockStats = () => {
 /**
  * Execute operation with transaction and retry logic
  * Combines transaction management with retry logic for concurrent operations
+ * Falls back to non-transactional execution if replica set is not available (development mode)
  * 
  * @param {Object} companyDB - Company database connection
  * @param {Function} operation - Async operation to execute (receives session)
@@ -494,16 +495,36 @@ export const withTransactionAndRetry = async (companyDB, operation, options = {}
       const session = await companyDB.startSession();
       
       try {
-        await session.startTransaction();
-        
-        const result = await operation(session, attemptNumber);
-        
-        await session.commitTransaction();
-        
-        return result;
-      } catch (error) {
-        await session.abortTransaction();
-        throw error;
+        // Try to start transaction
+        try {
+          await session.startTransaction();
+          
+          const result = await operation(session, attemptNumber);
+          
+          await session.commitTransaction();
+          
+          return result;
+        } catch (transactionError) {
+          // If transaction is not supported (standalone MongoDB), execute without transaction
+          if (transactionError.code === 20 || transactionError.codeName === 'IllegalOperation') {
+            logger.warn(`Transactions not supported (standalone MongoDB), executing without transaction: ${options.operationName || 'Operation'}`);
+            
+            // Abort any pending transaction
+            try {
+              await session.abortTransaction();
+            } catch (abortError) {
+              // Ignore abort errors
+            }
+            
+            // Execute operation without transaction (pass null as session)
+            const result = await operation(null, attemptNumber);
+            return result;
+          }
+          
+          // For other errors, abort and rethrow
+          await session.abortTransaction();
+          throw transactionError;
+        }
       } finally {
         session.endSession();
       }

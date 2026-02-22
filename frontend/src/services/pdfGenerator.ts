@@ -3,7 +3,7 @@ import jsPDF from 'jspdf';
 interface GRNDetails {
   _id: string;
   grnNumber: string;
-  branch: {
+  branch?: {
     _id: string;
     name: string;
     code: string;
@@ -18,7 +18,23 @@ interface GRNDetails {
     state?: string;
     pincode?: string;
   };
-  supplier: {
+  locationId?: {
+    _id: string;
+    name: string;
+    code: string;
+    type?: string;
+    address?: string | {
+      street?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+      country?: string;
+    };
+    city?: string;
+    state?: string;
+    pincode?: string;
+  };
+  supplier?: {
     _id: string;
     name: string;
     contactPerson?: string;
@@ -37,19 +53,20 @@ interface GRNDetails {
     gstNumber?: string;
   };
   receivedDate: string;
-  receivedBy: {
+  receivedBy?: {
     _id: string;
     name: string;
     email?: string;
-  };
+  } | string;
   items: Array<{
-    inventoryItem: {
+    inventoryItem?: {
       _id: string;
       name: string;
       type?: string;
       unit?: string;
       sku?: string;
     };
+    itemName?: string;
     quantity: number;
     unit: string;
     unitPrice: number;
@@ -57,7 +74,7 @@ interface GRNDetails {
     batchNumber?: string;
     expiryDate?: string;
   }>;
-  totalAmount: number;
+  totalAmount?: number;
   status: string;
   invoiceNumber?: string;
   invoiceDate?: string;
@@ -153,9 +170,9 @@ class PDFGeneratorService {
     const supplierContact = grnDetails.supplier?.contactPerson || '';
     const supplierPhone = grnDetails.supplier?.phone || '';
     const supplierEmail = grnDetails.supplier?.email || '';
-    const branchName = grnDetails.branch?.name || 'Branch';
-    const branchCode = grnDetails.branch?.code || '';
-    const receivedByName = grnDetails.receivedBy?.name || 'Receiver';
+    const branchName = grnDetails.branch?.name || grnDetails.locationId?.name || 'Branch';
+    const branchCode = grnDetails.branch?.code || grnDetails.locationId?.code || '';
+    const receivedByName = (typeof grnDetails.receivedBy === 'object') ? (grnDetails.receivedBy?.name || 'Receiver') : 'Receiver';
     const safeItems = Array.isArray(grnDetails.items) ? grnDetails.items : [];
     const safeTotalAmount = grnDetails.totalAmount ?? 0;
 

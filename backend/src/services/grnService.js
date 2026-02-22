@@ -133,8 +133,10 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
         paymentTerms: grnData.paymentTerms
       };
       
-      // Create GRN
-      const grnArray = await GRN.create([grnDoc], { session });
+      // Create GRN (with or without session)
+      const grnArray = session 
+        ? await GRN.create([grnDoc], { session })
+        : await GRN.create([grnDoc]);
       const createdGrn = grnArray[0];
       
       // Requirement 17.2: For each item, create or update InventoryBatchLocation
@@ -142,10 +144,17 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
       // Requirement 16.1: Record ledger entry with GRN reference
       for (const item of items) {
         // Get or create InventoryItemLocation
-        let inventoryItemLocation = await InventoryItemLocation.findOne({
+        let query = InventoryItemLocation.findOne({
           inventoryItem: item.inventoryItem,
           locationId: grnData.locationId
-        }).session(session);
+        });
+        
+        // Add session only if available
+        if (session) {
+          query = query.session(session);
+        }
+        
+        let inventoryItemLocation = await query;
         
         if (!inventoryItemLocation) {
           // Create new InventoryItemLocation if it doesn't exist
@@ -162,7 +171,9 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
             version: 0
           };
           
-          const result = await InventoryItemLocation.create([newInventoryItemLocation], { session });
+          const result = session
+            ? await InventoryItemLocation.create([newInventoryItemLocation], { session })
+            : await InventoryItemLocation.create([newInventoryItemLocation]);
           inventoryItemLocation = result[0];
         }
         
@@ -178,7 +189,12 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
         inventoryItemLocation.supplier = grnData.supplierId;
         inventoryItemLocation.version += 1;
         
-        await inventoryItemLocation.save({ session });
+        // Save with or without session
+        if (session) {
+          await inventoryItemLocation.save({ session });
+        } else {
+          await inventoryItemLocation.save();
+        }
         
         // Create or update batch
         const batchData = {
@@ -260,6 +276,7 @@ export const getGRNById = async (grnId, companyId) => {
     
     const grn = await GRN.findById(grnId)
       .populate('locationId', 'name code type')
+      .populate('branch', 'name code type')
       .populate('supplier', 'name contactPerson phone email')
       .populate('items.inventoryItem', 'name code unit')
       .lean();
@@ -301,6 +318,7 @@ export const getGRNsByLocation = async (locationId, companyId, options = {}) => 
     
     const grns = await GRN.find(query)
       .populate('locationId', 'name code type')
+      .populate('branch', 'name code type')
       .populate('supplier', 'name contactPerson')
       .sort({ receivedDate: -1 })
       .limit(options.limit || 100)
@@ -380,6 +398,7 @@ export const getAllGRNs = async (companyId, options = {}) => {
     const [grns, total] = await Promise.all([
       GRN.find(query)
         .populate('locationId', 'name code type')
+        .populate('branch', 'name code type')
         .populate('supplier', 'name contactPerson')
         .sort({ receivedDate: -1 })
         .limit(options.limit || 100)
@@ -421,6 +440,7 @@ export const getGRNsBySupplier = async (supplierId, companyId, options = {}) => 
     
     const grns = await GRN.find(query)
       .populate('locationId', 'name code type')
+      .populate('branch', 'name code type')
       .populate('supplier', 'name contactPerson')
       .sort({ receivedDate: -1 })
       .limit(options.limit || 100)
