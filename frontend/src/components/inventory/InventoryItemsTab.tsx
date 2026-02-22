@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
-import { inventoryServices, inventoryItemBranchServices } from '@/api/services';
+import { inventoryServices, inventoryItemLocationServices } from '@/api/services';
 import InventoryItemFormModal from '@/components/inventory/InventoryItemFormModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -194,8 +194,8 @@ export default function InventoryItemsTab({
         setItemsTotalCount(response.data.data.pagination.total);
         setItemsTotalPages(response.data.data.pagination.pages);
       } else {
-        // Fetch branch-specific inventory items (merged with global data)
-        response = await inventoryItemBranchServices.getInventoryItemsForBranch(
+        // Fetch location-specific inventory items (merged with global data)
+        response = await inventoryItemLocationServices.getInventoryItemsForLocation(
           selectedBranch,
           params
         );
@@ -246,8 +246,8 @@ export default function InventoryItemsTab({
         });
         fetchedItems = response.data.data.items || [];
       } else {
-        // Fetch branch-specific inventory items (merged with global data)
-        response = await inventoryItemBranchServices.getInventoryItemsForBranch(
+        // Fetch location-specific inventory items (merged with global data)
+        response = await inventoryItemLocationServices.getInventoryItemsForLocation(
           selectedBranch,
           params
         );
@@ -522,10 +522,13 @@ export default function InventoryItemsTab({
               <TableHead>Type</TableHead>
               <TableHead>Branches</TableHead>
               <TableHead>Category</TableHead>
-              <TableHead className="text-right">Current Stock</TableHead>
+              <TableHead className="text-right">Available</TableHead>
+              <TableHead className="text-right">Reserved</TableHead>
+              <TableHead className="text-right">In-Transit</TableHead>
+              <TableHead className="text-right">Total</TableHead>
               <TableHead className="text-right">Min Stock</TableHead>
               <TableHead>Unit</TableHead>
-              <TableHead className="text-right">Cost Price</TableHead>
+              <TableHead className="text-right">Cost</TableHead>
               <TableHead>Supplier</TableHead>
               <TableHead>Expiry Date</TableHead>
               <TableHead>Status</TableHead>
@@ -566,10 +569,13 @@ export default function InventoryItemsTab({
                   return categoryName;
                 };
 
-                // Get branch-specific data if viewing a specific branch
-                const currentStock = item.branchConfig?.currentStock ?? item.currentStock ?? 0;
+                // Get location-specific data if viewing a specific location (branch)
+                const availableQuantity = item.branchConfig?.availableQuantity ?? item.availableQuantity ?? 0;
+                const reservedQuantity = item.branchConfig?.reservedQuantity ?? item.reservedQuantity ?? 0;
+                const inTransitQuantity = item.branchConfig?.inTransitQuantity ?? item.inTransitQuantity ?? 0;
+                const totalQuantity = availableQuantity + reservedQuantity + inTransitQuantity;
                 const minimumStock = item.branchConfig?.minimumStock ?? item.minimumStock ?? 0;
-                const costPrice = item.branchConfig?.costPrice ?? item.costPrice;
+                const costPrice = item.branchConfig?.standardCost ?? item.branchConfig?.costPrice ?? item.costPrice;
                 const supplier = item.branchConfig?.supplier ?? item.supplier;
                 const isLowStock = item.branchConfig?.isLowStock ?? item.isLowStock ?? false;
                 const isExpiringSoon = item.branchConfig?.isExpiringSoon ?? item.isExpiringSoon ?? false;
@@ -637,7 +643,10 @@ export default function InventoryItemsTab({
                       )}
                     </TableCell>
                     <TableCell>{getCategoryPath()}</TableCell>
-                    <TableCell className="text-right font-medium">{currentStock}</TableCell>
+                    <TableCell className="text-right font-medium">{availableQuantity}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{reservedQuantity}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{inTransitQuantity}</TableCell>
+                    <TableCell className="text-right font-semibold">{totalQuantity}</TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       {minimumStock}
                     </TableCell>
@@ -750,7 +759,7 @@ export default function InventoryItemsTab({
             setSelectedItem(null);
           }}
           item={selectedItem}
-          branchId={selectedBranch}
+          locationId={selectedBranch}
           onSuccess={handleItemFormSuccess}
         />
 

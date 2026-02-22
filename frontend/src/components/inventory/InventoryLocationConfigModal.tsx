@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFoo
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-interface Branch {
+interface Location {
   _id: string;
   name: string;
   code: string;
@@ -18,45 +18,43 @@ interface Supplier {
   name: string;
 }
 
-interface BranchConfig {
-  currentStock: number;
+interface LocationConfig {
+  availableQuantity: number;
+  reservedQuantity: number;
+  inTransitQuantity: number;
   minimumStock: number;
   maximumStock?: number;
   reorderPoint?: number;
-  costPrice?: number;
+  costingMethod: 'FIFO' | 'WEIGHTED_AVERAGE' | 'STANDARD_COST';
+  standardCost?: number;
   lastPurchasePrice?: number;
   lastPurchaseDate?: Date;
   supplier?: string;
   storageLocation?: string;
-  batchNumber?: string;
-  expiryDate?: Date;
-  branchSKU?: string;
-  branchBarcode?: string;
   isActive: boolean;
-  isAvailable: boolean;
   notes?: string;
 }
 
-interface InventoryBranchConfigModalProps {
+interface InventoryLocationConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
-  branch: Branch;
-  config: BranchConfig;
-  onChange: (config: BranchConfig) => void;
+  location: Location;
+  config: LocationConfig;
+  onChange: (config: LocationConfig) => void;
   isEditable: boolean;
   suppliers?: Supplier[];
 }
 
-export default function InventoryBranchConfigModal({
+export default function InventoryLocationConfigModal({
   isOpen,
   onClose,
-  branch,
+  location,
   config,
   onChange,
   isEditable,
   suppliers = [],
-}: InventoryBranchConfigModalProps) {
-  const [localConfig, setLocalConfig] = useState<BranchConfig>(config);
+}: InventoryLocationConfigModalProps) {
+  const [localConfig, setLocalConfig] = useState<LocationConfig>(config);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -64,7 +62,7 @@ export default function InventoryBranchConfigModal({
     setValidationErrors({});
   }, [config, isOpen]);
 
-  const validateConfig = (newConfig: BranchConfig): Record<string, string> => {
+  const validateConfig = (newConfig: LocationConfig): Record<string, string> => {
     const errors: Record<string, string> = {};
 
     // Validate maximumStock >= minimumStock
@@ -72,9 +70,9 @@ export default function InventoryBranchConfigModal({
       errors.maximumStock = 'Maximum stock must be greater than or equal to minimum stock';
     }
 
-    // Validate currentStock <= maximumStock
-    if (newConfig.maximumStock !== undefined && newConfig.currentStock > newConfig.maximumStock) {
-      errors.currentStock = 'Current stock cannot exceed maximum stock';
+    // Validate availableQuantity <= maximumStock
+    if (newConfig.maximumStock !== undefined && newConfig.availableQuantity > newConfig.maximumStock) {
+      errors.availableQuantity = 'Available quantity cannot exceed maximum stock';
     }
 
     // Validate reorderPoint between minimumStock and maximumStock
@@ -87,22 +85,11 @@ export default function InventoryBranchConfigModal({
       }
     }
 
-    // Validate expiryDate not in past
-    if (newConfig.expiryDate) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const expiry = new Date(newConfig.expiryDate);
-      expiry.setHours(0, 0, 0, 0);
-      if (expiry < today) {
-        errors.expiryDate = 'Expiry date cannot be in the past';
-      }
-    }
-
     // Validate price decimal places (max 2)
-    if (newConfig.costPrice !== undefined) {
-      const decimals = (newConfig.costPrice.toString().split('.')[1] || '').length;
+    if (newConfig.standardCost !== undefined) {
+      const decimals = (newConfig.standardCost.toString().split('.')[1] || '').length;
       if (decimals > 2) {
-        errors.costPrice = 'Price cannot have more than 2 decimal places';
+        errors.standardCost = 'Price cannot have more than 2 decimal places';
       }
     }
     if (newConfig.lastPurchasePrice !== undefined) {
@@ -115,7 +102,7 @@ export default function InventoryBranchConfigModal({
     return errors;
   };
 
-  const handleChange = (field: keyof BranchConfig, value: any) => {
+  const handleChange = (field: keyof LocationConfig, value: any) => {
     const newConfig = { ...localConfig, [field]: value };
     setLocalConfig(newConfig);
     
@@ -135,47 +122,88 @@ export default function InventoryBranchConfigModal({
     return d.toISOString().split('T')[0];
   };
 
-  const getTodayDate = () => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  };
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditable ? 'Configure' : 'View'}: {branch.name} ({branch.code})
+            {isEditable ? 'Configure' : 'View'}: {location.name} ({location.code})
           </DialogTitle>
           {!isEditable && (
             <p className="text-sm text-muted-foreground">
-              Read-only view - You don't have permission to edit this branch
+              Read-only view - You don't have permission to edit this location
             </p>
           )}
         </DialogHeader>
 
         <DialogBody>
           <div className="space-y-6">
-            {/* Stock Management */}
+            {/* Stock Management - Three-State Quantities */}
             <div className="space-y-4">
               <h3 className="font-semibold text-sm">Stock Management</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="currentStock">Current Stock *</Label>
+                  <Label htmlFor="availableQuantity">Available Quantity *</Label>
                   <Input
-                    id="currentStock"
+                    id="availableQuantity"
                     type="number"
                     min="0"
                     step="0.01"
-                    value={localConfig.currentStock}
-                    onChange={(e) => handleChange('currentStock', parseFloat(e.target.value) || 0)}
+                    value={localConfig.availableQuantity}
+                    onChange={(e) => handleChange('availableQuantity', parseFloat(e.target.value) || 0)}
                     disabled={!isEditable}
                     required
-                    className={validationErrors.currentStock ? 'border-red-500' : ''}
+                    className={validationErrors.availableQuantity ? 'border-red-500' : ''}
                   />
-                  {validationErrors.currentStock && (
-                    <p className="text-xs text-red-500 mt-1">{validationErrors.currentStock}</p>
+                  {validationErrors.availableQuantity && (
+                    <p className="text-xs text-red-500 mt-1">{validationErrors.availableQuantity}</p>
                   )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Stock available for use
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="reservedQuantity">Reserved Quantity</Label>
+                  <Input
+                    id="reservedQuantity"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={localConfig.reservedQuantity}
+                    onChange={(e) => handleChange('reservedQuantity', parseFloat(e.target.value) || 0)}
+                    disabled={!isEditable}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Stock reserved for orders
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="inTransitQuantity">In-Transit Quantity</Label>
+                  <Input
+                    id="inTransitQuantity"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={localConfig.inTransitQuantity}
+                    onChange={(e) => handleChange('inTransitQuantity', parseFloat(e.target.value) || 0)}
+                    disabled={!isEditable}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Stock being transferred
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="totalQuantity">Total Quantity</Label>
+                  <Input
+                    id="totalQuantity"
+                    type="number"
+                    value={localConfig.availableQuantity + localConfig.reservedQuantity + localConfig.inTransitQuantity}
+                    disabled
+                    className="bg-muted"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sum of all quantities
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="minimumStock">Minimum Stock *</Label>
@@ -225,26 +253,55 @@ export default function InventoryBranchConfigModal({
               </div>
             </div>
 
+            {/* Costing Method */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm">Costing Method</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="costingMethod">Costing Method *</Label>
+                  <Select
+                    value={localConfig.costingMethod}
+                    onValueChange={(value) => handleChange('costingMethod', value)}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger id="costingMethod">
+                      <SelectValue placeholder="Select costing method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="FIFO">FIFO (First In, First Out)</SelectItem>
+                      <SelectItem value="WEIGHTED_AVERAGE">Weighted Average</SelectItem>
+                      <SelectItem value="STANDARD_COST">Standard Cost</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Method used for inventory valuation
+                  </p>
+                </div>
+                {localConfig.costingMethod === 'STANDARD_COST' && (
+                  <div>
+                    <Label htmlFor="standardCost">Standard Cost (₹)</Label>
+                    <Input
+                      id="standardCost"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={localConfig.standardCost || ''}
+                      onChange={(e) => handleChange('standardCost', e.target.value ? parseFloat(e.target.value) : undefined)}
+                      disabled={!isEditable}
+                      className={validationErrors.standardCost ? 'border-red-500' : ''}
+                    />
+                    {validationErrors.standardCost && (
+                      <p className="text-xs text-red-500 mt-1">{validationErrors.standardCost}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Pricing */}
             <div className="space-y-4">
               <h3 className="font-semibold text-sm">Pricing</h3>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="costPrice">Cost Price (₹)</Label>
-                  <Input
-                    id="costPrice"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={localConfig.costPrice || ''}
-                    onChange={(e) => handleChange('costPrice', e.target.value ? parseFloat(e.target.value) : undefined)}
-                    disabled={!isEditable}
-                    className={validationErrors.costPrice ? 'border-red-500' : ''}
-                  />
-                  {validationErrors.costPrice && (
-                    <p className="text-xs text-red-500 mt-1">{validationErrors.costPrice}</p>
-                  )}
-                </div>
                 <div>
                   <Label htmlFor="lastPurchasePrice">Last Purchase Price (₹)</Label>
                   <Input
@@ -299,69 +356,18 @@ export default function InventoryBranchConfigModal({
               </div>
             </div>
 
-            {/* Storage & Batch Info */}
+            {/* Storage Info */}
             <div className="space-y-4">
-              <h3 className="font-semibold text-sm">Storage & Batch Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="storageLocation">Storage Location</Label>
-                  <Input
-                    id="storageLocation"
-                    value={localConfig.storageLocation || ''}
-                    onChange={(e) => handleChange('storageLocation', e.target.value || undefined)}
-                    placeholder="e.g., Shelf A-3"
-                    disabled={!isEditable}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="batchNumber">Batch Number</Label>
-                  <Input
-                    id="batchNumber"
-                    value={localConfig.batchNumber || ''}
-                    onChange={(e) => handleChange('batchNumber', e.target.value || undefined)}
-                    disabled={!isEditable}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="expiryDate">Expiry Date</Label>
-                  <Input
-                    id="expiryDate"
-                    type="date"
-                    min={getTodayDate()}
-                    value={formatDate(localConfig.expiryDate)}
-                    onChange={(e) => handleChange('expiryDate', e.target.value ? new Date(e.target.value) : undefined)}
-                    disabled={!isEditable}
-                    className={validationErrors.expiryDate ? 'border-red-500' : ''}
-                  />
-                  {validationErrors.expiryDate && (
-                    <p className="text-xs text-red-500 mt-1">{validationErrors.expiryDate}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Branch-Specific Identifiers */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-sm">Branch-Specific Identifiers</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="branchSKU">Branch SKU</Label>
-                  <Input
-                    id="branchSKU"
-                    value={localConfig.branchSKU || ''}
-                    onChange={(e) => handleChange('branchSKU', e.target.value || undefined)}
-                    disabled={!isEditable}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="branchBarcode">Branch Barcode</Label>
-                  <Input
-                    id="branchBarcode"
-                    value={localConfig.branchBarcode || ''}
-                    onChange={(e) => handleChange('branchBarcode', e.target.value || undefined)}
-                    disabled={!isEditable}
-                  />
-                </div>
+              <h3 className="font-semibold text-sm">Storage Information</h3>
+              <div>
+                <Label htmlFor="storageLocation">Storage Location</Label>
+                <Input
+                  id="storageLocation"
+                  value={localConfig.storageLocation || ''}
+                  onChange={(e) => handleChange('storageLocation', e.target.value || undefined)}
+                  placeholder="e.g., Shelf A-3"
+                  disabled={!isEditable}
+                />
               </div>
             </div>
 
@@ -378,17 +384,6 @@ export default function InventoryBranchConfigModal({
                   />
                   <Label htmlFor="isActive" className="cursor-pointer">
                     Active
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="isAvailable"
-                    checked={localConfig.isAvailable}
-                    onCheckedChange={(checked) => handleChange('isAvailable', checked as boolean)}
-                    disabled={!isEditable}
-                  />
-                  <Label htmlFor="isAvailable" className="cursor-pointer">
-                    Available
                   </Label>
                 </div>
               </div>
