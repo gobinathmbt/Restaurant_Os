@@ -123,6 +123,7 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
   const [printing, setPrinting] = useState(false);
   const [resendingInApp, setResendingInApp] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
+  const [includeSupplier, setIncludeSupplier] = useState(true);
 
   useEffect(() => {
     if (open && grnId) {
@@ -216,8 +217,7 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
 
     setResendingEmail(true);
     try {
-      // Always include supplier (true by default)
-      const response = await inventoryServices.resendGRNEmailNotifications(branchId, grnId, true);
+      const response = await inventoryServices.resendGRNEmailNotifications(branchId, grnId, includeSupplier);
       toast({
         title: 'Success',
         variant: 'success',
@@ -327,7 +327,7 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
                         {(grnDetails.branch?.address || grnDetails.locationId?.address) && typeof (grnDetails.branch?.address || grnDetails.locationId?.address) === 'string' && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Address:</span>
-                            <span className="font-medium text-right">{grnDetails.branch?.address || grnDetails.locationId?.address}</span>
+                            <span className="font-medium text-right">{String(grnDetails.branch?.address || grnDetails.locationId?.address)}</span>
                           </div>
                         )}
                       </>
@@ -464,78 +464,92 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
           )}
         </DialogBody>
 
-        <DialogFooter className="flex flex-col sm:flex-row gap-2 justify-between w-full">
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={handleResendInAppNotifications}
-              disabled={!grnDetails || resendingInApp}
-              size="sm"
-            >
-              {resendingInApp ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Bell className="mr-2 h-4 w-4" />
-                  Send In-App
-                </>
-              )}
+        <DialogFooter className="flex flex-col gap-3 w-full">
+          <div className="flex items-center gap-2 px-1">
+            <input
+              type="checkbox"
+              id="includeSupplier"
+              checked={includeSupplier}
+              onChange={(e) => setIncludeSupplier(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <label htmlFor="includeSupplier" className="text-sm text-muted-foreground cursor-pointer">
+              Include supplier in email notifications
+            </label>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 justify-between w-full">
+            <Button variant="outline" onClick={onClose}>
+              Close
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleResendEmailNotifications}
-              disabled={!grnDetails || resendingEmail}
-              size="sm"
-            >
-              {resendingEmail ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Mail className="mr-2 h-4 w-4" />
-                  Send Email
-                </>
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handlePrint}
-              disabled={!grnDetails || printing}
-              size="sm"
-            >
-              {printing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Printing...
-                </>
-              ) : (
-                <>
-                  <Printer className="mr-2 h-4 w-4" />
-                  Print
-                </>
-              )}
-            </Button>
-            <Button onClick={handleDownload} disabled={!grnDetails || downloading} size="sm">
-              {downloading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Downloading...
-                </>
-              ) : (
-                <>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download
-                </>
-              )}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={handleResendInAppNotifications}
+                disabled={!grnDetails || resendingInApp}
+                size="sm"
+              >
+                {resendingInApp ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Bell className="mr-2 h-4 w-4" />
+                    Send In-App
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleResendEmailNotifications}
+                disabled={!grnDetails || resendingEmail}
+                size="sm"
+              >
+                {resendingEmail ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Send Email
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handlePrint}
+                disabled={!grnDetails || printing}
+                size="sm"
+              >
+                {printing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Printing...
+                  </>
+                ) : (
+                  <>
+                    <Printer className="mr-2 h-4 w-4" />
+                    Print
+                  </>
+                )}
+              </Button>
+              <Button onClick={handleDownload} disabled={!grnDetails || downloading} size="sm">
+                {downloading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Downloading...
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </DialogFooter>
       </DialogContent>

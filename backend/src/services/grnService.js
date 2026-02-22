@@ -260,6 +260,45 @@ export const createGRNWithBatches = async (grnData, companyId, userId) => {
   
   logger.info(`GRN created with batches: ${grn._id} (${grn.grnNumber}) for location: ${grnData.locationId}, supplier: ${grnData.supplierId}, company: ${companyId}`);
   
+  // Send notifications asynchronously (don't block GRN creation)
+  setImmediate(async () => {
+    try {
+      // Get GRN model to fetch populated details
+      const GRN = getGRNModel(companyDB);
+      
+      // Populate GRN details for notification
+      const populatedGRN = await GRN.findById(grn._id)
+        .populate('locationId', 'name code address')
+        .populate('branch', 'name code address')
+        .populate('supplier', 'name contactPerson phone email')
+        .populate('items.inventoryItem', 'name')
+        .lean();
+
+      // Manually populate receivedBy from platform database
+      if (populatedGRN.receivedBy) {
+        const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+        const user = await CompanyUser.findById(populatedGRN.receivedBy).select('name email').lean();
+        if (user) {
+          populatedGRN.receivedBy = {
+            _id: user._id,
+            name: user.name,
+            email: user.email
+          };
+        }
+      }
+
+      // Import and call notification service
+      const notificationService = (await import('./notificationService.js')).default;
+      
+      // Send notifications (in-app + email to super admins + supplier)
+      await notificationService.notifyGRNCreation(companyId, populatedGRN);
+      logger.info(`GRN notifications sent successfully for ${grn.grnNumber}`);
+    } catch (notificationError) {
+      // Log but don't throw - notification failures shouldn't affect GRN creation
+      logger.error('Error sending GRN notifications:', notificationError);
+    }
+  });
+  
   return grn;
 };
 

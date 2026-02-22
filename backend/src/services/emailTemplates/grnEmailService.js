@@ -51,6 +51,7 @@ class GRNEmailService {
     const {
       grnNumber,
       branch,
+      locationId,
       supplier,
       receivedDate,
       receivedBy,
@@ -60,6 +61,9 @@ class GRNEmailService {
       invoiceDate,
       notes
     } = grnDetails;
+
+    // Use locationId if branch is not available (for newer GRNs)
+    const branchInfo = branch || locationId;
 
     const formattedDate = new Date(receivedDate).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -365,11 +369,11 @@ class GRNEmailService {
         </div>
         <div class="grn-summary-row">
           <span class="grn-summary-label">Supplier:</span>
-          <span class="grn-summary-value">${supplier.name}</span>
+          <span class="grn-summary-value">${supplier?.name || 'N/A'}</span>
         </div>
         <div class="grn-summary-row">
           <span class="grn-summary-label">Branch:</span>
-          <span class="grn-summary-value">${branch.name}</span>
+          <span class="grn-summary-value">${branchInfo?.name || 'N/A'}</span>
         </div>
         <div class="grn-summary-row">
           <span class="grn-summary-label">Total Amount:</span>
@@ -382,24 +386,24 @@ class GRNEmailService {
         <div class="details-title">📋 Supplier Information</div>
         <div class="detail-row">
           <div class="detail-label">Supplier Name:</div>
-          <div class="detail-value">${supplier.name}</div>
+          <div class="detail-value">${supplier?.name || 'N/A'}</div>
         </div>
-        ${supplier.contactPerson ? `
+        ${supplier?.contactPerson ? `
         <div class="detail-row">
           <div class="detail-label">Contact Person:</div>
-          <div class="detail-value">${supplier.contactPerson}</div>
+          <div class="detail-value">${supplier?.contactPerson}</div>
         </div>
         ` : ''}
-        ${supplier.phone ? `
+        ${supplier?.phone ? `
         <div class="detail-row">
           <div class="detail-label">Phone:</div>
-          <div class="detail-value">${supplier.phone}</div>
+          <div class="detail-value">${supplier?.phone}</div>
         </div>
         ` : ''}
-        ${supplier.email ? `
+        ${supplier?.email ? `
         <div class="detail-row">
           <div class="detail-label">Email:</div>
-          <div class="detail-value">${supplier.email}</div>
+          <div class="detail-value">${supplier?.email}</div>
         </div>
         ` : ''}
       </div>
@@ -417,11 +421,11 @@ class GRNEmailService {
         </div>
         <div class="detail-row">
           <div class="detail-label">Received By:</div>
-          <div class="detail-value">${receivedBy.name}</div>
+          <div class="detail-value">${receivedBy?.name || 'N/A'}</div>
         </div>
         <div class="detail-row">
           <div class="detail-label">Branch:</div>
-          <div class="detail-value">${branch.name} (${branch.code})</div>
+          <div class="detail-value">${branchInfo?.name || 'N/A'} (${branchInfo?.code || 'N/A'})</div>
         </div>
         ${invoiceNumber ? `
         <div class="detail-row">
@@ -451,11 +455,11 @@ class GRNEmailService {
         <tbody>
           ${items.map(item => `
           <tr>
-            <td>${item.inventoryItem.name}</td>
-            <td class="text-right">${item.quantity}</td>
-            <td>${item.unit}</td>
-            <td class="text-right">$${item.unitPrice.toFixed(2)}</td>
-            <td class="text-right">$${item.totalPrice.toFixed(2)}</td>
+            <td>${item?.inventoryItem?.name || 'Unknown Item'}</td>
+            <td class="text-right">${item?.quantity || 0}</td>
+            <td>${item?.unit || 'N/A'}</td>
+            <td class="text-right">$${(item?.unitPrice || 0).toFixed(2)}</td>
+            <td class="text-right">$${(item?.totalPrice || 0).toFixed(2)}</td>
           </tr>
           `).join('')}
           <tr style="background: #f9fafb; font-weight: 600;">

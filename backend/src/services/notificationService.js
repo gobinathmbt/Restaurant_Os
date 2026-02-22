@@ -592,7 +592,7 @@ class NotificationService {
 
       // Prepare safe values for supplier/branch/amount
       const supplierName = grnDetails.supplier?.name || 'Supplier';
-      const branchName = grnDetails.branch?.name || 'Branch';
+      const branchName = grnDetails.locationId?.name || grnDetails.branch?.name || 'Branch';
       const totalAmountStr = (grnDetails.totalAmount != null) ? grnDetails.totalAmount.toFixed(2) : '0.00';
 
       // Send in-app notifications to all super admins
@@ -684,7 +684,7 @@ class NotificationService {
 
       // Prepare safe values for supplier/branch/amount
       const supplierName = grnDetails.supplier?.name || 'Supplier';
-      const branchName = grnDetails.branch?.name || 'Branch';
+      const branchName = grnDetails.locationId?.name || grnDetails.branch?.name || 'Branch';
       const totalAmountStr = (grnDetails.totalAmount != null) ? grnDetails.totalAmount.toFixed(2) : '0.00';
 
       // Send in-app notifications to all super admins

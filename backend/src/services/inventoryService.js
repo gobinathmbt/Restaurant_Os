@@ -2296,6 +2296,7 @@ export const resendGRNInAppNotifications = async (grnId, companyId) => {
 
     // Get GRN with populated details
     const grn = await GRN.findById(grnId)
+      .populate('locationId', 'name code address')
       .populate('branch', 'name code address')
       .populate('supplier', 'name contactPerson phone email')
       .populate('items.inventoryItem', 'name')
@@ -2348,6 +2349,7 @@ export const resendGRNEmailNotifications = async (grnId, companyId, includeSuppl
 
     // Get GRN with populated details
     const grn = await GRN.findById(grnId)
+      .populate('locationId', 'name code address')
       .populate('branch', 'name code address')
       .populate('supplier', 'name contactPerson phone email')
       .populate('items.inventoryItem', 'name')
