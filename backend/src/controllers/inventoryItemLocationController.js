@@ -32,14 +32,19 @@ export const getInventoryItemsForLocation = async (req, res, next) => {
         if (item.locationConfig) {
           return {
             ...item,
+            // Keep locationConfig for dropdown components
             branchConfig: {
-              currentStock: item.locationConfig.availableQuantity,
+              availableQuantity: item.locationConfig.availableQuantity,
+              reservedQuantity: item.locationConfig.reservedQuantity,
+              inTransitQuantity: item.locationConfig.inTransitQuantity,
+              currentStock: item.locationConfig.availableQuantity, // Backward compatibility
               minimumStock: item.locationConfig.minimumStock,
               maximumStock: item.locationConfig.maximumStock,
+              standardCost: item.locationConfig.standardCost,
               costPrice: item.locationConfig.lastPurchasePrice,
               supplier: item.locationConfig.supplier,
               isLowStock: item.locationConfig.isLowStock,
-              isExpiringSoon: false, // TODO: Calculate based on expiry date
+              isExpiringSoon: false,
               isAvailable: item.locationConfig.isActive
             }
           };
