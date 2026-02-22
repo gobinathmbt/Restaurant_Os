@@ -206,7 +206,7 @@ export default function RecipeFormModal({
       toast({
         title: 'Warning',
         description: 'Could not fetch menu items',
-        variant: 'default',
+        variant: 'success',
       });
     }
   };
@@ -264,6 +264,11 @@ export default function RecipeFormModal({
       setSelectedBranches([]);
       setBranchConfigs(new Map());
     }
+    
+    // Reset paste states when modal opens/closes or recipe changes
+    setCopiedConfig(null);
+    setCopiedFromBranchId(null);
+    
     setActiveTab('basic');
   }, [recipe, isOpen]);
 
@@ -317,14 +322,77 @@ export default function RecipeFormModal({
   };
 
   // Handle paste configuration
-  const handlePasteConfig = (branchId: string) => {
-    if (copiedConfig) {
+  const handlePasteConfig = async (branchId: string) => {
+    if (!copiedConfig || !copiedFromBranchId) return;
+    
+    // If recipe exists (edit mode), use API for proper ingredient mapping
+    if (recipe) {
+      try {
+        setLoading(true);
+        setLoadingMessage('Pasting configuration with ingredient mapping...');
+
+        // Call API to copy configuration with ingredient mapping
+        await recipeBranchServices.copyRecipeBranchConfig(
+          recipe._id,
+          copiedFromBranchId,
+          [branchId] // Single branch
+        );
+
+        // Refresh the recipe data to get updated configuration
+        const response = await recipeServices.getRecipe(recipe._id, { populateBranches: true });
+        const updatedRecipe = response.data.data.recipe;
+
+        // Update branch configs map
+        const newConfigs = new Map(branchConfigs);
+        updatedRecipe.branches?.forEach((branch: any) => {
+          const brId = branch.branch._id || branch.branch;
+          if (brId === branchId) {
+            newConfigs.set(brId, {
+              ingredients: branch.ingredients || [],
+              yield: branch.yield || { quantity: 0, unit: 'piece' },
+              preparationTime: branch.preparationTime || 0,
+              cookingTime: branch.cookingTime || 0,
+              costPerUnit: branch.costPerUnit || 0,
+              isActive: branch.isActive ?? true,
+              notes: branch.notes || ''
+            });
+          }
+        });
+        setBranchConfigs(newConfigs);
+
+        toast({
+          title: 'Configuration Pasted',
+          description: 'Configuration has been applied to this branch with ingredient mapping',
+          variant: 'success',
+        });
+      } catch (error: any) {
+        toast({
+          title: 'Error',
+          description: error.response?.data?.message || 'Failed to paste configuration',
+          variant: 'destructive',
+        });
+      } finally {
+        setLoading(false);
+        setLoadingMessage('');
+      }
+    } else {
+      // Create mode: Clear ingredients and copy only non-ingredient fields
+      // User will need to manually add ingredients for each branch
       const newConfigs = new Map(branchConfigs);
-      newConfigs.set(branchId, { ...copiedConfig });
+      newConfigs.set(branchId, {
+        ingredients: [], // Clear ingredients - they are branch-specific
+        yield: copiedConfig.yield,
+        preparationTime: copiedConfig.preparationTime,
+        cookingTime: copiedConfig.cookingTime,
+        costPerUnit: 0, // Reset cost
+        isActive: copiedConfig.isActive,
+        notes: copiedConfig.notes
+      });
       setBranchConfigs(newConfigs);
+
       toast({
         title: 'Configuration Pasted',
-        description: 'Configuration has been applied to this branch',
+        description: 'Yield, times, and notes copied. Please add ingredients for this branch.',
         variant: 'success',
       });
     }
@@ -332,66 +400,96 @@ export default function RecipeFormModal({
 
   // Handle paste to all branches
   const handlePasteToAll = async () => {
-    if (!copiedConfig || !copiedFromBranchId || !recipe) return;
+    if (!copiedConfig || !copiedFromBranchId) return;
     
-    try {
-      setLoading(true);
-      setLoadingMessage('Copying configuration to all editable branches...');
+    // If recipe exists (edit mode), use API for proper ingredient mapping
+    if (recipe) {
+      try {
+        setLoading(true);
+        setLoadingMessage('Copying configuration to all editable branches...');
 
-      // Get all editable branch IDs
-      const editableBranchIds = Array.from(branchConfigs.keys()).filter(id => canEditBranch(id));
-      
-      if (editableBranchIds.length === 0) {
+        // Get all editable branch IDs
+        const editableBranchIds = Array.from(branchConfigs.keys()).filter(id => canEditBranch(id));
+        
+        if (editableBranchIds.length === 0) {
+          toast({
+            title: 'No Editable Branches',
+            description: 'There are no editable branches to paste to',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // Call API to copy configuration with ingredient mapping
+        await recipeBranchServices.copyRecipeBranchConfig(
+          recipe._id,
+          copiedFromBranchId,
+          editableBranchIds
+        );
+
+        // Refresh the recipe data to get updated configurations
+        const response = await recipeServices.getRecipe(recipe._id, { populateBranches: true });
+        const updatedRecipe = response.data.data.recipe;
+
+        // Update branch configs map
+        const newConfigs = new Map(branchConfigs);
+        updatedRecipe.branches?.forEach((branch: any) => {
+          if (canEditBranch(branch.branch._id || branch.branch)) {
+            newConfigs.set(branch.branch._id || branch.branch, {
+              ingredients: branch.ingredients || [],
+              yield: branch.yield || { quantity: 0, unit: 'piece' },
+              preparationTime: branch.preparationTime || 0,
+              cookingTime: branch.cookingTime || 0,
+              costPerUnit: branch.costPerUnit || 0,
+              isActive: branch.isActive ?? true,
+              notes: branch.notes || ''
+            });
+          }
+        });
+        setBranchConfigs(newConfigs);
+
         toast({
-          title: 'No Editable Branches',
-          description: 'There are no editable branches to paste to',
+          title: 'Configuration Pasted Successfully',
+          description: `Configuration copied to ${editableBranchIds.length} editable branch${editableBranchIds.length !== 1 ? 'es' : ''} with ingredient mapping`,
+          variant: 'success',
+        });
+      } catch (error: any) {
+        toast({
+          title: 'Error',
+          description: error.response?.data?.message || 'Failed to copy configuration',
           variant: 'destructive',
         });
-        return;
+      } finally {
+        setLoading(false);
+        setLoadingMessage('');
       }
-
-      // Call API to copy configuration with ingredient mapping
-      await recipeBranchServices.copyRecipeBranchConfig(
-        recipe._id,
-        copiedFromBranchId,
-        editableBranchIds
-      );
-
-      // Refresh the recipe data to get updated configurations
-      const response = await recipeServices.getRecipe(recipe._id, { populateBranches: true });
-      const updatedRecipe = response.data.data.recipe;
-
-      // Update branch configs map
+    } else {
+      // Create mode: Clear ingredients and copy only non-ingredient fields to all branches
       const newConfigs = new Map(branchConfigs);
-      updatedRecipe.branches?.forEach((branch: any) => {
-        if (canEditBranch(branch.branch._id || branch.branch)) {
-          newConfigs.set(branch.branch._id || branch.branch, {
-            ingredients: branch.ingredients || [],
-            yield: branch.yield || { quantity: 0, unit: 'piece' },
-            preparationTime: branch.preparationTime || 0,
-            cookingTime: branch.cookingTime || 0,
-            costPerUnit: branch.costPerUnit || 0,
-            isActive: branch.isActive ?? true,
-            notes: branch.notes || ''
+      let pastedCount = 0;
+      
+      Array.from(branchConfigs.keys()).forEach(branchId => {
+        if (branchId !== copiedFromBranchId) {
+          newConfigs.set(branchId, {
+            ingredients: [], // Clear ingredients - they are branch-specific
+            yield: copiedConfig.yield,
+            preparationTime: copiedConfig.preparationTime,
+            cookingTime: copiedConfig.cookingTime,
+            costPerUnit: 0, // Reset cost
+            isActive: copiedConfig.isActive,
+            notes: copiedConfig.notes
           });
+          pastedCount++;
         }
       });
+      
       setBranchConfigs(newConfigs);
 
       toast({
-        title: 'Configuration Pasted Successfully',
-        description: `Configuration copied to ${editableBranchIds.length} editable branch${editableBranchIds.length !== 1 ? 'es' : ''} with ingredient mapping`,
+        title: 'Configuration Pasted',
+        description: `Yield, times, and notes copied to ${pastedCount} branch${pastedCount !== 1 ? 'es' : ''}. Please add ingredients for each branch.`,
         variant: 'success',
       });
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.response?.data?.message || 'Failed to copy configuration',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-      setLoadingMessage('');
     }
   };
 
