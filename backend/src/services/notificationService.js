@@ -590,19 +590,24 @@ class NotificationService {
         // Continue without PDF - don't fail the entire notification
       }
 
+      // Prepare safe values for supplier/branch/amount
+      const supplierName = grnDetails.supplier?.name || 'Supplier';
+      const branchName = grnDetails.branch?.name || 'Branch';
+      const totalAmountStr = (grnDetails.totalAmount != null) ? grnDetails.totalAmount.toFixed(2) : '0.00';
+
       // Send in-app notifications to all super admins
       const inAppPromises = superAdmins.map(admin => 
         this.sendToCompanyUser(companyId, admin._id, {
           category: 'inventory',
           event: 'grn_created',
           title: 'New GRN Created',
-          message: `GRN ${grnDetails.grnNumber} created for ${grnDetails.supplier.name} at ${grnDetails.branch.name}. Total amount: ${grnDetails.totalAmount.toFixed(2)}`,
+          message: `GRN ${grnDetails.grnNumber} created for ${supplierName} at ${branchName}. Total amount: ${totalAmountStr}`,
           data: {
             grnId: grnDetails._id,
             grnNumber: grnDetails.grnNumber,
-            supplierName: grnDetails.supplier.name,
+            supplierName,
             totalAmount: grnDetails.totalAmount,
-            branchName: grnDetails.branch.name
+            branchName
           },
           priority: 'medium',
           actionUrl: `/inventory/grn/${grnDetails._id}`
@@ -677,19 +682,24 @@ class NotificationService {
 
       logger.info(`Sending in-app notifications to ${superAdmins.length} super admin(s)`);
 
+      // Prepare safe values for supplier/branch/amount
+      const supplierName = grnDetails.supplier?.name || 'Supplier';
+      const branchName = grnDetails.branch?.name || 'Branch';
+      const totalAmountStr = (grnDetails.totalAmount != null) ? grnDetails.totalAmount.toFixed(2) : '0.00';
+
       // Send in-app notifications to all super admins
       const inAppPromises = superAdmins.map(admin => 
         this.sendToCompanyUser(companyId, admin._id, {
           category: 'inventory',
           event: 'grn_created',
           title: 'New GRN Created',
-          message: `GRN ${grnDetails.grnNumber} created for ${grnDetails.supplier.name} at ${grnDetails.branch.name}. Total amount: ${grnDetails.totalAmount.toFixed(2)}`,
+          message: `GRN ${grnDetails.grnNumber} created for ${supplierName} at ${branchName}. Total amount: ${totalAmountStr}`,
           data: {
             grnId: grnDetails._id,
             grnNumber: grnDetails.grnNumber,
-            supplierName: grnDetails.supplier.name,
+            supplierName,
             totalAmount: grnDetails.totalAmount,
-            branchName: grnDetails.branch.name
+            branchName
           },
           priority: 'medium',
           actionUrl: `/inventory/grn/${grnDetails._id}`

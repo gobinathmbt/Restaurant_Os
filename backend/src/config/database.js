@@ -6,6 +6,15 @@
 import mongoose from 'mongoose';
 import { logger } from '../utils/logger.js';
 import { ENV } from './env.js';
+// Pre-register common company models on new connections to avoid MissingSchemaError
+import { getLocationModel } from '../models/company/Location.js';
+import { getSupplierModel } from '../models/company/Supplier.js';
+import { getCategoryModel } from '../models/company/Category.js';
+import { getInventoryItemModel } from '../models/company/InventoryItem.js';
+import { getInventoryItemBranchModel } from '../models/company/InventoryItemBranch.js';
+import { getGRNModel } from '../models/company/GRN.js';
+import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
+import { getStockTransferModel } from '../models/company/StockTransfer.js';
 
 // Store company database connections for reuse
 const companyConnections = new Map();
@@ -107,6 +116,21 @@ export const getCompanyDB = (companyId) => {
     });
 
     // Store connection for reuse
+    // Register core company models on this connection immediately to ensure
+    // populate() calls find the correct model schema on the connection.
+    try {
+      getLocationModel(companyConnection);
+      getSupplierModel(companyConnection);
+      getCategoryModel(companyConnection);
+      getInventoryItemModel(companyConnection);
+      getInventoryItemBranchModel(companyConnection);
+      getGRNModel(companyConnection);
+      getStockAdjustmentModel(companyConnection);
+      getStockTransferModel(companyConnection);
+    } catch (regErr) {
+      logger.warn('One or more company models failed to register on connection:', regErr);
+    }
+
     companyConnections.set(companyId, companyConnection);
 
     return companyConnection;

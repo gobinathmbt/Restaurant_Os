@@ -148,6 +148,17 @@ class PDFGeneratorService {
    * @returns PDF as Blob
    */
   async generateGRNPDF(grnDetails: GRNDetails): Promise<Blob> {
+    // Safe accessors for potentially null fields
+    const supplierName = grnDetails.supplier?.name || 'Supplier';
+    const supplierContact = grnDetails.supplier?.contactPerson || '';
+    const supplierPhone = grnDetails.supplier?.phone || '';
+    const supplierEmail = grnDetails.supplier?.email || '';
+    const branchName = grnDetails.branch?.name || 'Branch';
+    const branchCode = grnDetails.branch?.code || '';
+    const receivedByName = grnDetails.receivedBy?.name || 'Receiver';
+    const safeItems = Array.isArray(grnDetails.items) ? grnDetails.items : [];
+    const safeTotalAmount = grnDetails.totalAmount ?? 0;
+
     // Detect current theme and get appropriate colors
     const theme = this.getCurrentTheme();
     const colors = this.getThemeColors(theme);
@@ -237,13 +248,13 @@ class PDFGeneratorService {
     doc.setFont('helvetica', 'normal');
     doc.text('Supplier:', labelX, summaryY + 14);
     doc.setFont('helvetica', 'bold');
-    doc.text(grnDetails.supplier.name || '', valueX, summaryY + 14, { align: 'right' });
+    doc.text(supplierName, valueX, summaryY + 14, { align: 'right' });
     
     // Branch
     doc.setFont('helvetica', 'normal');
     doc.text('Branch:', labelX, summaryY + 21);
     doc.setFont('helvetica', 'bold');
-    doc.text(grnDetails.branch.name || '', valueX, summaryY + 21, { align: 'right' });
+    doc.text(branchName, valueX, summaryY + 21, { align: 'right' });
     
     // Total Amount (larger)
     doc.setFontSize(16);
@@ -253,7 +264,7 @@ class PDFGeneratorService {
     const formattedAmount = new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-    }).format(grnDetails.totalAmount);
+    }).format(safeTotalAmount);
     doc.text(formattedAmount, valueX, summaryY + 32, { align: 'right' });
 
     yPos += 55;
@@ -281,36 +292,36 @@ class PDFGeneratorService {
     doc.text('Supplier Name:', detailLabelX, yPos);
     doc.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
     doc.setFont('helvetica', 'bold');
-    doc.text(grnDetails.supplier.name || '', detailValueX, yPos);
+    doc.text(supplierName, detailValueX, yPos);
     
-    if (grnDetails.supplier.contactPerson) {
+    if (supplierContact) {
       yPos += 6;
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(textSecondaryRgb[0], textSecondaryRgb[1], textSecondaryRgb[2]);
       doc.text('Contact Person:', detailLabelX, yPos);
       doc.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
       doc.setFont('helvetica', 'bold');
-      doc.text(grnDetails.supplier.contactPerson, detailValueX, yPos);
+      doc.text(supplierContact, detailValueX, yPos);
     }
     
-    if (grnDetails.supplier.phone) {
+    if (supplierPhone) {
       yPos += 6;
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(textSecondaryRgb[0], textSecondaryRgb[1], textSecondaryRgb[2]);
       doc.text('Phone:', detailLabelX, yPos);
       doc.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
       doc.setFont('helvetica', 'bold');
-      doc.text(grnDetails.supplier.phone, detailValueX, yPos);
+      doc.text(supplierPhone, detailValueX, yPos);
     }
     
-    if (grnDetails.supplier.email) {
+    if (supplierEmail) {
       yPos += 6;
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(textSecondaryRgb[0], textSecondaryRgb[1], textSecondaryRgb[2]);
       doc.text('Email:', detailLabelX, yPos);
       doc.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
       doc.setFont('helvetica', 'bold');
-      doc.text(grnDetails.supplier.email, detailValueX, yPos);
+      doc.text(supplierEmail, detailValueX, yPos);
     }
 
     yPos += 12;
@@ -348,7 +359,7 @@ class PDFGeneratorService {
     doc.text('Received By:', detailLabelX, yPos);
     this.setTextColorSafe(doc, colors.text);
     doc.setFont('helvetica', 'bold');
-    doc.text(grnDetails.receivedBy.name || '', detailValueX, yPos);
+    doc.text(receivedByName, detailValueX, yPos);
     
     yPos += 6;
     doc.setFont('helvetica', 'normal');
@@ -356,7 +367,7 @@ class PDFGeneratorService {
     doc.text('Branch:', detailLabelX, yPos);
     this.setTextColorSafe(doc, colors.text);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${grnDetails.branch.name || ''} (${grnDetails.branch.code || ''})`, detailValueX, yPos);
+    doc.text(`${branchName}${branchCode ? ` (${branchCode})` : ''}`, detailValueX, yPos);
     
     if (grnDetails.invoiceNumber) {
       yPos += 6;
@@ -431,19 +442,25 @@ class PDFGeneratorService {
     this.setTextColorSafe(doc, colors.text);
     doc.setFontSize(8);
     
-    for (const item of grnDetails.items) {
+    for (const item of safeItems) {
       checkPageBreak(10);
       
+      const itemName = item.inventoryItem?.name || item.inventoryItem?.sku || 'Item';
+      const itemQty = item.quantity ?? 0;
+      const itemUnit = item.unit || '';
+      const itemUnitPrice = item.unitPrice ?? 0;
+      const itemTotalPrice = item.totalPrice ?? 0;
+
       xPos = margin + 2;
-      doc.text(item.inventoryItem.name || '', xPos, yPos + 4, { maxWidth: colWidths.item - 4 });
+      doc.text(itemName, xPos, yPos + 4, { maxWidth: colWidths.item - 4 });
       xPos += colWidths.item;
-      doc.text(item.quantity.toString(), xPos, yPos + 4, { align: 'right' });
+      doc.text(itemQty.toString(), xPos, yPos + 4, { align: 'right' });
       xPos += colWidths.qty;
-      doc.text(item.unit || '', xPos, yPos + 4);
+      doc.text(itemUnit, xPos, yPos + 4);
       xPos += colWidths.unit;
-      doc.text(item.unitPrice.toFixed(2), xPos, yPos + 4, { align: 'right' });
+      doc.text(itemUnitPrice.toFixed(2), xPos, yPos + 4, { align: 'right' });
       xPos += colWidths.unitPrice;
-      doc.text(item.totalPrice.toFixed(2), xPos, yPos + 4, { align: 'right' });
+      doc.text(itemTotalPrice.toFixed(2), xPos, yPos + 4, { align: 'right' });
       
       // Draw bottom border
       this.setDrawColorSafe(doc, colors.border);

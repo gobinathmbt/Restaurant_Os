@@ -10,18 +10,35 @@ class PDFGeneratorService {
   async generateGRNPDF(grnDetails) {
     return new Promise((resolve, reject) => {
       try {
-        const {
-          grnNumber,
-          branch,
-          supplier,
-          receivedDate,
-          receivedBy,
-          items,
-          totalAmount,
-          invoiceNumber,
-          invoiceDate,
-          notes
-        } = grnDetails;
+            const {
+               grnNumber,
+               branch,
+               supplier,
+               receivedDate,
+               receivedBy,
+               items,
+               totalAmount,
+               invoiceNumber,
+               invoiceDate,
+               notes
+            } = grnDetails;
+
+            // Safe accessors to avoid crashing when some refs are null
+            const branchName = branch?.name || 'Branch';
+            const branchCode = branch?.code || '';
+            const branchAddress = (branch?.address)
+               ? [branch.address.street, branch.address.city, branch.address.state, branch.address.pincode].filter(Boolean).join(', ')
+               : '';
+
+            const supplierName = supplier?.name || 'Supplier';
+            const supplierContact = supplier?.contactPerson || '';
+            const supplierPhone = supplier?.phone || '';
+            const supplierEmail = supplier?.email || '';
+
+            const receivedByName = receivedBy?.name || 'Receiver';
+
+            const safeItems = Array.isArray(items) ? items : [];
+            const safeTotalAmount = (totalAmount != null) ? totalAmount : 0;
 
         // Create PDF document
         const doc = new PDFDocument({
@@ -99,27 +116,20 @@ class PDFGeneratorService {
            .text('Branch:', 50, yPosition);
 
         doc.fillColor(colors.dark)
-           .text(`${branch.name} (${branch.code})`, 150, yPosition);
+           .text(`${branchName}${branchCode ? ` (${branchCode})` : ''}`, 150, yPosition);
 
         yPosition += 15;
-        if (branch.address) {
-          doc.fillColor(colors.gray)
-             .text('Address:', 50, yPosition);
+            if (branchAddress) {
+               doc.fillColor(colors.gray)
+                   .text('Address:', 50, yPosition);
 
-          const address = [
-            branch.address.street,
-            branch.address.city,
-            branch.address.state,
-            branch.address.pincode
-          ].filter(Boolean).join(', ');
+               doc.fillColor(colors.dark)
+                   .text(branchAddress, 150, yPosition, { width: 200 });
 
-          doc.fillColor(colors.dark)
-             .text(address, 150, yPosition, { width: 200 });
-
-          yPosition += 30;
-        } else {
-          yPosition += 20;
-        }
+               yPosition += 30;
+            } else {
+               yPosition += 20;
+            }
 
         // Supplier Information
         doc.fontSize(12)
@@ -134,35 +144,35 @@ class PDFGeneratorService {
            .text('Supplier:', 50, yPosition);
 
         doc.fillColor(colors.dark)
-           .text(supplier.name, 150, yPosition);
+           .text(supplierName, 150, yPosition);
 
         yPosition += 15;
-        if (supplier.contactPerson) {
+        if (supplierContact) {
           doc.fillColor(colors.gray)
              .text('Contact:', 50, yPosition);
 
           doc.fillColor(colors.dark)
-             .text(supplier.contactPerson, 150, yPosition);
+             .text(supplierContact, 150, yPosition);
 
           yPosition += 15;
         }
 
-        if (supplier.phone) {
+        if (supplierPhone) {
           doc.fillColor(colors.gray)
              .text('Phone:', 50, yPosition);
 
           doc.fillColor(colors.dark)
-             .text(supplier.phone, 150, yPosition);
+             .text(supplierPhone, 150, yPosition);
 
           yPosition += 15;
         }
 
-        if (supplier.email) {
+        if (supplierEmail) {
           doc.fillColor(colors.gray)
              .text('Email:', 50, yPosition);
 
           doc.fillColor(colors.dark)
-             .text(supplier.email, 150, yPosition);
+             .text(supplierEmail, 150, yPosition);
 
           yPosition += 15;
         }
@@ -195,7 +205,7 @@ class PDFGeneratorService {
            .text('Received By:', 350, yPosition);
 
         doc.fillColor(colors.dark)
-           .text(receivedBy.name, 450, yPosition);
+           .text(receivedByName, 450, yPosition);
 
         yPosition += 15;
         if (invoiceNumber) {
@@ -252,9 +262,9 @@ class PDFGeneratorService {
 
         yPosition += 25;
 
-        // Table rows
-        doc.font('Helvetica');
-        items.forEach((item, index) => {
+            // Table rows
+            doc.font('Helvetica');
+            safeItems.forEach((item, index) => {
           // Check if we need a new page
           if (yPosition > 700) {
             doc.addPage();
@@ -267,13 +277,19 @@ class PDFGeneratorService {
                .fillAndStroke('#fafafa', '#fafafa');
           }
 
+          const inventoryItemName = item.inventoryItem?.name || item.itemName || 'Item';
+          const quantityStr = String(item.quantity ?? 0);
+          const unitStr = item.unit || '';
+          const unitPriceStr = `$${(item.unitPrice ?? 0).toFixed(2)}`;
+          const totalPriceStr = `$${(item.totalPrice ?? 0).toFixed(2)}`;
+
           doc.fontSize(9)
              .fillColor(colors.dark)
-             .text(item.inventoryItem.name, 60, yPosition + 5, { width: 200 })
-             .text(item.quantity.toString(), 270, yPosition + 5, { width: 50, align: 'right' })
-             .text(item.unit, 330, yPosition + 5, { width: 50 })
-             .text(`$${item.unitPrice.toFixed(2)}`, 390, yPosition + 5, { width: 70, align: 'right' })
-             .text(`$${item.totalPrice.toFixed(2)}`, 470, yPosition + 5, { width: 65, align: 'right' });
+             .text(inventoryItemName, 60, yPosition + 5, { width: 200 })
+             .text(quantityStr, 270, yPosition + 5, { width: 50, align: 'right' })
+             .text(unitStr, 330, yPosition + 5, { width: 50 })
+             .text(unitPriceStr, 390, yPosition + 5, { width: 70, align: 'right' })
+             .text(totalPriceStr, 470, yPosition + 5, { width: 65, align: 'right' });
 
           yPosition += 20;
         });
