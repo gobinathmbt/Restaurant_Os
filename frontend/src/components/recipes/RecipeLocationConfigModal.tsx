@@ -525,7 +525,7 @@ export default function RecipeLocationConfigModal({
     for (let i = 0; i < localConfig.ingredients.length; i++) {
       const ing = localConfig.ingredients[i];
       
-      if (!ing.inventoryItemBranch) {
+      if (!ing.inventoryItem) {
         toast({
           title: 'Validation Error',
           description: `Ingredient ${i + 1}: Inventory item is required`,

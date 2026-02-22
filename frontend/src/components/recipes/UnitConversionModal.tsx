@@ -25,7 +25,7 @@ interface Ingredient {
 }
 
 interface ConversionResult {
-  inventoryItemBranch: string;
+  inventoryItem: string;
   inventoryItemName: string;
   quantity: number;
   unit: string;

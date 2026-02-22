@@ -620,11 +620,11 @@ export const recipeBranchServices = {
 // Unit Conversion Services
 export const unitConversionServices = {
   // Calculate smart conversions for recipe ingredients
-  calculateSmartConversions: (data: { ingredients: any[]; branchId: string }) =>
+  calculateSmartConversions: (data: { ingredients: any[]; locationId: string }) =>
     apiClient.post("/api/recipes/unit-conversion/calculate", data),
 
   // Get conversion suggestion for specific ingredient
-  getConversionSuggestion: (data: { inventoryItemBranchId: string; targetUnit: string }) =>
+  getConversionSuggestion: (data: { inventoryItemId: string; locationId: string; targetUnit: string }) =>
     apiClient.post("/api/recipes/unit-conversion/suggest", data),
 };
 

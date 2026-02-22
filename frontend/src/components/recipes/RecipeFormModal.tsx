@@ -237,7 +237,7 @@ export default function RecipeFormModal({
           const normalizedIngredients = (branchConfig.ingredients || []).map((ing: any) => ({
             inventoryItem: typeof ing.inventoryItem === 'string'
               ? ing.inventoryItem
-              : ing.inventoryItem?._id || ing.inventoryItemBranch?._id || '',
+              : ing.inventoryItem?._id || '',
             locationId: branchConfig.branch._id,
             quantity: ing.quantity,
             unit: ing.unit,
