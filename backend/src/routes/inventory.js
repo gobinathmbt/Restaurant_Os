@@ -30,6 +30,10 @@ import {
   getAllGRNs
 } from '../controllers/grnController.js';
 import {
+  resendGRNInAppNotifications,
+  resendGRNEmailNotifications
+} from '../controllers/inventoryController.js';
+import {
   createBranchConfig,
   getBranchConfig,
   updateBranchConfig,
@@ -102,6 +106,9 @@ router.get('/grn/all', getAllGRNs);
 router.get('/grn/:id', getGRNById);
 router.put('/grn/:id/verify', verifyGRN);
 router.put('/grn/:id/cancel', cancelGRN);
+// Notification routes (use branchId for backward compatibility with existing implementation)
+router.post('/grn/:branchId/:grnId/resend-inapp-notifications', resendGRNInAppNotifications);
+router.post('/grn/:branchId/:grnId/resend-email-notifications', resendGRNEmailNotifications);
 // Get GRNs by location (supports query params: status, startDate, endDate, limit, skip)
 router.get('/grn/location/:locationId', getGRNsByLocation);
 

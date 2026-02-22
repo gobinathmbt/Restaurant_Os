@@ -370,6 +370,12 @@ export const inventoryServices = {
   cancelGRN: (id: string) =>
     apiClient.put(`/api/inventory/grn/${id}/cancel`),
 
+  resendGRNInAppNotifications: (branchId: string, grnId: string) =>
+    apiClient.post(`/api/inventory/grn/${branchId}/${grnId}/resend-inapp-notifications`),
+
+  resendGRNEmailNotifications: (branchId: string, grnId: string, includeSupplier: boolean = false) =>
+    apiClient.post(`/api/inventory/grn/${branchId}/${grnId}/resend-email-notifications`, { includeSupplier }),
+
   // Get suppliers for a specific branch
   getSuppliersForBranch: (branchId: string) =>
     apiClient.get("/api/suppliers", { params: { branchId, isActive: true } }),

@@ -17,8 +17,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Printer, Download, Loader2, Package, Building2, FileText } from 'lucide-react';
-import api from '@/api/services';
+import { Printer, Download, Loader2, Package, Building2, FileText, Mail, Bell } from 'lucide-react';
+import api, { inventoryServices } from '@/api/services';
 import pdfGenerator from '@/services/pdfGenerator';
 
 interface GRNDetails {
@@ -103,6 +103,8 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
   const [grnDetails, setGrnDetails] = useState<GRNDetails | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [resendingInApp, setResendingInApp] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
 
   useEffect(() => {
     if (open && grnId) {
@@ -165,6 +167,53 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
       });
     } finally {
       setPrinting(false);
+    }
+  };
+
+  const handleResendInAppNotifications = async () => {
+    if (!grnDetails) return;
+
+    setResendingInApp(true);
+    try {
+      const response = await inventoryServices.resendGRNInAppNotifications(branchId, grnId);
+      toast({
+        title: 'Success',
+        variant: 'success',
+        description: response.data.message || 'In-app notifications sent successfully',
+      });
+    } catch (error: any) {
+      console.error('Error resending in-app notifications:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to resend in-app notifications',
+        variant: 'destructive',
+      });
+    } finally {
+      setResendingInApp(false);
+    }
+  };
+
+  const handleResendEmailNotifications = async () => {
+    if (!grnDetails) return;
+
+    setResendingEmail(true);
+    try {
+      // Always include supplier (true by default)
+      const response = await inventoryServices.resendGRNEmailNotifications(branchId, grnId, true);
+      toast({
+        title: 'Success',
+        variant: 'success',
+        description: response.data.message || 'Email notifications sent successfully',
+      });
+    } catch (error: any) {
+      console.error('Error resending email notifications:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to resend email notifications',
+        variant: 'destructive',
+      });
+    } finally {
+      setResendingEmail(false);
     }
   };
 
@@ -353,7 +402,9 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
                   <TableBody>
                     {grnDetails.items.map((item, index) => (
                       <TableRow key={index}>
-                        <TableCell className="font-medium">{item.inventoryItem.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {item.inventoryItem?.name || 'Unknown Item'}
+                        </TableCell>
                         <TableCell className="text-right">{item.quantity}</TableCell>
                         <TableCell>{item.unit}</TableCell>
                         <TableCell className="text-right">
@@ -394,6 +445,42 @@ export default function GRNViewModal({ open, onClose, grnId, branchId }: GRNView
             Close
           </Button>
           <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={handleResendInAppNotifications}
+              disabled={!grnDetails || resendingInApp}
+              size="sm"
+            >
+              {resendingInApp ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Bell className="mr-2 h-4 w-4" />
+                  Send In-App
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleResendEmailNotifications}
+              disabled={!grnDetails || resendingEmail}
+              size="sm"
+            >
+              {resendingEmail ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Send Email
+                </>
+              )}
+            </Button>
             <Button
               variant="outline"
               onClick={handlePrint}
