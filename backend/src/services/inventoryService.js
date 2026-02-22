@@ -601,9 +601,7 @@ export const getInventoryItems = async (companyId, filters = {}, userLocationIds
 
         return {
           ...item,
-          locations: locationConfigs,
-          locationCount: locationConfigs.length,
-          // Backward compatibility aliases
+          // Only return branches array (locations removed for clarity)
           branches: locationConfigs,
           branchCount: locationConfigs.length
         };
@@ -662,11 +660,10 @@ export const getInventoryItemById = async (itemId, companyId, userBranchIds = nu
       .populate('supplier', 'name contactPerson phone email')
       .lean();
 
-    // Return item with locations array (and branches alias for backward compatibility)
+    // Return item with branches array only (locations removed for clarity)
     return {
       ...item,
-      locations: locationConfigs,
-      branches: locationConfigs // Backward compatibility alias
+      branches: locationConfigs // Frontend expects branches with locationId mapped to branch
     };
   } catch (error) {
     logger.error('Error getting inventory item by ID:', error);
