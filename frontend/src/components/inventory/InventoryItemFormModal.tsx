@@ -15,17 +15,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { inventoryServices, supplierServices, inventoryItemLocationServices, locationServices } from '@/api/services';
-import LocationSearch from '@/components/common/BranchSearch';
+import { inventoryServices, supplierServices, inventoryItemBranchServices, branchServices } from '@/api/services';
+import BranchSearch from '@/components/common/BranchSearch';
 import CategorySubcategorySearch from '@/components/common/CategorySubcategorySearch';
-import InventoryLocationConfigModal from './InventoryLocationConfigModal';
+import InventoryBranchConfigModal from './InventoryBranchConfigModal';
 import { cn } from '@/lib/utils';
 
 interface InventoryItemFormModalProps {
   open: boolean;
   onClose: () => void;
   item: any | null;
-  locationId: string;
+  branchId: string;
   onSuccess: () => void;
 }
 
@@ -34,26 +34,28 @@ interface Supplier {
   name: string;
 }
 
-interface Location {
+interface Branch {
   _id: string;
   name: string;
   code: string;
 }
 
-interface LocationConfig {
-  availableQuantity: number;
-  reservedQuantity: number;
-  inTransitQuantity: number;
+interface BranchConfig {
+  currentStock: number;
   minimumStock: number;
   maximumStock?: number;
   reorderPoint?: number;
-  costingMethod: 'FIFO' | 'WEIGHTED_AVERAGE' | 'STANDARD_COST';
-  standardCost?: number;
+  costPrice?: number;
   lastPurchasePrice?: number;
   lastPurchaseDate?: Date;
   supplier?: string;
   storageLocation?: string;
+  batchNumber?: string;
+  expiryDate?: Date;
+  branchSKU?: string;
+  branchBarcode?: string;
   isActive: boolean;
+  isAvailable: boolean;
   notes?: string;
 }
 
@@ -61,7 +63,7 @@ export default function InventoryItemFormModal({
   open, 
   onClose, 
   item, 
-  locationId,
+  branchId,
   onSuccess 
 }: InventoryItemFormModalProps) {
   const { toast } = useToast();
@@ -69,19 +71,19 @@ export default function InventoryItemFormModal({
 
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [activeTab, setActiveTab] = useState('basic');
   
-  // Multi-location and single category/subcategory selection state
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  // Multi-branch and single category/subcategory selection state
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
   
-  // Location configuration state
-  const [locationConfigs, setLocationConfigs] = useState<Map<string, LocationConfig>>(new Map());
+  // Branch configuration state
+  const [branchConfigs, setBranchConfigs] = useState<Map<string, BranchConfig>>(new Map());
   const [configModalOpen, setConfigModalOpen] = useState(false);
-  const [selectedLocationForConfig, setSelectedLocationForConfig] = useState<string | null>(null);
-  const [copiedConfig, setCopiedConfig] = useState<LocationConfig | null>(null);
+  const [selectedBranchForConfig, setSelectedBranchForConfig] = useState<string | null>(null);
+  const [copiedConfig, setCopiedConfig] = useState<BranchConfig | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -94,74 +96,72 @@ export default function InventoryItemFormModal({
 
 
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
-  const isMultiLocationAdmin = user?.role === 'company_admin' && (user?.locationIds?.length || 0) > 1;
-  const isSingleLocationAdmin = user?.role === 'company_admin' && (user?.locationIds?.length || 0) === 1;
+  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
+  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
 
-  // Create default location config
-  const createDefaultLocationConfig = (): LocationConfig => ({
-    availableQuantity: 0,
-    reservedQuantity: 0,
-    inTransitQuantity: 0,
+  // Create default branch config
+  const createDefaultBranchConfig = (): BranchConfig => ({
+    currentStock: 0,
     minimumStock: 0,
-    costingMethod: 'FIFO',
     isActive: true,
+    isAvailable: true,
   });
 
-  // Check if user can edit a location
-  const canEditLocation = (locationId: string): boolean => {
+  // Check if user can edit a branch
+  const canEditBranch = (branchId: string): boolean => {
     if (user?.role === 'company_super_admin_primary' || user?.role === 'company_super_admin_secondary') {
       return true; // Super admin can edit all
     }
-    return user?.locationIds?.includes(locationId) || false;
+    return user?.branchIds?.includes(branchId) || false;
   };
 
-  // Handle location selection changes
-  const handleLocationSelectionChange = (newSelectedLocations: string[]) => {
-    setSelectedLocations(newSelectedLocations);
+  // Handle branch selection changes
+  const handleBranchSelectionChange = (newSelectedBranches: string[]) => {
+    setSelectedBranches(newSelectedBranches);
     
-    const newConfigs = new Map(locationConfigs);
-    newSelectedLocations.forEach((locationId) => {
-      if (!newConfigs.has(locationId)) {
-        newConfigs.set(locationId, createDefaultLocationConfig());
+    const newConfigs = new Map(branchConfigs);
+    newSelectedBranches.forEach((branchId) => {
+      if (!newConfigs.has(branchId)) {
+        newConfigs.set(branchId, createDefaultBranchConfig());
       }
     });
     
-    Array.from(newConfigs.keys()).forEach((locationId) => {
-      if (!newSelectedLocations.includes(locationId) && canEditLocation(locationId)) {
-        newConfigs.delete(locationId);
+    Array.from(newConfigs.keys()).forEach((branchId) => {
+      if (!newSelectedBranches.includes(branchId) && canEditBranch(branchId)) {
+        newConfigs.delete(branchId);
       }
     });
     
-    setLocationConfigs(newConfigs);
+    setBranchConfigs(newConfigs);
   };
 
-  // Handle location config changes
-  const handleLocationConfigChange = (locationId: string, config: LocationConfig) => {
-    const newConfigs = new Map(locationConfigs);
-    newConfigs.set(locationId, config);
-    setLocationConfigs(newConfigs);
+  // Handle branch config changes
+  const handleBranchConfigChange = (branchId: string, config: BranchConfig) => {
+    const newConfigs = new Map(branchConfigs);
+    newConfigs.set(branchId, config);
+    setBranchConfigs(newConfigs);
   };
 
   // Open config modal
-  const handleOpenConfigModal = (locationId: string) => {
-    setSelectedLocationForConfig(locationId);
+  const handleOpenConfigModal = (branchId: string) => {
+    setSelectedBranchForConfig(branchId);
     setConfigModalOpen(true);
   };
 
   // Copy/Paste functions
-  const handleCopyConfig = (locationId: string) => {
-    const config = locationConfigs.get(locationId);
+  const handleCopyConfig = (branchId: string) => {
+    const config = branchConfigs.get(branchId);
     if (config) {
       setCopiedConfig({ ...config });
       toast({ title: 'Configuration Copied', variant: 'success' });
     }
   };
 
-  const handlePasteConfig = (locationId: string) => {
+  const handlePasteConfig = (branchId: string) => {
     if (copiedConfig) {
-      const newConfigs = new Map(locationConfigs);
-      newConfigs.set(locationId, { ...copiedConfig });
-      setLocationConfigs(newConfigs);
+      const newConfigs = new Map(branchConfigs);
+      newConfigs.set(branchId, { ...copiedConfig });
+      setBranchConfigs(newConfigs);
       toast({ title: 'Configuration Pasted', variant: 'success' });
     }
   };
@@ -169,18 +169,18 @@ export default function InventoryItemFormModal({
   const handlePasteToAll = () => {
     if (!copiedConfig) return;
     
-    const newConfigs = new Map(locationConfigs);
-    Array.from(locationConfigs.keys()).forEach((locationId) => {
-      if (canEditLocation(locationId)) {
-        newConfigs.set(locationId, { ...copiedConfig });
+    const newConfigs = new Map(branchConfigs);
+    Array.from(branchConfigs.keys()).forEach((branchId) => {
+      if (canEditBranch(branchId)) {
+        newConfigs.set(branchId, { ...copiedConfig });
       }
     });
-    setLocationConfigs(newConfigs);
+    setBranchConfigs(newConfigs);
     
-    const editableCount = Array.from(locationConfigs.keys()).filter(id => canEditLocation(id)).length;
+    const editableCount = Array.from(branchConfigs.keys()).filter(id => canEditBranch(id)).length;
     toast({
-      title: 'Configuration Pasted to All Editable Locations',
-      description: `Applied to ${editableCount} locations`,
+      title: 'Configuration Pasted to All Editable Branches',
+      description: `Applied to ${editableCount} branches`,
       variant: 'success',
     });
   };
@@ -188,7 +188,7 @@ export default function InventoryItemFormModal({
   useEffect(() => {
     if (open) {
       fetchSuppliers();
-      fetchLocations();
+      fetchBranches();
     }
   }, [open]);
 
@@ -204,38 +204,40 @@ export default function InventoryItemFormModal({
         description: item.description || ''
       });
       
-      // Populate ALL location configurations (including non-accessible ones)
-      if (item.locations && item.locations.length > 0) {
-        const allLocationIds = item.locations.map((l: any) => l.location._id);
+      // Populate ALL branch configurations (including non-accessible ones)
+      if (item.branches && item.branches.length > 0) {
+        const allBranchIds = item.branches.map((b: any) => b.branch._id);
         
-        // For LocationSearch, only show accessible locations
-        const accessibleLocationIds = allLocationIds.filter((id: string) => canEditLocation(id));
-        setSelectedLocations(accessibleLocationIds);
+        // For BranchSearch, only show accessible branches
+        const accessibleBranchIds = allBranchIds.filter((id: string) => canEditBranch(id));
+        setSelectedBranches(accessibleBranchIds);
         
-        // But store configs for ALL locations
-        const configs = new Map<string, LocationConfig>();
-        item.locations.forEach((locationConfig: any) => {
-          configs.set(locationConfig.location._id, {
-            availableQuantity: locationConfig.availableQuantity || 0,
-            reservedQuantity: locationConfig.reservedQuantity || 0,
-            inTransitQuantity: locationConfig.inTransitQuantity || 0,
-            minimumStock: locationConfig.minimumStock || 0,
-            maximumStock: locationConfig.maximumStock,
-            reorderPoint: locationConfig.reorderPoint,
-            costingMethod: locationConfig.costingMethod || 'FIFO',
-            standardCost: locationConfig.standardCost,
-            lastPurchasePrice: locationConfig.lastPurchasePrice,
-            lastPurchaseDate: locationConfig.lastPurchaseDate,
-            supplier: locationConfig.supplier?._id,
-            storageLocation: locationConfig.storageLocation,
-            isActive: locationConfig.isActive !== undefined ? locationConfig.isActive : true,
-            notes: locationConfig.notes,
+        // But store configs for ALL branches
+        const configs = new Map<string, BranchConfig>();
+        item.branches.forEach((branchConfig: any) => {
+          configs.set(branchConfig.branch._id, {
+            currentStock: branchConfig.currentStock || 0,
+            minimumStock: branchConfig.minimumStock || 0,
+            maximumStock: branchConfig.maximumStock,
+            reorderPoint: branchConfig.reorderPoint,
+            costPrice: branchConfig.costPrice,
+            lastPurchasePrice: branchConfig.lastPurchasePrice,
+            lastPurchaseDate: branchConfig.lastPurchaseDate,
+            supplier: branchConfig.supplier?._id,
+            storageLocation: branchConfig.storageLocation,
+            batchNumber: branchConfig.batchNumber,
+            expiryDate: branchConfig.expiryDate,
+            branchSKU: branchConfig.branchSKU,
+            branchBarcode: branchConfig.branchBarcode,
+            isActive: branchConfig.isActive !== undefined ? branchConfig.isActive : true,
+            isAvailable: branchConfig.isAvailable !== undefined ? branchConfig.isAvailable : true,
+            notes: branchConfig.notes,
           });
         });
-        setLocationConfigs(configs);
+        setBranchConfigs(configs);
       } else {
-        setSelectedLocations([]);
-        setLocationConfigs(new Map());
+        setSelectedBranches([]);
+        setBranchConfigs(new Map());
       }
       
       // Set category selection - handle both ObjectId and populated object formats
@@ -264,12 +266,12 @@ export default function InventoryItemFormModal({
         description: ''
       });
       
-      // Don't pre-populate locations - let user select them manually
+      // Don't pre-populate branches - let user select them manually
       // This ensures CategorySubcategorySearch works correctly
-      setSelectedLocations([]);
+      setSelectedBranches([]);
       setSelectedCategories([]);
       setSelectedSubcategories([]);
-      setLocationConfigs(new Map());
+      setBranchConfigs(new Map());
     }
   }, [item, open]);
 
@@ -286,39 +288,39 @@ export default function InventoryItemFormModal({
     }
   };
 
-  const fetchLocations = async () => {
+  const fetchBranches = async () => {
     try {
-      const response = await locationServices.getLocations({ limit: 100, isActive: true });
-      const allLocations = response.data.data.locations || [];
+      const response = await branchServices.getBranches({ limit: 100, isActive: true });
+      const allBranches = response.data.data.branches || [];
       
-      // Filter locations based on user role
-      let availableLocations = allLocations;
+      // Filter branches based on user role
+      let availableBranches = allBranches;
       if (!isSuperAdmin) {
-        availableLocations = allLocations.filter((location: Location) => 
-          user?.locationIds?.includes(location._id)
+        availableBranches = allBranches.filter((branch: Branch) => 
+          user?.branchIds?.includes(branch._id)
         );
       }
       
-      setLocations(availableLocations);
+      setBranches(availableBranches);
     } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to fetch locations",
+        description: "Failed to fetch branches",
         variant: "destructive",
       });
     }
   };
 
-  const handleLocationsChange = (locationIds: string[]) => {
-    handleLocationSelectionChange(locationIds);
+  const handleBranchesChange = (branchIds: string[]) => {
+    handleBranchSelectionChange(branchIds);
     
-    // If all locations are cleared, clear categories and subcategories
-    if (locationIds.length === 0) {
+    // If all branches are cleared, clear categories and subcategories
+    if (branchIds.length === 0) {
       setSelectedCategories([]);
       setSelectedSubcategories([]);
     }
     // Note: CategorySubcategorySearch component will handle filtering of invalid categories
-    // when locations change through its own useEffect
+    // when branches change through its own useEffect
   };
 
   const handleCategoriesChange = (categoryIds: string[], subcategoryIds: string[]) => {
@@ -357,11 +359,11 @@ export default function InventoryItemFormModal({
       return false;
     }
 
-    // Validate at least one location selected
-    if (selectedLocations.length === 0) {
+    // Validate at least one branch selected
+    if (selectedBranches.length === 0) {
       toast({
         title: "Validation Error",
-        description: "At least one location must be selected",
+        description: "At least one branch must be selected",
         variant: "destructive",
       });
       setActiveTab('assignment');
@@ -382,11 +384,11 @@ export default function InventoryItemFormModal({
     // Validate ObjectId format (24 hex characters)
     const isValidObjectId = (id: string) => /^[0-9a-fA-F]{24}$/.test(id);
 
-    const invalidLocations = selectedLocations.filter(id => !isValidObjectId(id));
-    if (invalidLocations.length > 0) {
+    const invalidBranches = selectedBranches.filter(id => !isValidObjectId(id));
+    if (invalidBranches.length > 0) {
       toast({
         title: "Validation Error",
-        description: "Invalid location IDs detected. Please reselect locations.",
+        description: "Invalid branch IDs detected. Please reselect branches.",
         variant: "destructive",
       });
       setActiveTab('assignment');
@@ -445,46 +447,46 @@ export default function InventoryItemFormModal({
         // Update existing item
         await inventoryServices.updateInventoryItem(item._id, submitData);
         
-        // Handle location updates
-        const originalLocationIds = item.locations?.map((l: any) => l.location._id) || [];
-        const currentLocationIds = selectedLocations;
+        // Handle branch updates
+        const originalBranchIds = item.branches?.map((b: any) => b.branch._id) || [];
+        const currentBranchIds = selectedBranches;
         
-        // Remove locations
-        const locationsToRemove = originalLocationIds.filter(
-          (id: string) => !currentLocationIds.includes(id) && canEditLocation(id)
+        // Remove branches
+        const branchesToRemove = originalBranchIds.filter(
+          (id: string) => !currentBranchIds.includes(id) && canEditBranch(id)
         );
         
-        for (const locationId of locationsToRemove) {
+        for (const branchId of branchesToRemove) {
           try {
-            await inventoryItemLocationServices.deleteLocationConfig(item._id, locationId);
+            await inventoryItemBranchServices.deleteBranchConfig(item._id, branchId);
           } catch (error) {
-            console.error(`Failed to remove location ${locationId}:`, error);
+            console.error(`Failed to remove branch ${branchId}:`, error);
           }
         }
         
-        // Update or create location configurations
-        const locationsToUpdate = currentLocationIds.filter((id: string) => canEditLocation(id));
+        // Update or create branch configurations
+        const branchesToUpdate = currentBranchIds.filter((id: string) => canEditBranch(id));
         
-        if (locationsToUpdate.length > 0) {
-          const locationConfigsArray = locationsToUpdate.map((locationId) => ({
-            locationId,
-            ...locationConfigs.get(locationId),
+        if (branchesToUpdate.length > 0) {
+          const branchConfigsArray = branchesToUpdate.map((branchId) => ({
+            branchId,
+            ...branchConfigs.get(branchId),
           }));
           
-          await inventoryItemLocationServices.bulkUpdateLocationConfigs(item._id, locationConfigsArray);
+          await inventoryItemBranchServices.updateInventoryItemBranches(item._id, branchConfigsArray);
         }
         
         toast({ title: 'Success', description: 'Inventory item updated', variant: 'success' });
       } else {
-        // Create new item with locations
-        const locationConfigsArray = selectedLocations.map((locationId) => ({
-          locationId,
-          ...locationConfigs.get(locationId),
+        // Create new item with branches
+        const branchConfigsArray = selectedBranches.map((branchId) => ({
+          branchId,
+          ...branchConfigs.get(branchId),
         }));
 
-        response = await inventoryServices.createInventoryItemWithLocations({
+        response = await inventoryServices.createInventoryItemWithBranches({
           inventoryItemData: submitData,
-          locationConfigs: locationConfigsArray,
+          branchConfigs: branchConfigsArray,
         });
         
         // Check for auto-assignment information in response
@@ -496,15 +498,15 @@ export default function InventoryItemFormModal({
           
           if (autoAssignments.categories?.length > 0) {
             autoAssignments.categories.forEach((cat: any) => {
-              const locationList = cat.locationNames?.join(', ') || 'selected locations';
-              assignmentMessages.push(`Category "${cat.categoryName}" was automatically assigned to: ${locationList}`);
+              const branchList = cat.branchNames?.join(', ') || 'selected branches';
+              assignmentMessages.push(`Category "${cat.categoryName}" was automatically assigned to: ${branchList}`);
             });
           }
           
           if (autoAssignments.subcategories?.length > 0) {
             autoAssignments.subcategories.forEach((subcat: any) => {
-              const locationList = subcat.locationNames?.join(', ') || 'selected locations';
-              assignmentMessages.push(`Subcategory "${subcat.subcategoryName}" was automatically assigned to: ${locationList}`);
+              const branchList = subcat.branchNames?.join(', ') || 'selected branches';
+              assignmentMessages.push(`Subcategory "${subcat.subcategoryName}" was automatically assigned to: ${branchList}`);
             });
           }
           
@@ -536,7 +538,7 @@ export default function InventoryItemFormModal({
       // Handle validation errors with dependency information
       const errorData = error.response?.data;
       
-      if (errorData?.error?.code === 'CATEGORY_LOCATION_MISMATCH' && errorData?.error?.details?.dependencies) {
+      if (errorData?.error?.code === 'CATEGORY_BRANCH_MISMATCH' && errorData?.error?.details?.dependencies) {
         const details = errorData.error.details;
         const dependencies = details.dependencies;
         
@@ -594,7 +596,7 @@ export default function InventoryItemFormModal({
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="basic">Basic Info</TabsTrigger>
-                <TabsTrigger value="assignment">Location & Category</TabsTrigger>
+                <TabsTrigger value="assignment">Branch & Category</TabsTrigger>
               </TabsList>
 
               {/* Basic Information Tab */}
@@ -685,46 +687,46 @@ export default function InventoryItemFormModal({
                 <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-md text-sm">
                   <p className="font-medium mb-1 text-blue-900 dark:text-blue-100">ℹ️ Note:</p>
                   <p className="text-blue-800 dark:text-blue-200">
-                    Stock levels, pricing, supplier, and other operational details are configured per location in the next tab.
+                    Stock levels, pricing, supplier, and other operational details are configured per branch in the next tab.
                   </p>
                 </div>
               </TabsContent>
 
-              {/* Location & Category Assignment Tab */}
+              {/* Branch & Category Assignment Tab */}
               <TabsContent value="assignment" className="space-y-6 mt-4" forceMount={true}>
                 <div className={cn("space-y-4", activeTab !== 'assignment' && "hidden")}>
                   <div>
-                    <h3 className="font-semibold">Assign Locations *</h3>
+                    <h3 className="font-semibold">Assign Branches *</h3>
                     <p className="text-sm text-muted-foreground">
-                      Select which locations this inventory item belongs to
+                      Select which branches this inventory item belongs to
                     </p>
                   </div>
 
-                  <LocationSearch
-                    selectedLocationIds={selectedLocations}
-                    onLocationsChange={handleLocationsChange}
-                    placeholder="Select locations..."
+                  <BranchSearch
+                    selectedBranchIds={selectedBranches}
+                    onBranchesChange={handleBranchesChange}
+                    placeholder="Select branches..."
                     showSelectAll={isSuperAdmin}
                   />
                   
-                  {item && item.locations && item.locations.length > selectedLocations.length && (
+                  {item && item.branches && item.branches.length > selectedBranches.length && (
                     <div className="text-sm text-muted-foreground space-y-1">
                       <p className="text-amber-600">
-                        Note: This item is also available in {item.locations.length - selectedLocations.length} other location{item.locations.length - selectedLocations.length !== 1 ? 's' : ''} (shown below as read-only).
+                        Note: This item is also available in {item.branches.length - selectedBranches.length} other branch{item.branches.length - selectedBranches.length !== 1 ? 'es' : ''} (shown below as read-only).
                       </p>
                     </div>
                   )}
                 </div>
 
-                {/* Location Configuration */}
-                {locationConfigs.size > 0 && (
+                {/* Branch Configuration */}
+                {branchConfigs.size > 0 && (
                   <div className={cn("border-t pt-6 space-y-4", activeTab !== 'assignment' && "hidden")}>
                     <div className="flex items-center justify-between">
                       <h3 className="font-semibold">
-                        Location Configuration
-                        {item && locationConfigs.size > selectedLocations.length && (
+                        Branch Configuration
+                        {item && branchConfigs.size > selectedBranches.length && (
                           <span className="text-sm font-normal text-muted-foreground ml-2">
-                            (Showing all {locationConfigs.size} locations)
+                            (Showing all {branchConfigs.size} branches)
                           </span>
                         )}
                       </h3>
@@ -737,31 +739,30 @@ export default function InventoryItemFormModal({
                           disabled={loading}
                         >
                           <ClipboardPaste className="h-4 w-4 mr-2" />
-                          Paste to All Editable Locations
+                          Paste to All Editable Branches
                         </Button>
                       )}
                     </div>
                     <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
-                      {Array.from(locationConfigs.keys()).map((locationId) => {
-                        // Look up location from fetched locations list OR from item.locations
-                        const location = locations.find((l) => l._id === locationId) || 
-                                       item?.locations?.find((l: any) => l.location._id === locationId)?.location;
-                        const config = locationConfigs.get(locationId);
-                        if (!location || !config) return null;
+                      {Array.from(branchConfigs.keys()).map((branchId) => {
+                        // Look up branch from fetched branches list OR from item.branches
+                        const branch = branches.find((b) => b._id === branchId) || 
+                                       item?.branches?.find((b: any) => b.branch._id === branchId)?.branch;
+                        const config = branchConfigs.get(branchId);
+                        if (!branch || !config) return null;
                         
-                        const isEditable = canEditLocation(locationId);
-                        const totalQuantity = config.availableQuantity + config.reservedQuantity + config.inTransitQuantity;
+                        const isEditable = canEditBranch(branchId);
                         
                         return (
                           <div
-                            key={locationId}
+                            key={branchId}
                             className={`flex items-center justify-between p-3 hover:bg-muted/50 ${!isEditable ? 'bg-muted/30' : ''}`}
                           >
                             <div className="flex-1">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium">{location.name}</span>
+                                <span className="font-medium">{branch.name}</span>
                                 <Badge variant="outline" className="text-xs">
-                                  {location.code}
+                                  {branch.code}
                                 </Badge>
                                 {!isEditable && (
                                   <Badge variant="secondary" className="text-xs">
@@ -770,7 +771,7 @@ export default function InventoryItemFormModal({
                                 )}
                               </div>
                               <div className="text-sm text-muted-foreground mt-1">
-                                Available: {config.availableQuantity} • Reserved: {config.reservedQuantity} • In-Transit: {config.inTransitQuantity} • Total: {totalQuantity}
+                                Stock: {config.currentStock} • Min: {config.minimumStock}
                                 {!isEditable && ' • No edit permission'}
                               </div>
                             </div>
@@ -779,9 +780,9 @@ export default function InventoryItemFormModal({
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleOpenConfigModal(locationId)}
+                                onClick={() => handleOpenConfigModal(branchId)}
                                 disabled={loading}
-                                title={isEditable ? "Configure location settings" : "View location settings (read-only)"}
+                                title={isEditable ? "Configure branch settings" : "View branch settings (read-only)"}
                               >
                                 <Settings className="h-4 w-4" />
                               </Button>
@@ -791,7 +792,7 @@ export default function InventoryItemFormModal({
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => handleCopyConfig(locationId)}
+                                    onClick={() => handleCopyConfig(branchId)}
                                     disabled={loading}
                                     title="Copy configuration"
                                   >
@@ -799,25 +800,6 @@ export default function InventoryItemFormModal({
                                   </Button>
                                   {copiedConfig && (
                                     <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handlePasteConfig(locationId)}
-                                      disabled={loading}
-                                      title="Paste configuration"
-                                    >
-                                      <ClipboardPaste className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
                                       type="button"
                                       variant="ghost"
                                       size="sm"
@@ -842,7 +824,7 @@ export default function InventoryItemFormModal({
                   <div>
                     <h3 className="font-semibold">Assign Categories & Subcategories *</h3>
                     <p className="text-sm text-muted-foreground">
-                      Select category and subcategory for this item. Categories are filtered based on selected locations.
+                      Select category and subcategory for this item. Categories are filtered based on selected branches.
                     </p>
                   </div>
 
@@ -850,7 +832,7 @@ export default function InventoryItemFormModal({
                     selectedCategoryIds={selectedCategories}
                     selectedSubcategoryIds={selectedSubcategories}
                     onCategoriesChange={handleCategoriesChange}
-                    locationIds={selectedLocations}
+                    branchIds={selectedBranches}
                     required={true}
                     isCategoryMulti={false}
                     isSubcategoryMulti={false}
@@ -872,25 +854,25 @@ export default function InventoryItemFormModal({
         </DialogFooter>
       </DialogContent>
       
-      {/* Location Configuration Modal */}
-      {selectedLocationForConfig && (() => {
-        const location = locations.find((l) => l._id === selectedLocationForConfig) ||
-                       item?.locations?.find((l: any) => l.location._id === selectedLocationForConfig)?.location;
-        const config = locationConfigs.get(selectedLocationForConfig);
+      {/* Branch Configuration Modal */}
+      {selectedBranchForConfig && (() => {
+        const branch = branches.find((b) => b._id === selectedBranchForConfig) ||
+                       item?.branches?.find((b: any) => b.branch._id === selectedBranchForConfig)?.branch;
+        const config = branchConfigs.get(selectedBranchForConfig);
         
-        if (!location || !config) return null;
+        if (!branch || !config) return null;
         
         return (
-          <InventoryLocationConfigModal
+          <InventoryBranchConfigModal
             isOpen={configModalOpen}
             onClose={() => {
               setConfigModalOpen(false);
-              setSelectedLocationForConfig(null);
+              setSelectedBranchForConfig(null);
             }}
-            location={location}
+            branch={branch}
             config={config}
-            onChange={(config) => handleLocationConfigChange(selectedLocationForConfig, config)}
-            isEditable={canEditLocation(selectedLocationForConfig)}
+            onChange={(config) => handleBranchConfigChange(selectedBranchForConfig, config)}
+            isEditable={canEditBranch(selectedBranchForConfig)}
             suppliers={suppliers}
           />
         );
