@@ -13,7 +13,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { recipeServices, menuItemServices, branchServices, recipeBranchServices } from '@/api/services';
 import RecipeFormModal from '@/components/recipes/RecipeFormModal';
-import RecipeBranchConfigModal from '@/components/recipes/RecipeBranchConfigModal';
+import RecipeLocationConfigModal from '@/components/recipes/RecipeLocationConfigModal';
 import DeleteConfirmDialog from '@/components/company/DeleteConfirmDialog';
 import { useLoading } from '@/contexts/LoadingContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -47,12 +47,13 @@ interface Recipe {
       code: string;
     };
     ingredients: Array<{
-      inventoryItemBranch: string | {
+      inventoryItem: string | {
         _id: string;
         inventoryItem: {
           name: string;
         };
       };
+      locationId: string;
       quantity: number;
       unit: string;
     }>;
@@ -69,12 +70,13 @@ interface Recipe {
   }>;
   branchConfig?: {
     ingredients: Array<{
-      inventoryItemBranch: {
+      inventoryItem: {
         _id: string;
         inventoryItem: {
           name: string;
         };
       };
+      locationId: string;
       quantity: number;
       unit: string;
     }>;
@@ -727,18 +729,19 @@ export default function Recipes() {
 
       {/* Branch Configuration Modal */}
       {isBranchConfigOpen && selectedRecipe && branchFilter && branchFilter !== 'all' && (
-        <RecipeBranchConfigModal
+        <RecipeLocationConfigModal
           isOpen={isBranchConfigOpen}
           onClose={() => {
             setIsBranchConfigOpen(false);
             setSelectedRecipe(null);
           }}
-          branch={branches.find(b => b._id === branchFilter)!}
+          location={branches.find(b => b._id === branchFilter)!}
           config={{
             ingredients: selectedRecipe.branchConfig?.ingredients?.map(ing => ({
-              inventoryItemBranch: typeof ing.inventoryItemBranch === 'string'
-                ? ing.inventoryItemBranch
-                : ing.inventoryItemBranch._id,
+              inventoryItem: typeof ing.inventoryItem === 'string'
+                ? ing.inventoryItem
+                : ing.inventoryItem._id,
+              locationId: branchFilter,
               quantity: ing.quantity,
               unit: ing.unit
             })) || [],

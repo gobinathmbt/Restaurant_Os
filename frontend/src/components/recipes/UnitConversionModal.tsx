@@ -16,7 +16,8 @@ import { useToast } from '@/hooks/use-toast';
 import { unitConversionServices } from '@/api/services';
 
 interface Ingredient {
-  inventoryItemBranch: string | { _id?: string };
+  inventoryItem: string;
+  locationId: string;
   quantity: number;
   unit: string;
   conversionFactor?: number;
@@ -52,7 +53,7 @@ interface UnitConversionModalProps {
   ingredientName: string;
   inventoryUnit: string;
   inventoryPrice: number;
-  branchId: string;
+  locationId: string;
   onApply: (conversionFactor?: number, overrideCost?: number) => void;
 }
 
@@ -63,7 +64,7 @@ export default function UnitConversionModal({
   ingredientName,
   inventoryUnit,
   inventoryPrice,
-  branchId,
+  locationId,
   onApply,
 }: UnitConversionModalProps) {
   const { toast } = useToast();
@@ -72,10 +73,10 @@ export default function UnitConversionModal({
   const [conversionFactor, setConversionFactor] = useState<number | undefined>(ingredient.conversionFactor);
   const [overrideCost, setOverrideCost] = useState<number | undefined>(ingredient.overrideCostPerUnit);
 
-  // Resolve inventoryItemBranch ID
-  const resolveBranchId = (val: string | { _id?: string } | undefined | null) => {
+  // Resolve inventoryItem ID
+  const resolveItemId = (val: string | undefined | null) => {
     if (!val) return '';
-    return typeof val === 'string' ? val : (val as any)._id || '';
+    return val;
   };
 
   // Reset state when modal opens or ingredient changes
@@ -92,13 +93,14 @@ export default function UnitConversionModal({
       setIsCalculating(true);
       const response = await unitConversionServices.calculateSmartConversions({
         ingredients: [{
-          inventoryItemBranch: resolveBranchId(ingredient.inventoryItemBranch),
+          inventoryItem: resolveItemId(ingredient.inventoryItem),
+          locationId: ingredient.locationId,
           quantity: ingredient.quantity,
           unit: ingredient.unit,
           conversionFactor: ingredient.conversionFactor,
           overrideCostPerUnit: ingredient.overrideCostPerUnit,
         }],
-        branchId,
+        locationId,
       });
       setConversion(response.data.data.conversions[0]);
     } catch (error: any) {

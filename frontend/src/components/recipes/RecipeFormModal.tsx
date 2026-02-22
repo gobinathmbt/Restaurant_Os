@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useLoading } from '@/contexts/LoadingContext';
 import { recipeServices, recipeBranchServices, menuItemServices } from '@/api/services';
 import BranchSearch from '@/components/common/BranchSearch';
-import RecipeBranchConfigModal from './RecipeBranchConfigModal';
+import RecipeLocationConfigModal from './RecipeLocationConfigModal';
 
 interface MenuItem {
   _id: string;
@@ -38,13 +38,14 @@ interface PreparationStep {
 }
 
 interface Ingredient {
-  // may be a branch-config id string or a populated object when coming from API
-  inventoryItemBranch: string | { _id?: string };
+  // Location-based: inventoryItem + locationId
+  inventoryItem: string;
+  locationId: string;
   quantity: number;
   unit: string;
 }
 
-interface RecipeBranchConfig {
+interface RecipeLocationConfig {
   ingredients: Ingredient[];
   yield: {
     quantity: number;
@@ -117,18 +118,18 @@ export default function RecipeFormModal({
 
   const [finishedGoods, setFinishedGoods] = useState<MenuItem[]>([]);
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
-  const [branchConfigs, setBranchConfigs] = useState<Map<string, RecipeBranchConfig>>(new Map());
+  const [branchConfigs, setBranchConfigs] = useState<Map<string, RecipeLocationConfig>>(new Map());
   
   // Branch config modal state
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [selectedBranchForConfig, setSelectedBranchForConfig] = useState<string | null>(null);
   
   // Copy/paste state
-  const [copiedConfig, setCopiedConfig] = useState<RecipeBranchConfig | null>(null);
+  const [copiedConfig, setCopiedConfig] = useState<RecipeLocationConfig | null>(null);
   const [copiedFromBranchId, setCopiedFromBranchId] = useState<string | null>(null);
 
   // Helper function to create default branch config
-  const createDefaultBranchConfig = (): RecipeBranchConfig => ({
+  const createDefaultBranchConfig = (): RecipeLocationConfig => ({
     ingredients: [],
     yield: {
       quantity: 1,
@@ -230,13 +231,14 @@ export default function RecipeFormModal({
         setSelectedBranches(accessibleBranchIds);
         
         // But store configs for ALL branches (for display purposes)
-        // Normalize ingredient.inventoryItemBranch to the branch-specific id string
-        const configs = new Map<string, RecipeBranchConfig>();
+        // Normalize ingredient to use inventoryItem + locationId
+        const configs = new Map<string, RecipeLocationConfig>();
         recipe.branches.forEach(branchConfig => {
           const normalizedIngredients = (branchConfig.ingredients || []).map((ing: any) => ({
-            inventoryItemBranch: typeof ing.inventoryItemBranch === 'string'
-              ? ing.inventoryItemBranch
-              : ing.inventoryItemBranch?._id || ing.inventoryItemBranch?.branchConfig?._id || '',
+            inventoryItem: typeof ing.inventoryItem === 'string'
+              ? ing.inventoryItem
+              : ing.inventoryItem?._id || ing.inventoryItemBranch?._id || '',
+            locationId: branchConfig.branch._id,
             quantity: ing.quantity,
             unit: ing.unit,
           }));
@@ -295,7 +297,7 @@ export default function RecipeFormModal({
   };
 
   // Handle branch config changes
-  const handleBranchConfigChange = (branchId: string, config: RecipeBranchConfig) => {
+  const handleBranchConfigChange = (branchId: string, config: RecipeLocationConfig) => {
     const newConfigs = new Map(branchConfigs);
     newConfigs.set(branchId, config);
     setBranchConfigs(newConfigs);
@@ -971,13 +973,13 @@ export default function RecipeFormModal({
         if (!branch || !config) return null;
 
         return (
-          <RecipeBranchConfigModal
+          <RecipeLocationConfigModal
             isOpen={configModalOpen}
             onClose={() => {
               setConfigModalOpen(false);
               setSelectedBranchForConfig(null);
             }}
-            branch={branch}
+            location={branch}
             config={config}
             onChange={(config) => handleBranchConfigChange(selectedBranchForConfig!, config)}
             isEditable={canEditBranch(selectedBranchForConfig!)}

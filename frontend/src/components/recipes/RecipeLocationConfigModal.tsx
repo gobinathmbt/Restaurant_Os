@@ -30,20 +30,21 @@ import {
 } from '@/components/ui/command';
 import { Plus, Trash2, Check, ChevronsUpDown, RefreshCw, TrendingUp, TrendingDown, Calculator } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { inventoryItemBranchServices, menuItemBranchServices, menuItemServices } from '@/api/services';
+import { inventoryItemLocationServices, menuItemBranchServices, menuItemServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
 import UnitConversionModal from './UnitConversionModal';
 
 interface Ingredient {
-  // can be stored as a branch-config id string or a populated object with _id
-  inventoryItemBranch: string | { _id?: string };
+  // Location-based: inventoryItem + locationId
+  inventoryItem: string;
+  locationId: string;
   quantity: number;
   unit: string;
   conversionFactor?: number;
   overrideCostPerUnit?: number;
 }
 
-interface RecipeBranchConfig {
+interface RecipeLocationConfig {
   ingredients: Ingredient[];
   yield: {
     quantity: number;
@@ -56,34 +57,37 @@ interface RecipeBranchConfig {
   notes?: string;
 }
 
-interface Branch {
+interface Location {
   _id: string;
   name: string;
   code: string;
 }
 
-interface InventoryItemWithBranch {
+interface InventoryItemWithLocation {
   _id: string;
   name: string;
   unit: string;
   type: string;
-  branchConfig: {
+  locationConfig: {
     _id: string;
-    currentStock: number;
+    availableQuantity: number;
+    reservedQuantity: number;
+    inTransitQuantity: number;
     minimumStock: number;
-    costPrice?: number;
-    isAvailable: boolean;
+    costingMethod: string;
+    standardCost?: number;
+    lastPurchasePrice?: number;
     isActive: boolean;
   };
   isActive: boolean;
 }
 
-interface RecipeBranchConfigModalProps {
+interface RecipeLocationConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
-  branch: Branch;
-  config: RecipeBranchConfig;
-  onChange: (config: RecipeBranchConfig) => void;
+  location: Location;
+  config: RecipeLocationConfig;
+  onChange: (config: RecipeLocationConfig) => void;
   isEditable?: boolean;
   menuItemId?: string; // ID of the finished good (menu item)
 }
@@ -99,18 +103,18 @@ const UNIT_OPTIONS = [
   { value: 'serving', label: 'Serving' },
 ];
 
-export default function RecipeBranchConfigModal({
+export default function RecipeLocationConfigModal({
   isOpen,
   onClose,
-  branch,
+  location,
   config,
   onChange,
   isEditable = true,
   menuItemId,
-}: RecipeBranchConfigModalProps) {
+}: RecipeLocationConfigModalProps) {
   const { toast } = useToast();
-  const [localConfig, setLocalConfig] = useState<RecipeBranchConfig>(config);
-  const [availableInventoryItems, setAvailableInventoryItems] = useState<InventoryItemWithBranch[]>([]);
+  const [localConfig, setLocalConfig] = useState<RecipeLocationConfig>(config);
+  const [availableInventoryItems, setAvailableInventoryItems] = useState<InventoryItemWithLocation[]>([]);
   const [inventorySearchTerm, setInventorySearchTerm] = useState('');
   const [isLoadingInventory, setIsLoadingInventory] = useState(false);
   const [showInventorySearch, setShowInventorySearch] = useState(false);
@@ -126,20 +130,20 @@ export default function RecipeBranchConfigModal({
 
   // Fetch menu item price when modal opens
   useEffect(() => {
-    if (isOpen && menuItemId && branch._id) {
+    if (isOpen && menuItemId && location._id) {
       fetchMenuItemPrice();
     }
-  }, [isOpen, menuItemId, branch._id]);
+  }, [isOpen, menuItemId, location._id]);
 
   const fetchMenuItemPrice = async () => {
-    if (!menuItemId || !branch._id) return;
+    if (!menuItemId || !location._id) return;
 
     try {
       setIsLoadingMenuPrice(true);
       
-      // First try to get branch-specific price
+      // First try to get branch-specific price (location is a branch)
       try {
-        const branchResponse = await menuItemBranchServices.getMenuItemsForBranch(branch._id, {
+        const branchResponse = await menuItemBranchServices.getMenuItemsForBranch(location._id, {
           limit: 1000,
         });
         const items = branchResponse.data.data.menuItems || [];
@@ -179,10 +183,10 @@ export default function RecipeBranchConfigModal({
 
 
 
-  // Helper to resolve inventoryItemBranch id whether stored as string or object
-  const resolveBranchId = (val: string | { _id?: string } | undefined | null) => {
+  // Helper to resolve inventoryItem id
+  const resolveItemId = (val: string | undefined | null) => {
     if (!val) return '';
-    return typeof val === 'string' ? val : (val as any)._id || '';
+    return val;
   };
 
   // When modal opens, ensure we have details for ingredients that may not be in the paged list
@@ -193,31 +197,40 @@ export default function RecipeBranchConfigModal({
       if (!localConfig || !localConfig.ingredients || localConfig.ingredients.length === 0) return;
 
       const missingIds = localConfig.ingredients
-        .map((ing) => resolveBranchId(ing.inventoryItemBranch))
+        .map((ing) => resolveItemId(ing.inventoryItem))
         .filter(Boolean)
-        .filter((id) => !availableInventoryItems.some(item => item.branchConfig && item.branchConfig._id === id));
+        .filter((id) => !availableInventoryItems.some(item => item._id === id));
 
       if (missingIds.length === 0) return;
 
       try {
-        // Fetch all missing ids in a single batch request
-        const resp = await inventoryItemBranchServices.getInventoryItemBranchesByIds(branch._id, missingIds);
-        const items = resp.data?.data?.items || [];
-        const fetched: InventoryItemWithBranch[] = items.map((item: any) => ({
-          _id: item.inventoryItem?._id || item._id,
-          name: item.inventoryItem?.name || '',
-          unit: item.inventoryItem?.unit || 'piece',
-          type: item.inventoryItem?.type || 'raw_material',
-          branchConfig: {
-            _id: item._id,
-            currentStock: item.currentStock || 0,
-            minimumStock: item.minimumStock || 0,
-            costPrice: item.costPrice,
-            isAvailable: item.isAvailable || false,
-            isActive: item.isActive || false,
-          },
-          isActive: item.inventoryItem?.isActive ?? true,
-        }));
+        // Fetch missing items individually
+        const fetchPromises = missingIds.map(itemId =>
+          inventoryItemLocationServices.getInventoryItemLocationById(location._id, itemId)
+        );
+        const responses = await Promise.all(fetchPromises);
+        
+        const fetched: InventoryItemWithLocation[] = responses.map((resp: any) => {
+          const data = resp.data?.data;
+          return {
+            _id: data.inventoryItem?._id || data._id,
+            name: data.inventoryItem?.name || '',
+            unit: data.inventoryItem?.unit || 'piece',
+            type: data.inventoryItem?.type || 'raw_material',
+            locationConfig: {
+              _id: data.locationConfig?._id || data._id,
+              availableQuantity: data.locationConfig?.availableQuantity || 0,
+              reservedQuantity: data.locationConfig?.reservedQuantity || 0,
+              inTransitQuantity: data.locationConfig?.inTransitQuantity || 0,
+              minimumStock: data.locationConfig?.minimumStock || 0,
+              costingMethod: data.locationConfig?.costingMethod || 'FIFO',
+              standardCost: data.locationConfig?.standardCost,
+              lastPurchasePrice: data.locationConfig?.lastPurchasePrice,
+              isActive: data.locationConfig?.isActive ?? true,
+            },
+            isActive: data.inventoryItem?.isActive ?? true,
+          };
+        });
 
         if (fetched.length > 0) setAvailableInventoryItems((prev) => [...fetched, ...prev]);
       } catch (err) {
@@ -242,16 +255,16 @@ export default function RecipeBranchConfigModal({
     }
   }, [localConfig.ingredients, localConfig.yield, availableInventoryItems, isOpen]);
 
-  // Fetch available inventory items for the branch
+  // Fetch available inventory items for the location
   const fetchAvailableInventoryItems = async () => {
-    if (!branch._id) {
+    if (!location._id) {
       return;
     }
 
     try {
       setIsLoadingInventory(true);
-      const response = await inventoryItemBranchServices.getInventoryItemsForBranch(
-        branch._id,
+      const response = await inventoryItemLocationServices.getInventoryItemsForLocation(
+        location._id,
         { 
           search: inventorySearchTerm,
           limit: 100,
@@ -275,7 +288,7 @@ export default function RecipeBranchConfigModal({
 
   // Fetch inventory items when search is opened
   useEffect(() => {
-    if (showInventorySearch && branch._id) {
+    if (showInventorySearch && location._id) {
       if (availableInventoryItems.length === 0) {
         fetchAvailableInventoryItems();
       }
@@ -284,17 +297,17 @@ export default function RecipeBranchConfigModal({
 
   // Fetch inventory items when modal opens so existing ingredients can be resolved
   useEffect(() => {
-    if (isOpen && branch._id) {
+    if (isOpen && location._id) {
       // Only fetch if we don't already have items or if config refers to items
       if (availableInventoryItems.length === 0) {
         fetchAvailableInventoryItems();
       }
     }
-  }, [isOpen, branch._id]);
+  }, [isOpen, location._id]);
 
   // Debounced search for inventory items
   useEffect(() => {
-    if (showInventorySearch && branch._id) {
+    if (showInventorySearch && location._id) {
       const timer = setTimeout(() => {
         fetchAvailableInventoryItems();
       }, 300);
@@ -302,10 +315,10 @@ export default function RecipeBranchConfigModal({
     }
   }, [inventorySearchTerm]);
 
-  const handleInventoryItemSelect = (item: InventoryItemWithBranch) => {
+  const handleInventoryItemSelect = (item: InventoryItemWithLocation) => {
     // Check if already added
     const isAlreadyAdded = localConfig.ingredients.some(
-      (ing) => resolveBranchId(ing.inventoryItemBranch) === item.branchConfig._id
+      (ing) => resolveItemId(ing.inventoryItem) === item._id
     );
 
     if (isAlreadyAdded) {
@@ -319,7 +332,8 @@ export default function RecipeBranchConfigModal({
 
     // Add new ingredient
     const newIngredient: Ingredient = {
-      inventoryItemBranch: item.branchConfig._id,
+      inventoryItem: item._id,
+      locationId: location._id,
       quantity: 1,
       unit: item.unit,
     };
@@ -379,39 +393,50 @@ export default function RecipeBranchConfigModal({
         continue;
       }
 
-      // Otherwise use inventory cost price
-      const id = resolveBranchId(ingredient.inventoryItemBranch);
+      // Otherwise use inventory cost price based on costing method
+      const id = resolveItemId(ingredient.inventoryItem);
       const inventoryItem = availableInventoryItems.find(
-        (item) => item.branchConfig._id === id
+        (item) => item._id === id
       );
             
-      if (inventoryItem && inventoryItem.branchConfig.costPrice) {
-        let effectiveCostPerUnit = inventoryItem.branchConfig.costPrice;
-        const inventoryUnit = inventoryItem.unit.toLowerCase().trim();
-        const recipeUnit = ingredient.unit.toLowerCase().trim();
-        
-        // If conversion factor is set, apply it
-        if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
-          effectiveCostPerUnit = inventoryItem.branchConfig.costPrice / ingredient.conversionFactor;
-        } else if (inventoryUnit !== recipeUnit) {
-          // Weight conversions
-          if (inventoryUnit === 'kg' && recipeUnit === 'gram') {
-            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice / 1000;
-          } else if (inventoryUnit === 'gram' && recipeUnit === 'kg') {
-            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice * 1000;
-          }
-          // Volume conversions
-          else if (inventoryUnit === 'liter' && recipeUnit === 'ml') {
-            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice / 1000;
-          } else if (inventoryUnit === 'ml' && recipeUnit === 'liter') {
-            effectiveCostPerUnit = inventoryItem.branchConfig.costPrice * 1000;
+      if (inventoryItem && inventoryItem.locationConfig) {
+        // Determine cost per unit based on costing method
+        let costPrice = 0;
+        if (inventoryItem.locationConfig.costingMethod === 'STANDARD_COST' && inventoryItem.locationConfig.standardCost) {
+          costPrice = inventoryItem.locationConfig.standardCost;
+        } else if (inventoryItem.locationConfig.lastPurchasePrice) {
+          costPrice = inventoryItem.locationConfig.lastPurchasePrice;
+        }
+
+        if (costPrice > 0) {
+          let effectiveCostPerUnit = costPrice;
+          const inventoryUnit = inventoryItem.unit.toLowerCase().trim();
+          const recipeUnit = ingredient.unit.toLowerCase().trim();
+          
+          // If conversion factor is set, apply it
+          if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
+            effectiveCostPerUnit = costPrice / ingredient.conversionFactor;
+          } else if (inventoryUnit !== recipeUnit) {
+            // Weight conversions
+            if (inventoryUnit === 'kg' && recipeUnit === 'gram') {
+              effectiveCostPerUnit = costPrice / 1000;
+            } else if (inventoryUnit === 'gram' && recipeUnit === 'kg') {
+              effectiveCostPerUnit = costPrice * 1000;
+            }
+            // Volume conversions
+            else if (inventoryUnit === 'liter' && recipeUnit === 'ml') {
+              effectiveCostPerUnit = costPrice / 1000;
+            } else if (inventoryUnit === 'ml' && recipeUnit === 'liter') {
+              effectiveCostPerUnit = costPrice * 1000;
+            } else {
+            }
           } else {
           }
+          
+          const cost = ingredient.quantity * effectiveCostPerUnit;
+          totalCost += cost;
         } else {
         }
-        
-        const cost = ingredient.quantity * effectiveCostPerUnit;
-        totalCost += cost;
       } else {
       }
     }
@@ -466,9 +491,8 @@ export default function RecipeBranchConfigModal({
     setShowUnitConversionModal(true);
   };
 
-  const getIngredientDetails = (inventoryItemBranchId: string | { _id?: string }) => {
-    const id = resolveBranchId(inventoryItemBranchId as any);
-    return availableInventoryItems.find((item) => item.branchConfig._id === id);
+  const getIngredientDetails = (inventoryItemId: string) => {
+    return availableInventoryItems.find((item) => item._id === inventoryItemId);
   };
 
   const handleRecalculateCost = async () => {
@@ -560,32 +584,10 @@ export default function RecipeBranchConfigModal({
     // Calculate and update cost before saving
     const calculatedCost = calculateCost();
     
-    // Normalize inventoryItemBranch to id strings before returning
-    const normalizedIngredients = (localConfig.ingredients || []).map((ing, index) => {
-      const normalized: any = {
-        inventoryItemBranch: resolveBranchId(ing.inventoryItemBranch),
-        quantity: ing.quantity,
-        unit: ing.unit,
-      };
-      
-      // Only include conversion factor if it's a valid number
-      if (ing.conversionFactor !== undefined && ing.conversionFactor !== null && ing.conversionFactor > 0) {
-        normalized.conversionFactor = ing.conversionFactor;
-      }
-      
-      // Only include override cost if it's a valid number
-      if (ing.overrideCostPerUnit !== undefined && ing.overrideCostPerUnit !== null && ing.overrideCostPerUnit >= 0) {
-        normalized.overrideCostPerUnit = ing.overrideCostPerUnit;
-      }
-      
-      return normalized;
-    });
-
     const configToSave = {
       ...localConfig,
-      ingredients: normalizedIngredients,
       costPerUnit: calculatedCost,
-    } as RecipeBranchConfig;
+    } as RecipeLocationConfig;
 
     onChange(configToSave);
     onClose();
@@ -600,7 +602,7 @@ export default function RecipeBranchConfigModal({
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Configure Recipe: {branch.name} ({branch.code})
+            Configure Recipe: {location.name} ({location.code})
           </DialogTitle>
         </DialogHeader>
 
@@ -653,7 +655,7 @@ export default function RecipeBranchConfigModal({
                                   className={cn(
                                     'mr-2 h-4 w-4',
                                     localConfig.ingredients.some(
-                                      (ing) => ing.inventoryItemBranch === item.branchConfig._id
+                                      (ing) => ing.inventoryItem === item._id
                                     )
                                       ? 'opacity-100'
                                       : 'opacity-0'
@@ -665,10 +667,10 @@ export default function RecipeBranchConfigModal({
                                   </p>
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <span>Unit: {item.unit}</span>
-                                    {item.branchConfig.costPrice && (
-                                      <span>• Cost: ₹{item.branchConfig.costPrice.toFixed(2)}</span>
+                                    {item.locationConfig.standardCost && (
+                                      <span>• Cost: ₹{item.locationConfig.standardCost.toFixed(2)}</span>
                                     )}
-                                    <span>• Stock: {item.branchConfig.currentStock}</span>
+                                    <span>• Available: {item.locationConfig.availableQuantity}</span>
                                   </div>
                                 </div>
                               </CommandItem>
@@ -688,7 +690,7 @@ export default function RecipeBranchConfigModal({
               ) : (
                 <div className="space-y-3">
                   {localConfig.ingredients.map((ingredient, index) => {
-                    const itemDetails = getIngredientDetails(ingredient.inventoryItemBranch);
+                    const itemDetails = getIngredientDetails(ingredient.inventoryItem);
                     return (
                       <div key={index} className="border rounded-lg p-3 space-y-3">
                         <div className="flex items-center justify-between">
@@ -768,27 +770,39 @@ export default function RecipeBranchConfigModal({
                                   return `₹${(ingredient.quantity * ingredient.overrideCostPerUnit).toFixed(2)}`;
                                 }
                                 
-                                if (!itemDetails?.branchConfig.costPrice) {
+                                if (!itemDetails?.locationConfig) {
                                   return 'N/A';
                                 }
                                 
-                                let effectiveCostPerUnit = itemDetails.branchConfig.costPrice;
+                                // Determine cost price based on costing method
+                                let costPrice = 0;
+                                if (itemDetails.locationConfig.costingMethod === 'STANDARD_COST' && itemDetails.locationConfig.standardCost) {
+                                  costPrice = itemDetails.locationConfig.standardCost;
+                                } else if (itemDetails.locationConfig.lastPurchasePrice) {
+                                  costPrice = itemDetails.locationConfig.lastPurchasePrice;
+                                }
+
+                                if (costPrice === 0) {
+                                  return 'N/A';
+                                }
+                                
+                                let effectiveCostPerUnit = costPrice;
                                 const inventoryUnit = itemDetails.unit.toLowerCase().trim();
                                 const recipeUnit = ingredient.unit.toLowerCase().trim();
                                 
                                 // Apply conversion factor if set
                                 if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
-                                  effectiveCostPerUnit = itemDetails.branchConfig.costPrice / ingredient.conversionFactor;
+                                  effectiveCostPerUnit = costPrice / ingredient.conversionFactor;
                                 } else if (inventoryUnit !== recipeUnit) {
                                   // Apply automatic conversion
                                   if (inventoryUnit === 'kg' && recipeUnit === 'gram') {
-                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice / 1000;
+                                    effectiveCostPerUnit = costPrice / 1000;
                                   } else if (inventoryUnit === 'gram' && recipeUnit === 'kg') {
-                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice * 1000;
+                                    effectiveCostPerUnit = costPrice * 1000;
                                   } else if (inventoryUnit === 'liter' && recipeUnit === 'ml') {
-                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice / 1000;
+                                    effectiveCostPerUnit = costPrice / 1000;
                                   } else if (inventoryUnit === 'ml' && recipeUnit === 'liter') {
-                                    effectiveCostPerUnit = itemDetails.branchConfig.costPrice * 1000;
+                                    effectiveCostPerUnit = costPrice * 1000;
                                   }
                                 }
                                 
@@ -800,11 +814,11 @@ export default function RecipeBranchConfigModal({
                           </div>
                         </div>
 
-                        {itemDetails?.branchConfig.costPrice && (
+                        {itemDetails?.locationConfig && (
                           <div className="text-xs text-muted-foreground space-y-1">
                             <div className="flex justify-between">
                               <span>Inventory cost:</span>
-                              <span>₹{itemDetails.branchConfig.costPrice.toFixed(2)}/{itemDetails.unit}</span>
+                              <span>₹{(itemDetails.locationConfig.standardCost || itemDetails.locationConfig.lastPurchasePrice || 0).toFixed(2)}/{itemDetails.unit}</span>
                             </div>
                             {ingredient.conversionFactor && (
                               <div className="flex justify-between text-blue-600 dark:text-blue-400">
@@ -947,7 +961,7 @@ export default function RecipeBranchConfigModal({
                   ) : (
                     <div className="space-y-1">
                       {localConfig.ingredients.map((ingredient, index) => {
-                        const itemDetails = getIngredientDetails(ingredient.inventoryItemBranch);
+                        const itemDetails = getIngredientDetails(ingredient.inventoryItem);
                         let cost = 0;
                         let costNote = '';
                         
@@ -955,28 +969,38 @@ export default function RecipeBranchConfigModal({
                         if (ingredient.overrideCostPerUnit !== undefined && ingredient.overrideCostPerUnit !== null) {
                           cost = ingredient.quantity * ingredient.overrideCostPerUnit;
                           costNote = ' (Override)';
-                        } else if (itemDetails?.branchConfig.costPrice) {
-                          let effectiveCostPerUnit = itemDetails.branchConfig.costPrice;
-                          
-                          if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
-                            effectiveCostPerUnit = itemDetails.branchConfig.costPrice / ingredient.conversionFactor;
-                            costNote = ' (Manual Conv.)';
-                          } else if (itemDetails.unit !== ingredient.unit) {
-                            // Check for automatic conversion
-                            const invUnit = itemDetails.unit.toLowerCase();
-                            const recUnit = ingredient.unit.toLowerCase();
-                            if ((invUnit === 'kg' && recUnit === 'gram') || 
-                                (invUnit === 'liter' && recUnit === 'ml')) {
-                              effectiveCostPerUnit = itemDetails.branchConfig.costPrice / 1000;
-                              costNote = ' (Auto Conv.)';
-                            } else if ((invUnit === 'gram' && recUnit === 'kg') || 
-                                       (invUnit === 'ml' && recUnit === 'liter')) {
-                              effectiveCostPerUnit = itemDetails.branchConfig.costPrice * 1000;
-                              costNote = ' (Auto Conv.)';
-                            }
+                        } else if (itemDetails?.locationConfig) {
+                          // Determine cost price based on costing method
+                          let costPrice = 0;
+                          if (itemDetails.locationConfig.costingMethod === 'STANDARD_COST' && itemDetails.locationConfig.standardCost) {
+                            costPrice = itemDetails.locationConfig.standardCost;
+                          } else if (itemDetails.locationConfig.lastPurchasePrice) {
+                            costPrice = itemDetails.locationConfig.lastPurchasePrice;
                           }
-                          
-                          cost = ingredient.quantity * effectiveCostPerUnit;
+
+                          if (costPrice > 0) {
+                            let effectiveCostPerUnit = costPrice;
+                            
+                            if (ingredient.conversionFactor && ingredient.conversionFactor > 0) {
+                              effectiveCostPerUnit = costPrice / ingredient.conversionFactor;
+                              costNote = ' (Manual Conv.)';
+                            } else if (itemDetails.unit !== ingredient.unit) {
+                              // Check for automatic conversion
+                              const invUnit = itemDetails.unit.toLowerCase();
+                              const recUnit = ingredient.unit.toLowerCase();
+                              if ((invUnit === 'kg' && recUnit === 'gram') || 
+                                  (invUnit === 'liter' && recUnit === 'ml')) {
+                                effectiveCostPerUnit = costPrice / 1000;
+                                costNote = ' (Auto Conv.)';
+                              } else if ((invUnit === 'gram' && recUnit === 'kg') || 
+                                         (invUnit === 'ml' && recUnit === 'liter')) {
+                                effectiveCostPerUnit = costPrice * 1000;
+                                costNote = ' (Auto Conv.)';
+                              }
+                            }
+                            
+                            cost = ingredient.quantity * effectiveCostPerUnit;
+                          }
                         }
                         
                         return (
@@ -995,7 +1019,7 @@ export default function RecipeBranchConfigModal({
                               )}
                             </span>
                             <span>
-                              {itemDetails?.branchConfig.costPrice || ingredient.overrideCostPerUnit ? `₹${cost.toFixed(2)}` : 'N/A'}
+                              {cost > 0 ? `₹${cost.toFixed(2)}` : 'N/A'}
                             </span>
                           </div>
                         );
@@ -1012,8 +1036,18 @@ export default function RecipeBranchConfigModal({
                       ₹
                       {localConfig.ingredients
                         .reduce((sum, ing) => {
-                          const itemDetails = getIngredientDetails(ing.inventoryItemBranch);
-                          return sum + (itemDetails?.branchConfig.costPrice ? ing.quantity * itemDetails.branchConfig.costPrice : 0);
+                          const itemDetails = getIngredientDetails(ing.inventoryItem);
+                          if (!itemDetails?.locationConfig) return sum;
+                          
+                          // Determine cost price based on costing method
+                          let costPrice = 0;
+                          if (itemDetails.locationConfig.costingMethod === 'STANDARD_COST' && itemDetails.locationConfig.standardCost) {
+                            costPrice = itemDetails.locationConfig.standardCost;
+                          } else if (itemDetails.locationConfig.lastPurchasePrice) {
+                            costPrice = itemDetails.locationConfig.lastPurchasePrice;
+                          }
+                          
+                          return sum + (costPrice > 0 ? ing.quantity * costPrice : 0);
                         }, 0)
                         .toFixed(2)}
                     </span>
@@ -1215,10 +1249,17 @@ export default function RecipeBranchConfigModal({
           setSelectedIngredientIndex(null);
         }}
         ingredient={localConfig.ingredients[selectedIngredientIndex]}
-        ingredientName={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItemBranch)?.name || 'Unknown'}
-        inventoryUnit={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItemBranch)?.unit || 'piece'}
-        inventoryPrice={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItemBranch)?.branchConfig.costPrice || 0}
-        branchId={branch._id}
+        ingredientName={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItem)?.name || 'Unknown'}
+        inventoryUnit={getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItem)?.unit || 'piece'}
+        inventoryPrice={(() => {
+          const itemDetails = getIngredientDetails(localConfig.ingredients[selectedIngredientIndex].inventoryItem);
+          if (!itemDetails?.locationConfig) return 0;
+          if (itemDetails.locationConfig.costingMethod === 'STANDARD_COST' && itemDetails.locationConfig.standardCost) {
+            return itemDetails.locationConfig.standardCost;
+          }
+          return itemDetails.locationConfig.lastPurchasePrice || 0;
+        })()}
+        locationId={location._id}
         onApply={handleUnitConversionApply}
       />
     )}
