@@ -513,41 +513,42 @@ export const inventoryServices = {
     apiClient.put(`/api/inventory/transfers/${transferId}/backorders/${backorderId}/cancel`, { reason }),
 };
 
-// Inventory Item Branch Services
-export const inventoryItemBranchServices = {
-  // Get inventory items for a specific branch (merged with global data)
-  getInventoryItemsForBranch: (branchId: string, params?: { page?: number; limit?: number; search?: string; type?: string; category?: string; subcategory?: string; isActive?: boolean }) =>
-    apiClient.get(`/api/inventory/branches/${branchId}/items`, { params }),
-  // Get a specific branch-config (InventoryItemBranch) by its id
-  getInventoryItemBranchById: (branchId: string, branchItemId: string) =>
-    apiClient.get(`/api/inventory/branches/${branchId}/items/${branchItemId}`),
-  // Get multiple branch-config items by their IDs in a single request
-  getInventoryItemBranchesByIds: (branchId: string, ids: string[]) =>
-    apiClient.post(`/api/inventory/branches/${branchId}/items/batch`, { ids }),
+// Inventory Item Location Services
+export const inventoryItemLocationServices = {
+  // Get inventory items for a specific location (merged with global data)
+  getInventoryItemsForLocation: (locationId: string, params?: { 
+    page?: number; 
+    limit?: number; 
+    search?: string; 
+    type?: string; 
+    category?: string; 
+    subcategory?: string; 
+    isActive?: boolean 
+  }) =>
+    apiClient.get(`/api/inventory/locations/${locationId}/items`, { params }),
 
-  // Create branch configuration
-  createBranchConfig: (inventoryItemId: string, branchId: string, config: any) =>
-    apiClient.post(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`, config),
+  // Get a specific inventory item location configuration by item ID
+  getInventoryItemLocationById: (locationId: string, itemId: string) =>
+    apiClient.get(`/api/inventory/locations/${locationId}/items/${itemId}`),
 
-  // Get branch configuration
-  getBranchConfig: (inventoryItemId: string, branchId: string) =>
-    apiClient.get(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`),
+  // Create location configuration for an inventory item
+  createLocationConfig: (itemId: string, locationId: string, config: any) =>
+    apiClient.post(`/api/inventory/locations/${locationId}/items/${itemId}/config`, config),
 
-  // Update branch configuration
-  updateBranchConfig: (inventoryItemId: string, branchId: string, config: any) =>
-    apiClient.put(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`, config),
+  // Update location configuration for an inventory item
+  updateLocationConfig: (itemId: string, locationId: string, config: any) =>
+    apiClient.put(`/api/inventory/locations/${locationId}/items/${itemId}/config`, config),
 
-  // Delete branch configuration (remove item from branch)
-  deleteBranchConfig: (inventoryItemId: string, branchId: string) =>
-    apiClient.delete(`/api/inventory/items/${inventoryItemId}/branches/${branchId}`),
+  // Delete location configuration (remove item from location)
+  deleteLocationConfig: (itemId: string, locationId: string) =>
+    apiClient.delete(`/api/inventory/locations/${locationId}/items/${itemId}/config`),
 
-  // Bulk update branch configurations
-  updateInventoryItemBranches: (inventoryItemId: string, branchConfigs: any[]) =>
-    apiClient.put(`/api/inventory/items/${inventoryItemId}/branches`, { branchConfigs }),
-
-  // Bulk assign inventory item to multiple branches
-  bulkAssignToBranches: (inventoryItemId: string, branchConfigs: Array<{ branchId: string; [key: string]: any }>) =>
-    apiClient.post(`/api/inventory/items/${inventoryItemId}/branches/bulk`, { branchConfigs }),
+  // Bulk update location configurations for an inventory item
+  bulkUpdateLocationConfigs: (itemId: string, locationConfigs: Array<{ 
+    locationId: string; 
+    [key: string]: any 
+  }>) =>
+    apiClient.post(`/api/inventory/items/${itemId}/locations/bulk`, { locationConfigs }),
 };
 
 // Recipe Services
@@ -853,7 +854,7 @@ export default {
   users: userServices,
   platformConfig: platformConfigServices,
   inventory: inventoryServices,
-  inventoryItemBranches: inventoryItemBranchServices,
+  inventoryItemLocations: inventoryItemLocationServices,
   locationInventory: locationInventoryServices,
   inventoryLedger: inventoryLedgerServices,
   reports: reportServices,
