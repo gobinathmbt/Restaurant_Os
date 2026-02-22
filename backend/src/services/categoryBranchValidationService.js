@@ -157,9 +157,9 @@ class CategoryBranchValidationService {
   }
 
   /**
-   * Find all inventory items using a category/subcategory in a specific branch
+   * Find all inventory items using a category/subcategory in a specific branch/location
    * @param {string} categoryId - Category ID to check
-   * @param {string} branchId - Branch ID to check
+   * @param {string} branchId - Branch/Location ID to check
    * @param {boolean} isSubcategory - Whether checking subcategory
    * @returns {Promise<{count: number, items: Array}>}
    */
@@ -193,30 +193,30 @@ class CategoryBranchValidationService {
 
       const inventoryItemIds = inventoryItems.map(item => item._id);
 
-      // Now check which of these items are assigned to the specific branch
-      const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
-      const InventoryItemBranch = getInventoryItemBranchModel(this.companyDB);
+      // Now check which of these items are assigned to the specific location (branchId is actually locationId)
+      const { getInventoryItemLocationModel } = await import('../models/company/InventoryItemLocation.js');
+      const InventoryItemLocation = getInventoryItemLocationModel(this.companyDB);
 
-      const branchItems = await InventoryItemBranch.find({
+      const locationItems = await InventoryItemLocation.find({
         inventoryItem: { $in: inventoryItemIds },
-        branch: branchId
+        locationId: branchId
       })
         .populate('inventoryItem', 'name type sku')
         .limit(10)
         .lean();
 
-      const count = await InventoryItemBranch.countDocuments({
+      const count = await InventoryItemLocation.countDocuments({
         inventoryItem: { $in: inventoryItemIds },
-        branch: branchId
+        locationId: branchId
       });
 
       return {
         count,
-        items: branchItems.map(branchItem => ({
-          id: branchItem.inventoryItem._id,
-          name: branchItem.inventoryItem.name,
-          type: branchItem.inventoryItem.type,
-          sku: branchItem.inventoryItem.sku
+        items: locationItems.map(locationItem => ({
+          id: locationItem.inventoryItem._id,
+          name: locationItem.inventoryItem.name,
+          type: locationItem.inventoryItem.type,
+          sku: locationItem.inventoryItem.sku
         }))
       };
     } catch (error) {

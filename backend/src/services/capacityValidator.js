@@ -12,15 +12,15 @@ class CapacityValidator {
 
   /**
    * Validate GRN capacity for all line items
-   * @param {string} branchId - Branch ID
+   * @param {string} branchId - Branch/Location ID
    * @param {Array} items - Array of line items with inventoryItem and quantity
    * @param {Object} session - MongoDB session for transactions (optional)
    * @returns {Promise<Object>} Validation result { valid: boolean, errors: Array<string> }
    */
   async validateGRNCapacity(branchId, items, session = null) {
     try {
-      const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
-      const InventoryItemBranch = getInventoryItemBranchModel(this.companyDB);
+      const { getInventoryItemLocationModel } = await import('../models/company/InventoryItemLocation.js');
+      const InventoryItemLocation = getInventoryItemLocationModel(this.companyDB);
       const { getInventoryItemModel } = await import('../models/company/InventoryItem.js');
       const InventoryItem = getInventoryItemModel(this.companyDB);
 
@@ -63,7 +63,7 @@ class CapacityValidator {
 
   /**
    * Validate stock adjustment capacity for increase type
-   * @param {string} branchId - Branch ID
+   * @param {string} branchId - Branch/Location ID
    * @param {string} inventoryItemId - Inventory item ID
    * @param {number} adjustmentQuantity - Quantity being added
    * @param {Object} session - MongoDB session for transactions (optional)
@@ -71,24 +71,24 @@ class CapacityValidator {
    */
   async validateAdjustmentCapacity(branchId, inventoryItemId, adjustmentQuantity, session = null) {
     try {
-      const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
-      const InventoryItemBranch = getInventoryItemBranchModel(this.companyDB);
+      const { getInventoryItemLocationModel } = await import('../models/company/InventoryItemLocation.js');
+      const InventoryItemLocation = getInventoryItemLocationModel(this.companyDB);
 
-      // Fetch inventory item branch configuration
-      const inventoryItemBranchQuery = InventoryItemBranch.findOne({
+      // Fetch inventory item location configuration (branchId is actually locationId)
+      const inventoryItemLocationQuery = InventoryItemLocation.findOne({
         inventoryItem: inventoryItemId,
-        branch: branchId
+        locationId: branchId
       });
-      if (session) inventoryItemBranchQuery.session(session);
+      if (session) inventoryItemLocationQuery.session(session);
       
-      const inventoryItemBranch = await inventoryItemBranchQuery;
+      const inventoryItemLocation = await inventoryItemLocationQuery;
 
-      if (!inventoryItemBranch) {
-        throw new Error(`Inventory item ${inventoryItemId} not found for branch ${branchId}`);
+      if (!inventoryItemLocation) {
+        throw new Error(`Inventory item ${inventoryItemId} not found for location ${branchId}`);
       }
 
-      const currentStock = inventoryItemBranch.currentStock || 0;
-      const maxStock = inventoryItemBranch.maximumStock;
+      const currentStock = inventoryItemLocation.availableQuantity || 0;
+      const maxStock = inventoryItemLocation.maximumStock;
       const projectedStock = currentStock + adjustmentQuantity;
 
       // If no maximum stock is set or maximum is 0, validation passes
@@ -121,7 +121,7 @@ class CapacityValidator {
 
   /**
    * Check capacity for a single inventory item
-   * @param {string} branchId - Branch ID
+   * @param {string} branchId - Branch/Location ID
    * @param {string} inventoryItemId - Inventory item ID
    * @param {number} receivingQuantity - Quantity being received
    * @param {Object} session - MongoDB session for transactions (optional)
@@ -129,24 +129,24 @@ class CapacityValidator {
    */
   async checkItemCapacity(branchId, inventoryItemId, receivingQuantity, session = null) {
     try {
-      const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
-      const InventoryItemBranch = getInventoryItemBranchModel(this.companyDB);
+      const { getInventoryItemLocationModel } = await import('../models/company/InventoryItemLocation.js');
+      const InventoryItemLocation = getInventoryItemLocationModel(this.companyDB);
 
-      // Fetch inventory item branch configuration
-      const inventoryItemBranchQuery = InventoryItemBranch.findOne({
+      // Fetch inventory item location configuration (branchId is actually locationId)
+      const inventoryItemLocationQuery = InventoryItemLocation.findOne({
         inventoryItem: inventoryItemId,
-        branch: branchId
+        locationId: branchId
       });
-      if (session) inventoryItemBranchQuery.session(session);
+      if (session) inventoryItemLocationQuery.session(session);
       
-      const inventoryItemBranch = await inventoryItemBranchQuery;
+      const inventoryItemLocation = await inventoryItemLocationQuery;
 
-      if (!inventoryItemBranch) {
-        throw new Error(`Inventory item ${inventoryItemId} not found for branch ${branchId}`);
+      if (!inventoryItemLocation) {
+        throw new Error(`Inventory item ${inventoryItemId} not found for location ${branchId}`);
       }
 
-      const currentStock = inventoryItemBranch.currentStock || 0;
-      const maxStock = inventoryItemBranch.maximumStock;
+      const currentStock = inventoryItemLocation.availableQuantity || 0;
+      const maxStock = inventoryItemLocation.maximumStock;
       const projectedStock = currentStock + receivingQuantity;
 
       // If no maximum stock is set, validation passes
@@ -176,63 +176,6 @@ class CapacityValidator {
     }
   }
 
-  /**
-   * Validate stock adjustment capacity for increase type
-   * @param {string} branchId - Branch ID
-   * @param {string} inventoryItemId - Inventory item ID
-   * @param {number} adjustmentQuantity - Quantity being added
-   * @param {Object} session - MongoDB session for transactions (optional)
-   * @returns {Promise<Object>} Validation result with stock details
-   */
-  async validateAdjustmentCapacity(branchId, inventoryItemId, adjustmentQuantity, session = null) {
-    try {
-      const { getInventoryItemBranchModel } = await import('../models/company/InventoryItemBranch.js');
-      const InventoryItemBranch = getInventoryItemBranchModel(this.companyDB);
-
-      // Fetch inventory item branch configuration
-      const inventoryItemBranchQuery = InventoryItemBranch.findOne({
-        inventoryItem: inventoryItemId,
-        branch: branchId
-      });
-      if (session) inventoryItemBranchQuery.session(session);
-
-      const inventoryItemBranch = await inventoryItemBranchQuery;
-
-      if (!inventoryItemBranch) {
-        throw new Error(`Inventory item ${inventoryItemId} not found for branch ${branchId}`);
-      }
-
-      const currentStock = inventoryItemBranch.currentStock || 0;
-      const maxStock = inventoryItemBranch.maximumStock;
-      const projectedStock = currentStock + adjustmentQuantity;
-
-      // If no maximum stock is set or maximum is 0, validation passes
-      if (!maxStock || maxStock === 0) {
-        return {
-          valid: true,
-          currentStock,
-          maxStock: null,
-          projectedStock,
-          adjustmentQuantity
-        };
-      }
-
-      // Check if projected stock exceeds maximum
-      const valid = projectedStock <= maxStock;
-
-      return {
-        valid,
-        currentStock,
-        maxStock,
-        projectedStock,
-        adjustmentQuantity,
-        error: valid ? null : `Adjustment would exceed maximum stock capacity. Current: ${currentStock}, Maximum: ${maxStock}, Projected: ${projectedStock}`
-      };
-    } catch (error) {
-      logger.error('Error validating adjustment capacity:', error);
-      throw error;
-    }
-  }
 
 }
 
