@@ -39,7 +39,7 @@ const generateGRNNumber = async (companyId, locationId) => {
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
   const sequence = String(count + 1).padStart(4, '0');
   
-  return `${locationCode}-GRN-${dateStr}-${sequence}`;
+  return `GRN-${dateStr}-${sequence}`;
 };
 
 /**
@@ -314,14 +314,27 @@ export const getGRNById = async (grnId, companyId) => {
     const GRN = getGRNModel(companyDB);
     
     const grn = await GRN.findById(grnId)
-      .populate('locationId', 'name code type')
-      .populate('branch', 'name code type')
+      .populate('locationId', 'name code type address')
+      .populate('branch', 'name code type address')
       .populate('supplier', 'name contactPerson phone email')
       .populate('items.inventoryItem', 'name code unit')
       .lean();
     
     if (!grn) {
       throw new Error('GRN not found');
+    }
+    
+    // Manually populate receivedBy from platform database
+    if (grn.receivedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(grn.receivedBy).select('name email').lean();
+      if (user) {
+        grn.receivedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
     }
     
     return grn;
