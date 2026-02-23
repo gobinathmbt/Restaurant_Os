@@ -133,12 +133,6 @@ const menuItems: MenuItem[] = [
     roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
   },
   {
-    title: 'Branches',
-    href: '/branches',
-    icon: Store,
-    roles: ['company_super_admin_primary', 'company_super_admin_secondary'],
-  },
-  {
     title: 'Settings',
     href: '/settings',
     icon: Settings,

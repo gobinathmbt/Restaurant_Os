@@ -16,11 +16,11 @@ import api from '@/api/services';
 interface StockAdjustmentDetails {
   _id: string;
   adjustmentNumber: string;
-  branch: {
+  locationId?: {
     _id: string;
     name: string;
     code: string;
-    address?: string | {
+    address?: {
       street?: string;
       city?: string;
       state?: string;
@@ -28,26 +28,75 @@ interface StockAdjustmentDetails {
       country?: string;
     };
   };
-  inventoryItem: {
+  branch?: {
+    _id: string;
+    name: string;
+    code: string;
+    address?: {
+      street?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+      country?: string;
+    };
+  };
+  items: Array<{
+    inventoryItem: {
+      _id: string;
+      name: string;
+      unit: string;
+      type?: string;
+      sku?: string;
+    };
+    currentQuantity: number;
+    adjustedQuantity: number;
+    quantityDelta: number;
+    reason: string;
+    notes?: string;
+  }>;
+  adjustmentType: string;
+  status: string;
+  createdBy: {
+    _id: string;
+    name: string;
+    email?: string;
+  };
+  approvedBy?: {
+    _id: string;
+    name: string;
+    email?: string;
+  };
+  rejectedBy?: {
+    _id: string;
+    name: string;
+    email?: string;
+  };
+  createdDate: string;
+  approvedDate?: string;
+  rejectedDate?: string;
+  rejectionReason?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  
+  // Computed fields for display
+  inventoryItem?: {
     _id: string;
     name: string;
     unit: string;
     type?: string;
     sku?: string;
   };
-  adjustmentType: string;
-  quantity: number;
-  previousStock: number;
-  newStock: number;
-  reason: string;
-  notes?: string;
-  adjustedBy: {
+  quantity?: number;
+  previousStock?: number;
+  newStock?: number;
+  reason?: string;
+  adjustedBy?: {
     _id: string;
     name: string;
     email?: string;
   };
-  adjustmentDate: string;
-  createdAt: string;
+  adjustmentDate?: string;
 }
 
 interface StockAdjustmentViewModalProps {
@@ -80,37 +129,36 @@ export default function StockAdjustmentViewModal({
       const response = await api.inventory.getStockAdjustmentDetails(branchId, adjustmentId);
       const adjustment = response.data.data.adjustment;
       
+      // Get first item for display
+      const firstItem = adjustment.items?.[0];
+      
       // Transform the API response to match the component's expected structure
       const transformedDetails: StockAdjustmentDetails = {
-        _id: adjustment._id,
-        adjustmentNumber: adjustment.adjustmentNumber,
-        branch: adjustment.locationId || {
+        ...adjustment,
+        // Computed fields for backward compatibility
+        branch: adjustment.locationId || adjustment.branch || {
           _id: '',
           name: '',
           code: '',
         },
-        inventoryItem: adjustment.items?.[0]?.inventoryItem || {
+        inventoryItem: firstItem?.inventoryItem || {
           _id: '',
           name: '',
           unit: '',
         },
-        adjustmentType: adjustment.adjustmentType,
-        quantity: adjustment.items?.[0]?.quantityDelta || adjustment.items?.[0]?.adjustedQuantity || 0,
-        previousStock: adjustment.items?.[0]?.currentQuantity || 0,
-        newStock: (adjustment.items?.[0]?.currentQuantity || 0) + (adjustment.items?.[0]?.quantityDelta || 0),
-        reason: adjustment.items?.[0]?.reason || '',
-        notes: adjustment.notes,
+        quantity: firstItem?.quantityDelta || firstItem?.adjustedQuantity || 0,
+        previousStock: firstItem?.currentQuantity || 0,
+        newStock: firstItem?.adjustedQuantity || 0,
+        reason: firstItem?.reason || '',
         adjustedBy: adjustment.createdBy || {
           _id: '',
           name: 'Unknown',
         },
-        adjustmentDate: adjustment.createdDate || adjustment.createdAt,
-        createdAt: adjustment.createdAt,
+        adjustmentDate: adjustment.createdDate,
       };
       
       setAdjustmentDetails(transformedDetails);
     } catch (error: any) {
-      console.error('Error fetching adjustment details:', error);
       toast({
         title: 'Error',
         description: error.response?.data?.message || 'Failed to fetch adjustment details',

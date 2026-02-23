@@ -68,13 +68,9 @@ const stockAdjustmentSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
-      'physical_count',    // Physical inventory count adjustment
-      'damage',            // Damaged goods write-off
-      'expiry',            // Expired goods write-off
-      'theft',             // Theft/loss
-      'found',             // Found stock (positive adjustment)
-      'system_correction', // System error correction
-      'other'
+      'increase',    // Increase stock (add quantity)
+      'decrease',    // Decrease stock (remove quantity)
+      'correction'   // Correct stock to exact quantity
     ]
   },
   

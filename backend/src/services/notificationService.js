@@ -826,21 +826,30 @@ class NotificationService {
 
       logger.info(`Sending in-app notifications to ${superAdmins.length} super admin(s) for stock adjustment`);
 
+      // Build item summary
+      const itemCount = adjustmentDetails.items?.length || 0;
+      const firstItem = adjustmentDetails.items?.[0];
+      const itemSummary = itemCount === 1 
+        ? `${firstItem?.inventoryItem?.name || 'Unknown item'} (${firstItem?.quantityDelta > 0 ? '+' : ''}${firstItem?.quantityDelta})`
+        : `${itemCount} items`;
+
+      const locationName = adjustmentDetails.locationId?.name || 'Unknown location';
+      const createdByName = adjustmentDetails.createdBy?.name || 'Unknown user';
+
       // Send in-app notifications to all super admins
       const inAppPromises = superAdmins.map(admin => 
         this.sendToCompanyUser(companyId, admin._id, {
           category: 'inventory',
           event: 'stock_adjustment_created',
           title: 'Stock Adjustment Created',
-          message: `Adjustment ${adjustmentDetails.adjustmentNumber} created for ${adjustmentDetails.inventoryItem.name} at ${adjustmentDetails.branch.name}. Type: ${adjustmentDetails.adjustmentType}, Quantity: ${adjustmentDetails.quantity}, Adjusted by: ${adjustmentDetails.adjustedBy.name}`,
+          message: `Adjustment ${adjustmentDetails.adjustmentNumber} created at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`,
           data: {
             adjustmentId: adjustmentDetails._id,
             adjustmentNumber: adjustmentDetails.adjustmentNumber,
-            itemName: adjustmentDetails.inventoryItem.name,
-            branchName: adjustmentDetails.branch.name,
+            locationName: locationName,
             adjustmentType: adjustmentDetails.adjustmentType,
-            quantity: adjustmentDetails.quantity,
-            adjustedByName: adjustmentDetails.adjustedBy.name
+            itemCount: itemCount,
+            createdByName: createdByName
           },
           priority: 'medium',
           actionUrl: `/inventory/adjustments/${adjustmentDetails._id}`

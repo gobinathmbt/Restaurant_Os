@@ -304,15 +304,16 @@ export default function StockAdjustmentFormModal({
       setLoading(true);
       
       // Map frontend adjustment types to backend enum values
+      // Backend now uses: 'increase', 'decrease', 'correction'
       const adjustmentTypeMap = {
-        'increase': 'found',           // Found stock (positive adjustment)
-        'decrease': 'damage',          // Damaged goods write-off (negative adjustment)
-        'correction': 'physical_count' // Physical inventory count adjustment
+        'increase': 'increase',
+        'decrease': 'decrease',
+        'correction': 'correction'
       };
 
       const submitData = {
         locationId: selectedBranch,
-        adjustmentType: adjustmentTypeMap[formData.adjustmentType as keyof typeof adjustmentTypeMap] || 'physical_count',
+        adjustmentType: adjustmentTypeMap[formData.adjustmentType as keyof typeof adjustmentTypeMap] || 'correction',
         items: [{
           inventoryItem: formData.inventoryItemId,
           currentQuantity: 0, // Will be filled by backend

@@ -603,8 +603,20 @@ export const consumeReservation = async (params) => {
     const beforeInTransit = inventory.inTransitQuantity;
 
     // Update inventory quantities (Requirement 13.6)
+    // When consuming a reservation, we need to:
+    // 1. Decrease reserved quantity (unreserve it)
+    // 2. Decrease available quantity (actually consume it)
     inventory.reservedQuantity -= quantity;
+    inventory.availableQuantity -= quantity;
     inventory.version += 1;
+
+    // Validate non-negative quantities
+    if (inventory.availableQuantity < 0) {
+      throw new Error(
+        `Consumption would result in negative available quantity. ` +
+        `Current: ${beforeAvailable}, Consuming: ${quantity}`
+      );
+    }
 
     await inventory.save({ session });
 
@@ -622,7 +634,7 @@ export const consumeReservation = async (params) => {
       movementType: 'consumption',
       quantityDelta: -quantity,
       beforeAvailable,
-      afterAvailable: beforeAvailable, // Available doesn't change
+      afterAvailable: inventory.availableQuantity,
       beforeReserved,
       afterReserved: inventory.reservedQuantity,
       beforeInTransit,

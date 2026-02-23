@@ -8,6 +8,7 @@
 import { getCompanyDB } from '../config/database.js';
 import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
 import { getLocationModel } from '../models/company/Location.js';
+import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
@@ -57,6 +58,8 @@ export const createAdjustment = async (adjustmentData, companyId) => {
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
     const Location = getLocationModel(companyDB);
+    const InventoryItem = getInventoryItemModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
 
     // Validate required fields
     const requiredFields = ['locationId', 'adjustmentType', 'items', 'createdBy'];
@@ -67,15 +70,7 @@ export const createAdjustment = async (adjustmentData, companyId) => {
     }
 
     // Validate adjustment type
-    const validTypes = [
-      'physical_count',
-      'damage',
-      'expiry',
-      'theft',
-      'found',
-      'system_correction',
-      'other'
-    ];
+    const validTypes = ['increase', 'decrease', 'correction'];
     
     if (!validTypes.includes(adjustmentData.adjustmentType)) {
       throw new Error(
@@ -89,25 +84,6 @@ export const createAdjustment = async (adjustmentData, companyId) => {
       throw new Error('At least one item is required');
     }
 
-    // Validate each item has required fields
-    for (const item of adjustmentData.items) {
-      if (!item.inventoryItem) {
-        throw new Error('Each item must have an inventoryItem');
-      }
-      if (item.currentQuantity === undefined || item.currentQuantity === null) {
-        throw new Error('Each item must have a currentQuantity');
-      }
-      if (item.adjustedQuantity === undefined || item.adjustedQuantity === null) {
-        throw new Error('Each item must have an adjustedQuantity');
-      }
-      if (!item.reason) {
-        throw new Error('Each item must have a reason');
-      }
-      
-      // Calculate quantityDelta
-      item.quantityDelta = item.adjustedQuantity - item.currentQuantity;
-    }
-
     // Validate location exists and is active
     const location = await Location.findOne({
       _id: adjustmentData.locationId,
@@ -117,6 +93,52 @@ export const createAdjustment = async (adjustmentData, companyId) => {
 
     if (!location) {
       throw new Error('Location not found or inactive');
+    }
+
+    // Fetch current quantities and validate each item
+    for (const item of adjustmentData.items) {
+      if (!item.inventoryItem) {
+        throw new Error('Each item must have an inventoryItem');
+      }
+      if (item.adjustedQuantity === undefined || item.adjustedQuantity === null) {
+        throw new Error('Each item must have an adjustedQuantity');
+      }
+      if (!item.reason) {
+        throw new Error('Each item must have a reason');
+      }
+      
+      // Fetch current quantity from InventoryItemLocation
+      const itemLocation = await InventoryItemLocation.findOne({
+        inventoryItem: item.inventoryItem,
+        locationId: adjustmentData.locationId,
+        isActive: true
+      });
+
+      if (!itemLocation) {
+        const inventoryItem = await InventoryItem.findById(item.inventoryItem);
+        throw new Error(
+          `Inventory item ${inventoryItem?.name || item.inventoryItem} not found or inactive at this location`
+        );
+      }
+
+      // Set current quantity from database
+      item.currentQuantity = itemLocation.availableQuantity || 0;
+    
+      // Calculate quantityDelta based on adjustment type
+      // - 'correction': adjustedQuantity is the NEW total quantity (replace current with this exact value)
+      // - 'decrease': adjustedQuantity is the amount to DECREASE (subtract from current)
+      // - 'increase': adjustedQuantity is the amount to INCREASE (add to current)
+      
+      if (adjustmentData.adjustmentType === 'correction') {
+        // adjustedQuantity represents the NEW total quantity after correction
+        item.quantityDelta = item.adjustedQuantity - item.currentQuantity;
+      } else if (adjustmentData.adjustmentType === 'decrease') {
+        // adjustedQuantity represents the amount to DECREASE (make it negative)
+        item.quantityDelta = -Math.abs(item.adjustedQuantity);
+      } else if (adjustmentData.adjustmentType === 'increase') {
+        // adjustedQuantity represents the amount to INCREASE (make it positive)
+        item.quantityDelta = Math.abs(item.adjustedQuantity);
+      }
     }
 
     // Generate unique adjustment number
@@ -138,6 +160,38 @@ export const createAdjustment = async (adjustmentData, companyId) => {
     });
 
     await adjustment.save();
+
+    // Populate the adjustment with related data for notifications
+    const populatedAdjustment = await StockAdjustment.findById(adjustment._id)
+      .populate('locationId', 'name code address')
+      .populate('items.inventoryItem', 'name type unit sku')
+      .lean();
+
+    // Manually populate createdBy from platform database
+    const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+    const createdByUser = await CompanyUser.findById(adjustmentData.createdBy)
+      .select('name email')
+      .lean();
+
+    if (createdByUser) {
+      populatedAdjustment.createdBy = {
+        _id: createdByUser._id,
+        name: createdByUser.name,
+        email: createdByUser.email
+      };
+    }
+
+    // Send notifications asynchronously
+    setImmediate(async () => {
+      try {
+        const notificationService = (await import('./notificationService.js')).default;
+        await notificationService.notifyStockAdjustmentCreation(companyId, populatedAdjustment);
+        logger.info(`Notifications sent for stock adjustment ${adjustment.adjustmentNumber}`);
+      } catch (notificationError) {
+        logger.error('Error sending stock adjustment notifications:', notificationError);
+        // Don't fail the adjustment creation if notifications fail
+      }
+    });
 
     // Publish domain event
     await publishDomainEvent(companyDB, {
