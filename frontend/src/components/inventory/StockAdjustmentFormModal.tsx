@@ -303,15 +303,28 @@ export default function StockAdjustmentFormModal({
     try {
       setLoading(true);
       
+      // Map frontend adjustment types to backend enum values
+      const adjustmentTypeMap = {
+        'increase': 'found',           // Found stock (positive adjustment)
+        'decrease': 'damage',          // Damaged goods write-off (negative adjustment)
+        'correction': 'physical_count' // Physical inventory count adjustment
+      };
+
       const submitData = {
-        inventoryItemId: formData.inventoryItemId,
-        adjustmentType: formData.adjustmentType,
-        quantity: formData.quantity,
-        reason: formData.reason,
+        locationId: selectedBranch,
+        adjustmentType: adjustmentTypeMap[formData.adjustmentType as keyof typeof adjustmentTypeMap] || 'physical_count',
+        items: [{
+          inventoryItem: formData.inventoryItemId,
+          currentQuantity: 0, // Will be filled by backend
+          adjustedQuantity: formData.quantity,
+          quantityDelta: formData.quantity, // Positive or negative
+          reason: formData.reason,
+          notes: formData.notes.trim() || undefined
+        }],
         notes: formData.notes.trim() || undefined
       };
 
-      await inventoryServices.createStockAdjustment(selectedBranch, submitData);
+      await inventoryServices.createStockAdjustment(submitData);
       toast({
         title: "Success",
         description: "Stock adjustment created successfully",
@@ -391,7 +404,7 @@ export default function StockAdjustmentFormModal({
               <div>
                 <Label htmlFor="inventoryItem">Inventory Item *</Label>
                 <InventoryItemDropdown
-                  branchId={selectedBranch}
+                  locationId={selectedBranch}
                   value={formData.inventoryItemId}
                   onChange={handleItemChange}
                   onItemsLoaded={handleItemsLoaded}

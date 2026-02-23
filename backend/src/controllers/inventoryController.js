@@ -4,6 +4,7 @@
  */
 
 import * as inventoryService from '../services/inventoryService.js';
+import * as stockAdjustmentService from '../services/stockAdjustmentService.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import { logger } from '../utils/logger.js';
 import { formatSuccessWithAssignments } from '../utils/errorResponses.js';
@@ -876,38 +877,46 @@ export const getGRNDetails = async (req, res, next) => {
 export const createStockAdjustment = async (req, res, next) => {
   try {
     const { companyId, userId, role } = req.user;
-    const { branchId, ...adjustmentData } = req.body;
+    const adjustmentData = {
+      ...req.body,
+      createdBy: userId
+    };
 
-    // Validate branchId is provided
-    if (!branchId) {
+    // Support both locationId and branchId (backward compatibility)
+    const locationId = adjustmentData.locationId || adjustmentData.branchId;
+    
+    // Validate locationId is provided
+    if (!locationId) {
       return res.status(400).json({
         success: false,
-        message: 'Branch ID is required'
+        message: 'locationId or branchId is required'
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    // Set locationId in adjustment data
+    adjustmentData.locationId = locationId;
+    delete adjustmentData.branchId; // Remove branchId to avoid confusion
+
+    // Verify location access
+    const hasAccess = await verifyBranchAccess(userId, locationId, role, companyId);
     if (!hasAccess) {
       return res.status(403).json({
         success: false,
-        message: 'You do not have access to this branch'
+        message: 'You do not have access to this location'
       });
     }
 
-    // Create stock adjustment
-    const adjustment = await inventoryService.createStockAdjustment(
-      adjustmentData, 
-      companyId, 
-      branchId, 
-      userId
+    // Create stock adjustment using stockAdjustmentService
+    const adjustment = await stockAdjustmentService.createAdjustment(
+      adjustmentData,
+      companyId
     );
 
     logger.info('Stock adjustment created via API', { 
       adjustmentId: adjustment._id, 
       adjustmentNumber: adjustment.adjustmentNumber,
       companyId, 
-      branchId, 
+      locationId, 
       userId 
     });
 
@@ -916,56 +925,6 @@ export const createStockAdjustment = async (req, res, next) => {
       message: 'Stock adjustment created successfully',
       data: { adjustment }
     });
-
-    // Send notifications asynchronously after response
-    setImmediate(async () => {
-      try {
-        const companyDB = getCompanyDB(companyId);
-        const StockAdjustment = getStockAdjustmentModel(companyDB);
-
-        // Populate adjustment with branch, inventoryItem, adjustedBy details
-        const populatedAdjustment = await StockAdjustment.findById(adjustment._id)
-          .populate('branch', 'name code')
-          .populate('inventoryItem', 'name')
-          .lean();
-
-        if (!populatedAdjustment) {
-          logger.error('Stock adjustment not found for notification:', adjustment._id);
-          return;
-        }
-
-        // Manually populate adjustedBy from CompanyUser (platform DB)
-        const adjustedByUser = await CompanyUser.findById(userId).select('name email').lean();
-        if (!adjustedByUser) {
-          logger.error('Adjusted by user not found for notification:', userId);
-          return;
-        }
-
-        populatedAdjustment.adjustedBy = {
-          _id: adjustedByUser._id,
-          name: adjustedByUser.name,
-          email: adjustedByUser.email
-        };
-
-        // Validate required fields before sending notification
-        if (!populatedAdjustment.branch || !populatedAdjustment.branch.name) {
-          logger.error('Branch information missing for notification:', populatedAdjustment);
-          return;
-        }
-
-        if (!populatedAdjustment.inventoryItem || !populatedAdjustment.inventoryItem.name) {
-          logger.error('Inventory item information missing for notification:', populatedAdjustment);
-          return;
-        }
-
-        // Call notification service
-        await notificationService.notifyStockAdjustmentCreation(companyId, populatedAdjustment);
-        logger.info(`Notifications sent for stock adjustment ${adjustment.adjustmentNumber}`);
-      } catch (notificationError) {
-        logger.error('Error sending stock adjustment notifications:', notificationError);
-        // Don't fail the adjustment creation if notifications fail
-      }
-    });
   } catch (error) {
     logger.error('Create stock adjustment error', error);
     
@@ -973,8 +932,10 @@ export const createStockAdjustment = async (req, res, next) => {
         error.message.includes('Invalid adjustment type') ||
         error.message.includes('Invalid reason') ||
         error.message.includes('Insufficient stock') ||
-        error.message.includes('does not belong to this branch') ||
-        error.message.includes('exceed maximum stock capacity')) {
+        error.message.includes('does not belong to this') ||
+        error.message.includes('exceed maximum stock capacity') ||
+        error.message.includes('At least one item is required') ||
+        error.message.includes('not found or inactive')) {
       return res.status(400).json({
         success: false,
         message: error.message

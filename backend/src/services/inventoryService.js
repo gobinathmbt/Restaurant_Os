@@ -1392,16 +1392,22 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
     // Build query
     const query = {};
 
-    // Branch filter logic
+    // Location filter logic (using locationId, with branch as fallback for legacy data)
     if (branchId === 'all') {
-      // Super Admin viewing all branches - no branch filter
-      // query.branch is not set, so all adjustments are returned
+      // Super Admin viewing all locations - no location filter
+      // query.locationId is not set, so all adjustments are returned
     } else if (Array.isArray(branchId)) {
-      // Company Admin with array of branch IDs
-      query.branch = { $in: branchId };
+      // Company Admin with array of location IDs
+      query.$or = [
+        { locationId: { $in: branchId } },
+        { branch: { $in: branchId } } // Legacy support
+      ];
     } else if (branchId) {
-      // Specific branch ID
-      query.branch = branchId;
+      // Specific location ID
+      query.$or = [
+        { locationId: branchId },
+        { branch: branchId } // Legacy support
+      ];
     }
 
     // Search filter (adjustmentNumber or item name)
@@ -1413,23 +1419,23 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
       
       const matchingItemIds = matchingItems.map(item => item._id);
       
-      // Build $or query for adjustmentNumber or inventoryItem
+      // Build $or query for adjustmentNumber or items.inventoryItem
       query.$or = [
         { adjustmentNumber: { $regex: search, $options: 'i' } },
-        { inventoryItem: { $in: matchingItemIds } }
+        { 'items.inventoryItem': { $in: matchingItemIds } }
       ];
     }
 
     // Date range filter
     if (startDate || endDate) {
-      query.adjustmentDate = {};
+      query.createdDate = {};
       if (startDate) {
-        query.adjustmentDate.$gte = new Date(startDate);
+        query.createdDate.$gte = new Date(startDate);
       }
       if (endDate) {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        query.adjustmentDate.$lte = end;
+        query.createdDate.$lte = end;
       }
     }
 
@@ -1449,18 +1455,23 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
     // Execute query with pagination
     const [adjustments, total] = await Promise.all([
       StockAdjustment.find(query)
-        .populate('branch', 'name code address city state pincode')
-        .populate('inventoryItem', 'name type unit sku')
-        .sort({ adjustmentDate: -1 })
+        .populate('locationId', 'name code address city state pincode')
+        .populate('branch', 'name code address city state pincode') // Legacy support
+        .populate('items.inventoryItem', 'name type unit sku')
+        .sort({ createdDate: -1 })
         .skip(skip)
         .limit(parseInt(limit))
         .lean(),
       StockAdjustment.countDocuments(query)
     ]);
 
-    // Manually populate adjustedBy from platform database
+    // Manually populate createdBy, approvedBy, rejectedBy from platform database
     const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
-    const userIds = [...new Set(adjustments.map(adj => adj.adjustedBy?.toString()).filter(Boolean))];
+    const userIds = [...new Set([
+      ...adjustments.map(adj => adj.createdBy?.toString()).filter(Boolean),
+      ...adjustments.map(adj => adj.approvedBy?.toString()).filter(Boolean),
+      ...adjustments.map(adj => adj.rejectedBy?.toString()).filter(Boolean)
+    ])];
     
     if (userIds.length > 0) {
       const users = await CompanyUser.find({ _id: { $in: userIds } }).select('name email').lean();
@@ -1468,10 +1479,30 @@ export const getStockAdjustments = async (companyId, branchId, filters = {}) => 
       
       // Attach user data to adjustments
       adjustments.forEach(adj => {
-        if (adj.adjustedBy) {
-          const user = userMap.get(adj.adjustedBy.toString());
+        if (adj.createdBy) {
+          const user = userMap.get(adj.createdBy.toString());
           if (user) {
-            adj.adjustedBy = {
+            adj.createdBy = {
+              _id: user._id,
+              name: user.name,
+              email: user.email
+            };
+          }
+        }
+        if (adj.approvedBy) {
+          const user = userMap.get(adj.approvedBy.toString());
+          if (user) {
+            adj.approvedBy = {
+              _id: user._id,
+              name: user.name,
+              email: user.email
+            };
+          }
+        }
+        if (adj.rejectedBy) {
+          const user = userMap.get(adj.rejectedBy.toString());
+          if (user) {
+            adj.rejectedBy = {
               _id: user._id,
               name: user.name,
               email: user.email
