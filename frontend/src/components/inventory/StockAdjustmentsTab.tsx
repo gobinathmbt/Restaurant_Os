@@ -25,23 +25,49 @@ interface Branch {
 interface StockAdjustment {
   _id: string;
   adjustmentNumber: string;
+  locationId?: {
+    _id: string;
+    name: string;
+    code: string;
+  };
   branch?: string | {
     _id: string;
     name: string;
     code: string;
   };
-  inventoryItem: {
-    _id: string;
-    name: string;
-  };
   adjustmentType: string;
-  quantity: number;
-  reason: string;
-  adjustedBy: {
+  items: Array<{
+    inventoryItem: {
+      _id: string;
+      name: string;
+      type: string;
+      unit: string;
+    };
+    currentQuantity: number;
+    adjustedQuantity: number;
+    quantityDelta: number;
+    reason: string;
+    notes?: string;
+  }>;
+  status: string;
+  createdBy: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  createdDate: string;
+  approvedBy?: {
     _id: string;
     name: string;
   };
-  adjustmentDate: string;
+  approvedDate?: string;
+  rejectedBy?: {
+    _id: string;
+    name: string;
+  };
+  rejectedDate?: string;
+  rejectionReason?: string;
+  notes?: string;
 }
 
 interface StockAdjustmentsTabProps {
@@ -212,26 +238,35 @@ export default function StockAdjustmentsTab({
         }
         tableBody={
           <>
-            {adjustments.map((adjustment, index) => (
+            {adjustments.map((adjustment, index) => {
+              // Get first item for display (adjustments can have multiple items)
+              const firstItem = adjustment.items?.[0];
+              
+              return (
               <TableRow key={adjustment._id}>
                 <TableCell className="font-medium text-muted-foreground">
                   {(adjustmentsPage - 1) * adjustmentsRowsPerPage + index + 1}
                 </TableCell>
                 <TableCell>
                   <p className="font-medium">{adjustment.adjustmentNumber}</p>
+                  {adjustment.items && adjustment.items.length > 1 && (
+                    <p className="text-xs text-muted-foreground">
+                      +{adjustment.items.length - 1} more item{adjustment.items.length > 2 ? 's' : ''}
+                    </p>
+                  )}
                 </TableCell>
-                <TableCell>{adjustment.inventoryItem?.name || '-'}</TableCell>
+                <TableCell>{firstItem?.inventoryItem?.name || '-'}</TableCell>
                 <TableCell>{getAdjustmentTypeBadge(adjustment.adjustmentType)}</TableCell>
                 <TableCell className="text-right font-medium">
-                  {adjustment.quantity}
+                  {firstItem?.adjustedQuantity || 0}
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">
-                    {adjustment.reason.replace('_', ' ')}
+                    {firstItem?.reason?.replace(/_/g, ' ') || '-'}
                   </Badge>
                 </TableCell>
-                <TableCell>{adjustment.adjustedBy?.name || '-'}</TableCell>
-                <TableCell>{formatDate(adjustment.adjustmentDate)}</TableCell>
+                <TableCell>{adjustment.createdBy?.name || '-'}</TableCell>
+                <TableCell>{formatDate(adjustment.createdDate)}</TableCell>
                 <TableCell className="text-right">
                   <Button 
                     variant="ghost" 
@@ -239,14 +274,16 @@ export default function StockAdjustmentsTab({
                     title="View adjustment details"
                     onClick={() => {
                       const branchId = typeof adjustment.branch === 'string' ? adjustment.branch : adjustment.branch?._id;
-                      handleViewAdjustment(adjustment._id, branchId || selectedBranch);
+                      const locationId = adjustment.locationId?._id || branchId || selectedBranch;
+                      handleViewAdjustment(adjustment._id, locationId);
                     }}
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </>
         }
         isLoading={adjustmentsLoading}

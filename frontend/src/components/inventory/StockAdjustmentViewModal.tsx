@@ -78,7 +78,37 @@ export default function StockAdjustmentViewModal({
     setLoading(true);
     try {
       const response = await api.inventory.getStockAdjustmentDetails(branchId, adjustmentId);
-      setAdjustmentDetails(response.data.data.adjustment);
+      const adjustment = response.data.data.adjustment;
+      
+      // Transform the API response to match the component's expected structure
+      const transformedDetails: StockAdjustmentDetails = {
+        _id: adjustment._id,
+        adjustmentNumber: adjustment.adjustmentNumber,
+        branch: adjustment.locationId || {
+          _id: '',
+          name: '',
+          code: '',
+        },
+        inventoryItem: adjustment.items?.[0]?.inventoryItem || {
+          _id: '',
+          name: '',
+          unit: '',
+        },
+        adjustmentType: adjustment.adjustmentType,
+        quantity: adjustment.items?.[0]?.quantityDelta || adjustment.items?.[0]?.adjustedQuantity || 0,
+        previousStock: adjustment.items?.[0]?.currentQuantity || 0,
+        newStock: (adjustment.items?.[0]?.currentQuantity || 0) + (adjustment.items?.[0]?.quantityDelta || 0),
+        reason: adjustment.items?.[0]?.reason || '',
+        notes: adjustment.notes,
+        adjustedBy: adjustment.createdBy || {
+          _id: '',
+          name: 'Unknown',
+        },
+        adjustmentDate: adjustment.createdDate || adjustment.createdAt,
+        createdAt: adjustment.createdAt,
+      };
+      
+      setAdjustmentDetails(transformedDetails);
     } catch (error: any) {
       console.error('Error fetching adjustment details:', error);
       toast({

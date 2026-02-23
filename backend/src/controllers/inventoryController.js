@@ -1071,30 +1071,33 @@ export const getStockAdjustmentDetails = async (req, res, next) => {
     const { companyId, userId, role } = req.user;
     const { branchId, adjustmentId } = req.params;
 
-    // Validate branchId and adjustmentId are provided
-    if (!branchId || !adjustmentId) {
+    // Support both branchId and locationId
+    const locationId = branchId;
+
+    // Validate locationId and adjustmentId are provided
+    if (!locationId || !adjustmentId) {
       return res.status(400).json({
         success: false,
-        message: 'Branch ID and Adjustment ID are required'
+        message: 'Location ID and Adjustment ID are required'
       });
     }
 
-    // Verify branch access
-    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    // Verify location access
+    const hasAccess = await verifyBranchAccess(userId, locationId, role, companyId);
     if (!hasAccess) {
       return res.status(403).json({
         success: false,
-        message: 'You do not have access to this branch'
+        message: 'You do not have access to this location'
       });
     }
 
-    // Get stock adjustment details
-    const adjustment = await inventoryService.getStockAdjustmentDetails(adjustmentId, companyId, branchId);
+    // Get stock adjustment details using stockAdjustmentService
+    const adjustment = await stockAdjustmentService.getAdjustment(adjustmentId, companyId);
 
     logger.info('Stock adjustment details retrieved via API', { 
       adjustmentId, 
       companyId, 
-      branchId, 
+      locationId, 
       userId 
     });
 
@@ -1105,10 +1108,10 @@ export const getStockAdjustmentDetails = async (req, res, next) => {
   } catch (error) {
     logger.error('Get stock adjustment details error', error);
     
-    if (error.message === 'Stock adjustment not found') {
+    if (error.message === 'Stock adjustment not found' || error.message.includes('not found')) {
       return res.status(404).json({
         success: false,
-        message: error.message
+        message: 'Stock adjustment not found'
       });
     }
 
