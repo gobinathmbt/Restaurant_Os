@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogBody,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -112,8 +113,10 @@ export default function StockAdjustmentsTab({
   // Approve/Reject state
   const [approvingId, setApprovingId] = useState<string>('');
   const [rejectingId, setRejectingId] = useState<string>('');
+  const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [adjustmentToApprove, setAdjustmentToApprove] = useState<StockAdjustment | null>(null);
   const [adjustmentToReject, setAdjustmentToReject] = useState<StockAdjustment | null>(null);
 
   // Set default branch to "all" for super admin and multi-branch admin
@@ -176,22 +179,26 @@ export default function StockAdjustmentsTab({
   };
 
   const handleQuickApprove = async (adjustment: StockAdjustment) => {
-    // Show confirmation dialog
-    const confirmed = window.confirm(
-      `Are you sure you want to approve adjustment ${adjustment.adjustmentNumber}? This will deduct the stock immediately.`
-    );
+    setAdjustmentToApprove(adjustment);
+    setShowApprovalDialog(true);
+  };
+
+  const handleApproveConfirm = async () => {
+    if (!adjustmentToApprove) return;
     
-    if (!confirmed) return;
-    
-    setApprovingId(adjustment._id);
+    setApprovingId(adjustmentToApprove._id);
     try {
-      const branchId = adjustment.locationId?._id || (typeof adjustment.branch === 'object' ? adjustment.branch._id : adjustment.branch) || selectedBranch;
-      await inventoryServices.approveStockAdjustment(branchId, adjustment._id);
+      const branchId = adjustmentToApprove.locationId?._id || (typeof adjustmentToApprove.branch === 'object' ? adjustmentToApprove.branch._id : adjustmentToApprove.branch) || selectedBranch;
+      await inventoryServices.approveStockAdjustment(branchId, adjustmentToApprove._id);
       toast({
         title: 'Success',
         description: 'Stock adjustment approved successfully',
         variant: 'success',
       });
+      
+      // Close approval dialog and reset state
+      setShowApprovalDialog(false);
+      setAdjustmentToApprove(null);
       
       // Refresh the adjustments list
       await fetchAdjustments();
@@ -210,6 +217,11 @@ export default function StockAdjustmentsTab({
     } finally {
       setApprovingId('');
     }
+  };
+
+  const handleApproveCancel = () => {
+    setShowApprovalDialog(false);
+    setAdjustmentToApprove(null);
   };
 
   const handleQuickReject = (adjustment: StockAdjustment) => {
@@ -526,41 +538,111 @@ export default function StockAdjustmentsTab({
         branchId={selectedAdjustmentBranchId}
       />
 
+      {/* Approval Confirmation Dialog */}
+      <Dialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Approve Stock Adjustment</DialogTitle>
+          </DialogHeader>
+          
+          <DialogBody>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Adjustment Number</p>
+                <p className="font-semibold text-base">{adjustmentToApprove?.adjustmentNumber}</p>
+              </div>
+              
+              {adjustmentToApprove?.locationId && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Location</p>
+                  <p className="font-semibold text-base">{adjustmentToApprove.locationId.name}</p>
+                </div>
+              )}
+              
+              {adjustmentToApprove?.items?.[0] && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Item & Quantity Change</p>
+                  <p className="font-semibold text-base">{adjustmentToApprove.items[0].inventoryItem?.name}</p>
+                  <p className="text-sm">
+                    {adjustmentToApprove.items[0].quantityDelta > 0 ? '+' : ''}{adjustmentToApprove.items[0].quantityDelta} {adjustmentToApprove.items[0].inventoryItem?.unit}
+                  </p>
+                </div>
+              )}
+              
+              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
+                <p className="text-sm text-green-800">
+                  ✓ Approving this adjustment will deduct the stock immediately and send notifications to the creator and all super admins.
+                </p>
+              </div>
+            </div>
+          </DialogBody>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={handleApproveCancel}
+              disabled={approvingId !== ''}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleApproveConfirm}
+              disabled={approvingId !== '' || rejectingId !== ''}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {approvingId !== '' ? (
+                <>
+                  <div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Approving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Approve Adjustment
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Rejection Reason Dialog */}
       <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Reject Stock Adjustment</DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                You are about to reject adjustment <span className="font-semibold">{adjustmentToReject?.adjustmentNumber}</span>
-              </p>
-              <p className="text-sm text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-                ⚠️ The creator will be notified of this rejection.
-              </p>
+          <DialogBody>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  You are about to reject adjustment <span className="font-semibold">{adjustmentToReject?.adjustmentNumber}</span>
+                </p>
+                <p className="text-sm text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                  ⚠️ The creator will be notified of this rejection.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <label htmlFor="rejectionReason" className="text-sm font-medium">
+                  Rejection Reason <span className="text-red-500">*</span>
+                </label>
+                <Textarea
+                  id="rejectionReason"
+                  placeholder="Please provide a detailed reason for rejecting this adjustment (minimum 10 characters)..."
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  rows={4}
+                  maxLength={500}
+                  className="resize-none"
+                />
+                <p className="text-xs text-muted-foreground text-right">
+                  {rejectionReason.length}/500 characters
+                </p>
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <label htmlFor="rejectionReason" className="text-sm font-medium">
-                Rejection Reason <span className="text-red-500">*</span>
-              </label>
-              <Textarea
-                id="rejectionReason"
-                placeholder="Please provide a detailed reason for rejecting this adjustment (minimum 10 characters)..."
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                rows={4}
-                maxLength={500}
-                className="resize-none"
-              />
-              <p className="text-xs text-muted-foreground text-right">
-                {rejectionReason.length}/500 characters
-              </p>
-            </div>
-          </div>
+          </DialogBody>
           
           <DialogFooter>
             <Button

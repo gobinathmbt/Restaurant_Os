@@ -125,6 +125,7 @@ export default function StockAdjustmentViewModal({
   // Approval/rejection state
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   
@@ -253,15 +254,13 @@ export default function StockAdjustmentViewModal({
     return reasonLabels[reason] || reason;
   };
 
-  const handleApprove = async () => {
+  const handleApprove = () => {
+    // Open approval dialog
+    setShowApprovalDialog(true);
+  };
+
+  const handleConfirmApproval = async () => {
     if (!adjustmentDetails) return;
-    
-    // Show confirmation dialog
-    const confirmed = window.confirm(
-      `Are you sure you want to approve adjustment ${adjustmentDetails.adjustmentNumber}? This will deduct the stock immediately.`
-    );
-    
-    if (!confirmed) return;
     
     setApproving(true);
     try {
@@ -271,6 +270,9 @@ export default function StockAdjustmentViewModal({
         description: 'Stock adjustment approved successfully',
         variant: 'success',
       });
+      
+      // Close approval dialog
+      setShowApprovalDialog(false);
       
       // Refresh the adjustment details
       await fetchAdjustmentDetails();
@@ -689,6 +691,80 @@ export default function StockAdjustmentViewModal({
               )}
             </Button>
           </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    
+    {/* Approval Confirmation Dialog */}
+    <Dialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-green-600" />
+            Approve Stock Adjustment
+          </DialogTitle>
+        </DialogHeader>
+        
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <p className="text-sm text-green-800">
+                <strong>Are you sure you want to approve this adjustment?</strong>
+              </p>
+              <p className="text-sm text-green-700 mt-2">
+                This action will immediately deduct the stock from inventory and cannot be undone.
+              </p>
+            </div>
+            
+            {adjustmentDetails && (
+              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Adjustment Number:</span>
+                  <span className="font-medium">{adjustmentDetails.adjustmentNumber}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Location:</span>
+                  <span className="font-medium">{adjustmentDetails.locationId?.name || 'Unknown'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Items:</span>
+                  <span className="font-medium">{adjustmentDetails.items?.length || 0}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Type:</span>
+                  <span className="font-medium">{adjustmentDetails.adjustmentType}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogBody>
+        
+        <DialogFooter className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowApprovalDialog(false)}
+            disabled={approving}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="default"
+            onClick={handleConfirmApproval}
+            disabled={approving}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            {approving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Approving...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Confirm Approval
+              </>
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

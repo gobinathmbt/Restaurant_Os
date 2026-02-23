@@ -2093,22 +2093,35 @@ export const resendStockAdjustmentInAppNotifications = async (adjustmentId, comp
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
 
-    // Get stock adjustment with populated details
+    // Get stock adjustment with populated locationId and items.inventoryItem
     const adjustment = await StockAdjustment.findById(adjustmentId)
-      .populate('branch', 'name code')
-      .populate('inventoryItem', 'name')
+      .populate('locationId', 'name code address')
+      .populate('items.inventoryItem', 'name type unit sku')
       .lean();
 
     if (!adjustment) {
       throw new Error('Stock adjustment not found');
     }
 
-    // Manually populate adjustedBy from platform database
-    if (adjustment.adjustedBy) {
+    // Manually populate createdBy from platform database
+    if (adjustment.createdBy) {
       const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
-      const user = await CompanyUser.findById(adjustment.adjustedBy).select('name email').lean();
+      const user = await CompanyUser.findById(adjustment.createdBy).select('name email').lean();
       if (user) {
-        adjustment.adjustedBy = {
+        adjustment.createdBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
+    }
+
+    // Manually populate approvedBy from platform database if exists
+    if (adjustment.approvedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(adjustment.approvedBy).select('name email').lean();
+      if (user) {
+        adjustment.approvedBy = {
           _id: user._id,
           name: user.name,
           email: user.email
@@ -2144,24 +2157,55 @@ export const getStockAdjustmentDetails = async (adjustmentId, companyId, branchI
     const StockAdjustment = getStockAdjustmentModel(companyDB);
 
     // Get stock adjustment with populated details
+    // Use locationId for the current location-based architecture
     const adjustment = await StockAdjustment.findOne({
       _id: adjustmentId,
-      branch: branchId
+      $or: [
+        { locationId: branchId },
+        { branch: branchId }  // Backward compatibility
+      ]
     })
+      .populate('locationId', 'name code address')
       .populate('branch', 'name code address')
-      .populate('inventoryItem', 'name unit type sku')
+      .populate('items.inventoryItem', 'name unit type sku')
       .lean();
 
     if (!adjustment) {
       throw new Error('Stock adjustment not found');
     }
 
-    // Manually populate adjustedBy from platform database
-    if (adjustment.adjustedBy) {
+    // Manually populate createdBy from platform database
+    if (adjustment.createdBy) {
       const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
-      const user = await CompanyUser.findById(adjustment.adjustedBy).select('name email').lean();
+      const user = await CompanyUser.findById(adjustment.createdBy).select('name email').lean();
       if (user) {
-        adjustment.adjustedBy = {
+        adjustment.createdBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
+    }
+
+    // Manually populate approvedBy from platform database if exists
+    if (adjustment.approvedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(adjustment.approvedBy).select('name email').lean();
+      if (user) {
+        adjustment.approvedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
+    }
+
+    // Manually populate rejectedBy from platform database if exists
+    if (adjustment.rejectedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(adjustment.rejectedBy).select('name email').lean();
+      if (user) {
+        adjustment.rejectedBy = {
           _id: user._id,
           name: user.name,
           email: user.email

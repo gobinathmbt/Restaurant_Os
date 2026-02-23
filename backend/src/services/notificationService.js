@@ -11,6 +11,7 @@ import emailService from './emailService.js';
 import whatsappService from './whatsappService.js';
 import smsService from './smsService.js';
 import { logger } from '../utils/logger.js';
+import { ENV } from '../config/env.js';
 
 class NotificationService {
   /**
@@ -300,6 +301,196 @@ class NotificationService {
 
     await Promise.allSettled(promises);
     await notification.save();
+  }
+
+  /**
+   * Send stock adjustment approval email
+   */
+  async sendStockAdjustmentApprovalEmail(recipientEmail, data) {
+    try {
+      const {
+        title,
+        message,
+        adjustmentNumber,
+        locationName,
+        itemCount,
+        adjustmentType,
+        createdByName,
+        actionUrl,
+        priority = 'medium'
+      } = data;
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #10b981; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+            .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+            .details { background: white; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #10b981; }
+            .detail-row { display: flex; justify-content: space-between; margin: 8px 0; }
+            .detail-label { font-weight: bold; color: #6B7280; }
+            .button { display: inline-block; background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 20px; }
+            .footer { text-align: center; margin-top: 20px; color: #6B7280; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h2>${title}</h2>
+            </div>
+            <div class="content">
+              <p>${message}</p>
+              <div class="details">
+                <div class="detail-row">
+                  <span class="detail-label">Adjustment Number:</span>
+                  <span>${adjustmentNumber}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Location:</span>
+                  <span>${locationName}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Items:</span>
+                  <span>${itemCount}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Type:</span>
+                  <span>${adjustmentType}</span>
+                </div>
+                ${createdByName ? `
+                <div class="detail-row">
+                  <span class="detail-label">Created By:</span>
+                  <span>${createdByName}</span>
+                </div>
+                ` : ''}
+              </div>
+              ${actionUrl ? `<a href="${actionUrl}" class="button">View Adjustment</a>` : ''}
+            </div>
+            <div class="footer">
+              <p>Restaurant Management Platform</p>
+              <p>This is an automated notification. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await emailService.sendNotificationEmail(recipientEmail, {
+        title: title,
+        message: message,
+        actionUrl: actionUrl,
+        priority: priority,
+        html: html
+      });
+
+      logger.info(`Stock adjustment approval email sent to ${recipientEmail} for ${adjustmentNumber}`);
+      return true;
+    } catch (error) {
+      logger.error(`Error sending stock adjustment approval email to ${recipientEmail}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send stock adjustment creation email (pending approval or auto-approved)
+   */
+  async sendStockAdjustmentCreationEmail(recipientEmail, data) {
+    try {
+      const {
+        title,
+        message,
+        adjustmentNumber,
+        locationName,
+        itemCount,
+        adjustmentType,
+        createdByName,
+        isAutoApproved = false,
+        actionUrl,
+        priority = 'medium'
+      } = data;
+
+      const statusBadge = isAutoApproved 
+        ? '<span style="background: #10b981; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">AUTO-APPROVED</span>'
+        : '<span style="background: #f59e0b; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold;">PENDING APPROVAL</span>';
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: ${isAutoApproved ? '#10b981' : '#f59e0b'}; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+            .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+            .details { background: white; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid ${isAutoApproved ? '#10b981' : '#f59e0b'}; }
+            .detail-row { display: flex; justify-content: space-between; margin: 8px 0; }
+            .detail-label { font-weight: bold; color: #6B7280; }
+            .button { display: inline-block; background: ${isAutoApproved ? '#10b981' : '#f59e0b'}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 20px; }
+            .status-badge { display: inline-block; ${statusBadge} margin-left: 10px; }
+            .footer { text-align: center; margin-top: 20px; color: #6B7280; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h2>${title}</h2>
+            </div>
+            <div class="content">
+              <p>${message}</p>
+              <div class="details">
+                <div class="detail-row">
+                  <span class="detail-label">Adjustment Number:</span>
+                  <span>${adjustmentNumber}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Location:</span>
+                  <span>${locationName}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Items:</span>
+                  <span>${itemCount}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Type:</span>
+                  <span>${adjustmentType}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Created By:</span>
+                  <span>${createdByName}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Status:</span>
+                  <span>${isAutoApproved ? 'Auto-Approved' : 'Pending Approval'}</span>
+                </div>
+              </div>
+              ${actionUrl ? `<a href="${actionUrl}" class="button">View Adjustment Details</a>` : ''}
+            </div>
+            <div class="footer">
+              <p>Restaurant Management Platform</p>
+              <p>This is an automated notification. Please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await emailService.sendNotificationEmail(recipientEmail, {
+        title: title,
+        message: message,
+        actionUrl: actionUrl,
+        priority: priority,
+        html: html
+      });
+
+      logger.info(`Stock adjustment creation email sent to ${recipientEmail} for ${adjustmentNumber}`);
+      return true;
+    } catch (error) {
+      logger.error(`Error sending stock adjustment creation email to ${recipientEmail}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -824,7 +1015,20 @@ class NotificationService {
         return { success: false, message: 'No super admins found' };
       }
 
-      logger.info(`Sending in-app notifications to ${superAdmins.length} super admin(s) for stock adjustment`);
+      // Get creator ID
+      const creatorId = adjustmentDetails.createdBy?._id || adjustmentDetails.createdBy;
+
+      // Filter out the creator if auto-approved (super admin creating their own adjustment)
+      const recipientAdmins = isAutoApproved 
+        ? superAdmins.filter(admin => admin._id.toString() !== creatorId?.toString())
+        : superAdmins;
+
+      if (recipientAdmins.length === 0) {
+        logger.info(`No other super admins to notify for auto-approved adjustment ${adjustmentDetails.adjustmentNumber}`);
+        return { success: true, message: 'No other super admins to notify' };
+      }
+
+      logger.info(`Sending in-app notifications to ${recipientAdmins.length} super admin(s) for stock adjustment`);
 
       // Build item summary
       const itemCount = adjustmentDetails.items?.length || 0;
@@ -842,8 +1046,8 @@ class NotificationService {
         ? `Adjustment ${adjustmentDetails.adjustmentNumber} created and auto-approved at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`
         : `Adjustment ${adjustmentDetails.adjustmentNumber} requires your approval at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`;
 
-      // Send in-app notifications to all super admins
-      const inAppPromises = superAdmins.map(admin => 
+      // Send in-app notifications to recipient super admins
+      const inAppPromises = recipientAdmins.map(admin => 
         this.sendToCompanyUser(companyId, admin._id, {
           category: 'inventory',
           event: isAutoApproved ? 'stock_adjustment_auto_approved' : 'stock_adjustment_pending',
@@ -867,13 +1071,32 @@ class NotificationService {
       );
 
       await Promise.allSettled(inAppPromises);
-      logger.info(`In-app notifications sent to ${superAdmins.length} super admin(s) for stock adjustment`);
+      logger.info(`In-app notifications sent to ${recipientAdmins.length} super admin(s) for stock adjustment`);
 
-      // TODO: Implement email notifications to super admins
-      // Email service integration pending
-      logger.info(`TODO: Email notifications would be sent to ${superAdmins.length} super admin(s) for stock adjustment ${adjustmentDetails.adjustmentNumber}`);
+      // Send email notifications to recipient super admins
+      const emailPromises = recipientAdmins.map(admin =>
+        this.sendStockAdjustmentCreationEmail(admin.email, {
+          title: isAutoApproved ? 'Stock Adjustment Created & Auto-Approved' : 'Stock Adjustment Pending Approval',
+          message: isAutoApproved
+            ? `Adjustment ${adjustmentDetails.adjustmentNumber} created and auto-approved at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`
+            : `Adjustment ${adjustmentDetails.adjustmentNumber} requires your approval at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`,
+          adjustmentNumber: adjustmentDetails.adjustmentNumber,
+          locationName: locationName,
+          itemCount: itemCount,
+          adjustmentType: adjustmentDetails.adjustmentType,
+          createdByName: createdByName,
+          isAutoApproved: isAutoApproved,
+          actionUrl: `${ENV.FRONTEND_URL}/inventory/adjustments/${adjustmentDetails._id}`
+        }).catch(error => {
+          logger.error(`Failed to send email to super admin ${admin.email}:`, error);
+          return false;
+        })
+      );
 
-      return { success: true, message: `In-app notifications sent to ${superAdmins.length} super admin(s)` };
+      await Promise.allSettled(emailPromises);
+      logger.info(`Email notifications sent to ${recipientAdmins.length} super admin(s) for stock adjustment ${adjustmentDetails.adjustmentNumber}`);
+
+      return { success: true, message: `In-app and email notifications sent to ${recipientAdmins.length} super admin(s)` };
     } catch (error) {
       logger.error('Error in notifyStockAdjustmentCreation:', error);
       throw error;
@@ -906,10 +1129,17 @@ class NotificationService {
         return { success: false, message: 'Creator user not found' };
       }
 
+      // Find all active super admin users
+      const superAdmins = await CompanyUser.find({
+        companyId,
+        role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] },
+        isActive: true
+      });
+
       const locationName = adjustmentDetails.locationId?.name || 'Unknown location';
       const itemCount = adjustmentDetails.items?.length || 0;
 
-      // Send in-app notification ONLY to the creator
+      // Send in-app notification to the creator (branch manager/company admin)
       await this.sendToCompanyUser(companyId, creatorId, {
         category: 'inventory',
         event: 'stock_adjustment_approved',
@@ -929,9 +1159,76 @@ class NotificationService {
 
       logger.info(`Approval notification sent to creator ${creator.name} for adjustment ${adjustmentDetails.adjustmentNumber}`);
 
-      // Note: Email notifications are intentionally NOT sent for approvals (in-app only)
+      // Send in-app notifications to all super admins
+      if (superAdmins.length > 0) {
+        const inAppPromises = superAdmins.map(admin => 
+          this.sendToCompanyUser(companyId, admin._id, {
+            category: 'inventory',
+            event: 'stock_adjustment_approved',
+            title: 'Stock Adjustment Approved',
+            message: `Stock adjustment ${adjustmentDetails.adjustmentNumber} at ${locationName} has been approved. ${itemCount} item(s) processed. Created by: ${creator.name}`,
+            data: {
+              adjustmentId: adjustmentDetails._id,
+              adjustmentNumber: adjustmentDetails.adjustmentNumber,
+              locationName: locationName,
+              adjustmentType: adjustmentDetails.adjustmentType,
+              itemCount: itemCount,
+              createdByName: creator.name,
+              approvedBy: adjustmentDetails.approvedBy
+            },
+            priority: 'low',
+            actionUrl: `/inventory/adjustments/${adjustmentDetails._id}`
+          }).catch(error => {
+            logger.error(`Failed to send in-app notification to admin ${admin._id}:`, error);
+            return null;
+          })
+        );
 
-      return { success: true, message: 'Approval notification sent to creator' };
+        await Promise.allSettled(inAppPromises);
+        logger.info(`Approval notifications sent to ${superAdmins.length} super admin(s) for adjustment ${adjustmentDetails.adjustmentNumber}`);
+      }
+
+      // Send email notifications to the creator
+      const creatorEmailSent = await this.sendStockAdjustmentApprovalEmail(creator.email, {
+        title: 'Stock Adjustment Approved',
+        message: `Your stock adjustment ${adjustmentDetails.adjustmentNumber} at ${locationName} has been approved. ${itemCount} item(s) processed.`,
+        adjustmentNumber: adjustmentDetails.adjustmentNumber,
+        locationName: locationName,
+        itemCount: itemCount,
+        adjustmentType: adjustmentDetails.adjustmentType,
+        actionUrl: `${ENV.FRONTEND_URL}/inventory/adjustments/${adjustmentDetails._id}`
+      }).catch(error => {
+        logger.error(`Failed to send email to creator ${creator.email}:`, error);
+        return false;
+      });
+
+      if (creatorEmailSent) {
+        logger.info(`Approval email sent to creator ${creator.email} for adjustment ${adjustmentDetails.adjustmentNumber}`);
+      }
+
+      // Send email notifications to all super admins
+      if (superAdmins.length > 0) {
+        const emailPromises = superAdmins.map(admin =>
+          this.sendStockAdjustmentApprovalEmail(admin.email, {
+            title: 'Stock Adjustment Approved',
+            message: `Stock adjustment ${adjustmentDetails.adjustmentNumber} at ${locationName} has been approved. ${itemCount} item(s) processed. Created by: ${creator.name}`,
+            adjustmentNumber: adjustmentDetails.adjustmentNumber,
+            locationName: locationName,
+            itemCount: itemCount,
+            adjustmentType: adjustmentDetails.adjustmentType,
+            createdByName: creator.name,
+            actionUrl: `${ENV.FRONTEND_URL}/inventory/adjustments/${adjustmentDetails._id}`
+          }).catch(error => {
+            logger.error(`Failed to send email to admin ${admin.email}:`, error);
+            return false;
+          })
+        );
+
+        await Promise.allSettled(emailPromises);
+        logger.info(`Approval emails sent to ${superAdmins.length} super admin(s) for adjustment ${adjustmentDetails.adjustmentNumber}`);
+      }
+
+      return { success: true, message: 'Approval notifications and emails sent to creator and super admins' };
     } catch (error) {
       logger.error('Error in notifyStockAdjustmentApproval:', error);
       throw error;
