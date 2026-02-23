@@ -9,8 +9,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Package, Building2, FileText, Bell, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { Loader2, Package, Building2, FileText, Bell, TrendingUp, TrendingDown, RefreshCw, CheckCircle2, XCircle, FileEdit, Clock } from 'lucide-react';
 import api from '@/api/services';
 
 interface StockAdjustmentDetails {
@@ -104,18 +105,32 @@ interface StockAdjustmentViewModalProps {
   onClose: () => void;
   adjustmentId: string;
   branchId: string;
+  userRole?: string;
+  onAdjustmentUpdated?: () => void;
 }
 
 export default function StockAdjustmentViewModal({ 
   open, 
   onClose, 
   adjustmentId, 
-  branchId 
+  branchId,
+  userRole,
+  onAdjustmentUpdated
 }: StockAdjustmentViewModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [adjustmentDetails, setAdjustmentDetails] = useState<StockAdjustmentDetails | null>(null);
   const [resendingInApp, setResendingInApp] = useState(false);
+  
+  // Approval/rejection state
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+  
+  // Role checks
+  const isSuperAdmin = userRole === 'company_super_admin_primary' || userRole === 'company_super_admin_secondary';
+  const canApproveOrReject = adjustmentDetails?.status === 'pending_approval' && isSuperAdmin;
 
   useEffect(() => {
     if (open && adjustmentId && branchId) {
@@ -148,7 +163,7 @@ export default function StockAdjustmentViewModal({
         },
         quantity: firstItem?.quantityDelta || firstItem?.adjustedQuantity || 0,
         previousStock: firstItem?.currentQuantity || 0,
-        newStock: firstItem?.adjustedQuantity || 0,
+        newStock: (firstItem?.currentQuantity || 0) + (firstItem?.quantityDelta || 0),
         reason: firstItem?.reason || '',
         adjustedBy: adjustment.createdBy || {
           _id: '',
@@ -238,7 +253,91 @@ export default function StockAdjustmentViewModal({
     return reasonLabels[reason] || reason;
   };
 
+  const handleApprove = async () => {
+    if (!adjustmentDetails) return;
+    
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      `Are you sure you want to approve adjustment ${adjustmentDetails.adjustmentNumber}? This will deduct the stock immediately.`
+    );
+    
+    if (!confirmed) return;
+    
+    setApproving(true);
+    try {
+      await api.inventory.approveStockAdjustment(branchId, adjustmentDetails._id);
+      toast({
+        title: 'Success',
+        description: 'Stock adjustment approved successfully',
+        variant: 'success',
+      });
+      
+      // Refresh the adjustment details
+      await fetchAdjustmentDetails();
+      
+      // Notify parent component
+      if (onAdjustmentUpdated) {
+        onAdjustmentUpdated();
+      }
+    } catch (error: any) {
+      console.error('Error approving adjustment:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to approve adjustment',
+        variant: 'destructive',
+      });
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!adjustmentDetails) return;
+    
+    // Validate rejection reason
+    if (rejectionReason.trim().length < 10) {
+      toast({
+        title: 'Validation Error',
+        description: 'Rejection reason must be at least 10 characters',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setRejecting(true);
+    try {
+      await api.inventory.rejectStockAdjustment(branchId, adjustmentDetails._id, { rejectionReason: rejectionReason.trim() });
+      toast({
+        title: 'Success',
+        description: 'Stock adjustment rejected successfully',
+        variant: 'success',
+      });
+      
+      // Close reject dialog
+      setShowRejectDialog(false);
+      setRejectionReason('');
+      
+      // Refresh the adjustment details
+      await fetchAdjustmentDetails();
+      
+      // Notify parent component
+      if (onAdjustmentUpdated) {
+        onAdjustmentUpdated();
+      }
+    } catch (error: any) {
+      console.error('Error rejecting adjustment:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to reject adjustment',
+        variant: 'destructive',
+      });
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -408,6 +507,115 @@ export default function StockAdjustmentViewModal({
                   <p className="text-sm text-muted-foreground">{adjustmentDetails.notes}</p>
                 </div>
               )}
+
+              {/* Status Timeline */}
+              <div className="border rounded-lg p-4 space-y-3">
+                <h3 className="font-semibold text-lg mb-4">Status Timeline</h3>
+                <div className="relative space-y-6 pl-8">
+                  {/* Created Milestone */}
+                  <div className="relative">
+                    <div className="absolute -left-8 top-0 flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 border-2 border-blue-500">
+                      <FileEdit className="h-4 w-4 text-blue-600" />
+                    </div>
+                    {(adjustmentDetails.status === 'pending_approval' || adjustmentDetails.status === 'approved' || adjustmentDetails.status === 'rejected') && (
+                      <div className="absolute -left-4 top-8 w-0.5 h-full bg-gray-300"></div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-blue-700">Created</span>
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+                          {formatDate(adjustmentDetails.createdDate)}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Created by <span className="font-medium text-foreground">{adjustmentDetails.createdBy.name}</span>
+                        {adjustmentDetails.createdBy.email && (
+                          <span className="text-xs"> ({adjustmentDetails.createdBy.email})</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Pending Approval Milestone */}
+                  {adjustmentDetails.status === 'pending_approval' && (
+                    <div className="relative">
+                      <div className="absolute -left-8 top-0 flex items-center justify-center w-8 h-8 rounded-full bg-yellow-100 border-2 border-yellow-500 animate-pulse">
+                        <Clock className="h-4 w-4 text-yellow-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-yellow-700">Pending Approval</span>
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                            Awaiting Review
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Waiting for super admin approval
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Approved Milestone */}
+                  {adjustmentDetails.status === 'approved' && adjustmentDetails.approvedBy && (
+                    <div className="relative">
+                      <div className="absolute -left-8 top-0 flex items-center justify-center w-8 h-8 rounded-full bg-green-100 border-2 border-green-500">
+                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-green-700">Approved</span>
+                          {adjustmentDetails.approvedDate && (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                              {formatDate(adjustmentDetails.approvedDate)}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Approved by <span className="font-medium text-foreground">{adjustmentDetails.approvedBy.name}</span>
+                          {adjustmentDetails.approvedBy.email && (
+                            <span className="text-xs"> ({adjustmentDetails.approvedBy.email})</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-green-600 mt-1">
+                          Stock has been adjusted
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rejected Milestone */}
+                  {adjustmentDetails.status === 'rejected' && adjustmentDetails.rejectedBy && (
+                    <div className="relative">
+                      <div className="absolute -left-8 top-0 flex items-center justify-center w-8 h-8 rounded-full bg-red-100 border-2 border-red-500">
+                        <XCircle className="h-4 w-4 text-red-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-red-700">Rejected</span>
+                          {adjustmentDetails.rejectedDate && (
+                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+                              {formatDate(adjustmentDetails.rejectedDate)}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Rejected by <span className="font-medium text-foreground">{adjustmentDetails.rejectedBy.name}</span>
+                          {adjustmentDetails.rejectedBy.email && (
+                            <span className="text-xs"> ({adjustmentDetails.rejectedBy.email})</span>
+                          )}
+                        </p>
+                        {adjustmentDetails.rejectionReason && (
+                          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm">
+                            <p className="font-medium text-red-900 mb-1">Rejection Reason:</p>
+                            <p className="text-red-700">{adjustmentDetails.rejectionReason}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="text-center py-12 text-muted-foreground">
@@ -421,6 +629,47 @@ export default function StockAdjustmentViewModal({
             Close
           </Button>
           <div className="flex flex-wrap gap-2">
+            {canApproveOrReject && (
+              <>
+                <Button
+                  variant="default"
+                  onClick={handleApprove}
+                  disabled={approving || rejecting}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  size="sm"
+                >
+                  {approving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Approving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Approve
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => setShowRejectDialog(true)}
+                  disabled={approving || rejecting}
+                  size="sm"
+                >
+                  {rejecting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Rejecting...
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="mr-2 h-4 w-4" />
+                      Reject
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
             <Button
               variant="outline"
               onClick={handleResendInAppNotifications}
@@ -443,5 +692,81 @@ export default function StockAdjustmentViewModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    
+    {/* Rejection Reason Dialog */}
+    <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <XCircle className="h-5 w-5 text-destructive" />
+            Reject Stock Adjustment
+          </DialogTitle>
+        </DialogHeader>
+        
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <p className="text-sm text-yellow-800">
+                The creator will be notified about this rejection with your reason.
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <label htmlFor="rejectionReason" className="text-sm font-medium">
+                Rejection Reason <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                id="rejectionReason"
+                placeholder="Please provide a detailed reason for rejecting this adjustment (minimum 10 characters)..."
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                rows={4}
+                maxLength={500}
+                className="resize-none"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>
+                  {rejectionReason.length < 10 
+                    ? `${10 - rejectionReason.length} more characters required` 
+                    : 'Minimum length met'}
+                </span>
+                <span>{rejectionReason.length}/500</span>
+              </div>
+            </div>
+          </div>
+        </DialogBody>
+        
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowRejectDialog(false);
+              setRejectionReason('');
+            }}
+            disabled={rejecting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleReject}
+            disabled={rejecting || rejectionReason.trim().length < 10}
+          >
+            {rejecting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Rejecting...
+              </>
+            ) : (
+              <>
+                <XCircle className="mr-2 h-4 w-4" />
+                Reject
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

@@ -53,7 +53,7 @@ const generateAdjustmentNumber = async (companyDB) => {
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Created adjustment
  */
-export const createAdjustment = async (adjustmentData, companyId) => {
+export const createAdjustment = async (adjustmentData, companyId, userRole) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
@@ -161,60 +161,129 @@ export const createAdjustment = async (adjustmentData, companyId) => {
 
     await adjustment.save();
 
-    // Populate the adjustment with related data for notifications
-    const populatedAdjustment = await StockAdjustment.findById(adjustment._id)
-      .populate('locationId', 'name code address')
-      .populate('items.inventoryItem', 'name type unit sku')
-      .lean();
+    // Check if user is super admin
+    const isSuperAdmin = userRole === 'company_super_admin_primary' || 
+                         userRole === 'company_super_admin_secondary';
+    
+    if (isSuperAdmin) {
+      // Auto-approve for super admins
+      await approveAdjustment(adjustment._id, adjustmentData.createdBy, companyId);
+      
+      // Fetch the approved adjustment with populated fields
+      const approvedAdjustment = await StockAdjustment.findById(adjustment._id)
+        .populate('locationId', 'name code address')
+        .populate('items.inventoryItem', 'name type unit sku')
+        .lean();
 
-    // Manually populate createdBy from platform database
-    const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
-    const createdByUser = await CompanyUser.findById(adjustmentData.createdBy)
-      .select('name email')
-      .lean();
+      // Manually populate createdBy from platform database
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const createdByUser = await CompanyUser.findById(adjustmentData.createdBy)
+        .select('name email')
+        .lean();
 
-    if (createdByUser) {
-      populatedAdjustment.createdBy = {
-        _id: createdByUser._id,
-        name: createdByUser.name,
-        email: createdByUser.email
-      };
-    }
-
-    // Send notifications asynchronously
-    setImmediate(async () => {
-      try {
-        const notificationService = (await import('./notificationService.js')).default;
-        await notificationService.notifyStockAdjustmentCreation(companyId, populatedAdjustment);
-        logger.info(`Notifications sent for stock adjustment ${adjustment.adjustmentNumber}`);
-      } catch (notificationError) {
-        logger.error('Error sending stock adjustment notifications:', notificationError);
-        // Don't fail the adjustment creation if notifications fail
+      if (createdByUser) {
+        approvedAdjustment.createdBy = {
+          _id: createdByUser._id,
+          name: createdByUser.name,
+          email: createdByUser.email
+        };
       }
-    });
 
-    // Publish domain event
-    await publishDomainEvent(companyDB, {
-      eventType: 'ADJUSTMENT_CREATED',
-      entityType: 'ADJUSTMENT',
-      entityId: adjustment._id,
-      payload: {
-        adjustmentNumber: adjustment.adjustmentNumber,
-        adjustmentType: adjustment.adjustmentType,
-        locationId: adjustment.locationId,
-        itemCount: adjustment.items.length,
-        status: adjustment.status
-      },
-      userId: adjustmentData.createdBy,
-      locationId: adjustment.locationId
-    }, companyId);
+      // Send notifications asynchronously (auto-approved)
+      setImmediate(async () => {
+        try {
+          const notificationService = (await import('./notificationService.js')).default;
+          await notificationService.notifyStockAdjustmentCreation(companyId, approvedAdjustment, true);
+          logger.info(`Notifications sent for auto-approved stock adjustment ${approvedAdjustment.adjustmentNumber}`);
+        } catch (notificationError) {
+          logger.error('Error sending stock adjustment notifications:', notificationError);
+          // Don't fail the adjustment creation if notifications fail
+        }
+      });
 
-    logger.info(
-      `Stock adjustment created: ${adjustment.adjustmentNumber} ` +
-      `(${adjustment.adjustmentType}) at ${location.name} for company: ${companyId}`
-    );
+      // Publish domain event
+      await publishDomainEvent(companyDB, {
+        eventType: 'ADJUSTMENT_CREATED',
+        entityType: 'ADJUSTMENT',
+        entityId: approvedAdjustment._id,
+        payload: {
+          adjustmentNumber: approvedAdjustment.adjustmentNumber,
+          adjustmentType: approvedAdjustment.adjustmentType,
+          locationId: approvedAdjustment.locationId,
+          itemCount: approvedAdjustment.items.length,
+          status: approvedAdjustment.status,
+          autoApproved: true
+        },
+        userId: adjustmentData.createdBy,
+        locationId: approvedAdjustment.locationId
+      }, companyId);
 
-    return adjustment;
+      logger.info(
+        `Stock adjustment auto-approved: ${approvedAdjustment.adjustmentNumber} ` +
+        `(${approvedAdjustment.adjustmentType}) at ${location.name} by super admin for company: ${companyId}`
+      );
+
+      return approvedAdjustment;
+    } else {
+      // Company admin - set to pending approval
+      adjustment.status = 'pending_approval';
+      await adjustment.save();
+
+      // Populate the adjustment with related data for notifications
+      const populatedAdjustment = await StockAdjustment.findById(adjustment._id)
+        .populate('locationId', 'name code address')
+        .populate('items.inventoryItem', 'name type unit sku')
+        .lean();
+
+      // Manually populate createdBy from platform database
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const createdByUser = await CompanyUser.findById(adjustmentData.createdBy)
+        .select('name email')
+        .lean();
+
+      if (createdByUser) {
+        populatedAdjustment.createdBy = {
+          _id: createdByUser._id,
+          name: createdByUser.name,
+          email: createdByUser.email
+        };
+      }
+
+      // Send notifications asynchronously (pending approval)
+      setImmediate(async () => {
+        try {
+          const notificationService = (await import('./notificationService.js')).default;
+          await notificationService.notifyStockAdjustmentCreation(companyId, populatedAdjustment, false);
+          logger.info(`Notifications sent for pending stock adjustment ${populatedAdjustment.adjustmentNumber}`);
+        } catch (notificationError) {
+          logger.error('Error sending stock adjustment notifications:', notificationError);
+          // Don't fail the adjustment creation if notifications fail
+        }
+      });
+
+      // Publish domain event
+      await publishDomainEvent(companyDB, {
+        eventType: 'ADJUSTMENT_CREATED',
+        entityType: 'ADJUSTMENT',
+        entityId: populatedAdjustment._id,
+        payload: {
+          adjustmentNumber: populatedAdjustment.adjustmentNumber,
+          adjustmentType: populatedAdjustment.adjustmentType,
+          locationId: populatedAdjustment.locationId,
+          itemCount: populatedAdjustment.items.length,
+          status: populatedAdjustment.status
+        },
+        userId: adjustmentData.createdBy,
+        locationId: populatedAdjustment.locationId
+      }, companyId);
+
+      logger.info(
+        `Stock adjustment created (pending approval): ${populatedAdjustment.adjustmentNumber} ` +
+        `(${populatedAdjustment.adjustmentType}) at ${location.name} for company: ${companyId}`
+      );
+
+      return populatedAdjustment;
+    }
   } catch (error) {
     logger.error('Error creating stock adjustment:', error);
     throw error;
@@ -396,6 +465,20 @@ export const approveAdjustment = async (adjustmentId, userId, companyId) => {
       `Stock adjustment approved: ${result.adjustmentNumber} by user ${userId} for company: ${companyId}`
     );
 
+    // Send notification to creator (in-app only) - async
+    if (result.createdBy && result.createdBy.toString() !== userId.toString()) {
+      setImmediate(async () => {
+        try {
+          const notificationService = (await import('./notificationService.js')).default;
+          await notificationService.notifyStockAdjustmentApproval(companyId, result);
+          logger.info(`Approval notification sent to creator for adjustment ${result.adjustmentNumber}`);
+        } catch (notificationError) {
+          logger.error('Error sending stock adjustment approval notification:', notificationError);
+          // Don't fail the approval if notification fails
+        }
+      });
+    }
+
     return result;
   } catch (error) {
     logger.error('Error approving stock adjustment:', error);
@@ -463,7 +546,25 @@ export const rejectAdjustment = async (adjustmentId, userId, rejectionReason, co
       `Stock adjustment rejected: ${adjustment.adjustmentNumber} by user ${userId} for company: ${companyId}`
     );
 
-    return adjustment;
+    // Fetch populated adjustment for notification
+    const populatedAdjustment = await StockAdjustment.findById(adjustment._id)
+      .populate('locationId', 'name code address')
+      .populate('items.inventoryItem', 'name type unit sku')
+      .lean();
+
+    // Notify the creator (in-app only) - async, only if not self-rejection
+    if (adjustment.createdBy && adjustment.createdBy.toString() !== userId.toString()) {
+      setImmediate(async () => {
+        try {
+          const notificationService = (await import('./notificationService.js')).default;
+          await notificationService.notifyStockAdjustmentRejection(companyId, populatedAdjustment);
+        } catch (error) {
+          logger.error('Error sending rejection notification:', error);
+        }
+      });
+    }
+
+    return populatedAdjustment;
   } catch (error) {
     logger.error('Error rejecting stock adjustment:', error);
     throw error;

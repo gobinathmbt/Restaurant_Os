@@ -389,6 +389,9 @@ export const inventoryServices = {
     apiClient.post(`/api/inventory/branches/${branchId}/stock-levels`, { itemIds }),
 
   // Stock Adjustments - Updated to support locationId and adjustment types
+  getPendingStockAdjustmentsCount: () =>
+    apiClient.get("/api/inventory/adjustments/pending/count"),
+
   getStockAdjustments: (params?: { 
     locationId?: string;
     branchId?: string; // Keep for backward compatibility
@@ -438,11 +441,11 @@ export const inventoryServices = {
   resendStockAdjustmentInAppNotifications: (locationId: string, adjustmentId: string) =>
     apiClient.post(`/api/inventory/adjustments/${locationId}/${adjustmentId}/resend-inapp-notifications`),
 
-  approveStockAdjustment: (id: string) =>
-    apiClient.put(`/api/inventory/adjustments/${id}/approve`),
+  approveStockAdjustment: (branchId: string, adjustmentId: string) =>
+    apiClient.put(`/api/inventory/adjustments/${adjustmentId}/approve`),
 
-  rejectStockAdjustment: (id: string, reason: string) =>
-    apiClient.put(`/api/inventory/adjustments/${id}/reject`, { rejectionReason: reason }),
+  rejectStockAdjustment: (branchId: string, adjustmentId: string, data: { rejectionReason: string }) =>
+    apiClient.put(`/api/inventory/adjustments/${adjustmentId}/reject`, data),
 
   // Stock Transfers - Updated to support location parameters
   getStockTransfers: (params?: { 

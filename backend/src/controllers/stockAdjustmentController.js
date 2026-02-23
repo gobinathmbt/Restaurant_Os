@@ -12,7 +12,7 @@ import { logger } from '../utils/logger.js';
  */
 export const createAdjustment = async (req, res, next) => {
   try {
-    const { companyId, userId } = req.user;
+    const { companyId, userId, role } = req.user;
     const adjustmentData = {
       ...req.body,
       createdBy: userId
@@ -40,14 +40,16 @@ export const createAdjustment = async (req, res, next) => {
       });
     }
 
-    // Create adjustment
-    const adjustment = await stockAdjustmentService.createAdjustment(adjustmentData, companyId);
+    // Create adjustment with role
+    const adjustment = await stockAdjustmentService.createAdjustment(adjustmentData, companyId, role);
 
     logger.info('Stock adjustment created via API', {
       adjustmentId: adjustment._id,
       adjustmentNumber: adjustment.adjustmentNumber,
       companyId,
-      userId
+      userId,
+      role,
+      status: adjustment.status
     });
 
     res.status(201).json({

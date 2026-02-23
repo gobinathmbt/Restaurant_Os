@@ -14,7 +14,6 @@ import {
   LogOut,
   Search,
   ChevronDown,
-  Store,
   Utensils,
   Receipt,
   Wallet,
@@ -25,6 +24,7 @@ import {
   Truck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -43,6 +43,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { ThemeToggleDropdown } from '@/components/theme/ThemeToggleDropdown';
+import { usePendingAdjustmentsCount } from '@/hooks/usePendingAdjustmentsCount';
 
 interface MenuItem {
   title: string;
@@ -151,6 +152,7 @@ export default function CompanyLayout() {
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { count: pendingCount } = usePendingAdjustmentsCount();
 
   // Save to cookie whenever state changes
   useEffect(() => {
@@ -283,7 +285,14 @@ export default function CompanyLayout() {
                                 </TooltipTrigger>
                                 <TooltipContent side="right" className="font-semibold">
                                   <div className="space-y-1">
-                                    <div>{item.title}</div>
+                                    <div className="flex items-center gap-2">
+                                      <span>{item.title}</span>
+                                      {item.title === 'Inventory' && pendingCount > 0 && (
+                                        <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs">
+                                          {pendingCount}
+                                        </Badge>
+                                      )}
+                                    </div>
                                     {item.subItems?.filter(subItem => hasAccess(subItem.roles)).map(subItem => (
                                       <Link
                                         key={subItem.title}
@@ -309,6 +318,14 @@ export default function CompanyLayout() {
                                 >
                                   <item.icon className="h-5 w-5 shrink-0" />
                                   <span className="flex-1 text-left transition-opacity duration-300">{item.title}</span>
+                                  {item.title === 'Inventory' && pendingCount > 0 && (
+                                    <Badge 
+                                      variant="destructive" 
+                                      className="ml-auto mr-1 h-5 min-w-5 px-1.5 text-xs"
+                                    >
+                                      {pendingCount}
+                                    </Badge>
+                                  )}
                                   <ChevronDown className={cn(
                                     "h-4 w-4 transition-transform duration-200",
                                     isExpanded && "rotate-180"
@@ -439,6 +456,14 @@ export default function CompanyLayout() {
                       >
                         <item.icon className="h-5 w-5 shrink-0" />
                         <span className="flex-1 text-left">{item.title}</span>
+                        {item.title === 'Inventory' && pendingCount > 0 && (
+                          <Badge 
+                            variant="destructive" 
+                            className="ml-auto mr-1 h-5 min-w-5 px-1.5 text-xs"
+                          >
+                            {pendingCount}
+                          </Badge>
+                        )}
                         <ChevronDown className={cn(
                           "h-4 w-4 transition-transform duration-200",
                           isExpanded && "rotate-180"

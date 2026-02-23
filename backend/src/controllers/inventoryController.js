@@ -954,6 +954,39 @@ export const createStockAdjustment = async (req, res, next) => {
 };
 
 /**
+ * Get pending stock adjustments count for super admins
+ * GET /api/inventory/adjustments/pending/count
+ */
+export const getPendingStockAdjustmentsCount = async (req, res, next) => {
+  try {
+    const { companyId, role } = req.user;
+
+    // Only super admins can access this endpoint
+    const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+    if (!isSuperAdmin) {
+      return res.json({
+        success: true,
+        data: { count: 0 }
+      });
+    }
+
+    // Get count of pending adjustments
+    const result = await inventoryService.getStockAdjustments(companyId, 'all', { 
+      status: 'pending_approval',
+      limit: 1 // We only need the count
+    });
+
+    res.json({
+      success: true,
+      data: { count: result.total || 0 }
+    });
+  } catch (error) {
+    logger.error('Get pending stock adjustments count error', error);
+    next(error);
+  }
+};
+
+/**
  * Get stock adjustments with filtering and pagination
  * GET /api/inventory/adjustments
  */

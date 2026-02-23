@@ -11,10 +11,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import { useAuth } from '@/contexts/AuthContext';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Zap, Clock } from 'lucide-react';
 import InventoryItemDropdown from '@/components/common/InventoryItemDropdown';
 import BranchSearch from '@/components/common/BranchSearch';
 
@@ -51,6 +52,9 @@ export default function StockAdjustmentFormModal({
   const { toast } = useToast();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  
+  // Determine if user is super admin
+  const isSuperAdmin = user?.role === 'company_super_admin_primary' || user?.role === 'company_super_admin_secondary';
   
   // Branch state - using array for BranchSearch compatibility
   const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([]);
@@ -382,6 +386,28 @@ export default function StockAdjustmentFormModal({
         </DialogHeader>
 
         <DialogBody>
+          {/* Informational Banner - Auto-Approval for Super Admins */}
+          {isSuperAdmin && (
+            <Alert className="bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+              <Zap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              <AlertTitle className="text-blue-900 dark:text-blue-100">Auto-Approval Enabled</AlertTitle>
+              <AlertDescription className="text-blue-800 dark:text-blue-200">
+                As a super admin, this adjustment will be automatically approved and stock will be deducted immediately upon creation.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Informational Banner - Approval Required for Company Admins */}
+          {!isSuperAdmin && (
+            <Alert className="bg-yellow-50 border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800">
+              <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+              <AlertTitle className="text-yellow-900 dark:text-yellow-100">Approval Required</AlertTitle>
+              <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                This adjustment will be submitted for approval. A super admin must approve it before stock is deducted.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <form id="stock-adjustment-form" onSubmit={handleSubmit} className="space-y-6">
             {/* Branch Selection Section */}
             <div className="space-y-4">

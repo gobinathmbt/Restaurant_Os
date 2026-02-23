@@ -10,6 +10,7 @@ import {
   getInventoryCategories,
   createStockAdjustment,
   getStockAdjustments,
+  getPendingStockAdjustmentsCount,
   getStockAdjustmentById,
   getStockAdjustmentDetails,
   resendStockAdjustmentInAppNotifications,
@@ -21,6 +22,10 @@ import {
   getSuppliersForBranch,
   getInventoryItemsForBranch as getInventoryItemsForBranchGRN
 } from '../controllers/inventoryController.js';
+import {
+  approveAdjustment,
+  rejectAdjustment
+} from '../controllers/stockAdjustmentController.js';
 import {
   createGRN,
   getGRNById,
@@ -116,10 +121,13 @@ router.post('/grn/:branchId/:grnId/resend-email-notifications', resendGRNEmailNo
 router.get('/grn/location/:locationId', getGRNsByLocation);
 
 // Stock Adjustment routes
+router.get('/adjustments/pending/count', getPendingStockAdjustmentsCount);
 router.get('/adjustments', getStockAdjustments);
 router.post('/adjustments', createStockAdjustment);
 router.get('/adjustments/:branchId/:adjustmentId', getStockAdjustmentDetails);
 router.post('/adjustments/:branchId/:adjustmentId/resend-inapp-notifications', resendStockAdjustmentInAppNotifications);
+router.put('/adjustments/:id/approve', approveAdjustment);
+router.put('/adjustments/:id/reject', rejectAdjustment);
 router.get('/adjustments/:id', getStockAdjustmentById);
 
 // Stock Transfer routes

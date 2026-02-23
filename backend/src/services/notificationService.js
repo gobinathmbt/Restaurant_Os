@@ -808,7 +808,7 @@ class NotificationService {
    * @param {Object} adjustmentDetails - Populated adjustment details
    * @returns {Promise<Object>} Notification result
    */
-  async notifyStockAdjustmentCreation(companyId, adjustmentDetails) {
+  async notifyStockAdjustmentCreation(companyId, adjustmentDetails, isAutoApproved = false) {
     try {
       const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
 
@@ -836,22 +836,29 @@ class NotificationService {
       const locationName = adjustmentDetails.locationId?.name || 'Unknown location';
       const createdByName = adjustmentDetails.createdBy?.name || 'Unknown user';
 
+      // Determine notification title and message based on auto-approval status
+      const title = isAutoApproved ? 'Stock Adjustment Created & Auto-Approved' : 'Stock Adjustment Pending Approval';
+      const message = isAutoApproved
+        ? `Adjustment ${adjustmentDetails.adjustmentNumber} created and auto-approved at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`
+        : `Adjustment ${adjustmentDetails.adjustmentNumber} requires your approval at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`;
+
       // Send in-app notifications to all super admins
       const inAppPromises = superAdmins.map(admin => 
         this.sendToCompanyUser(companyId, admin._id, {
           category: 'inventory',
-          event: 'stock_adjustment_created',
-          title: 'Stock Adjustment Created',
-          message: `Adjustment ${adjustmentDetails.adjustmentNumber} created at ${locationName}. Type: ${adjustmentDetails.adjustmentType}, Items: ${itemSummary}, Created by: ${createdByName}`,
+          event: isAutoApproved ? 'stock_adjustment_auto_approved' : 'stock_adjustment_pending',
+          title: title,
+          message: message,
           data: {
             adjustmentId: adjustmentDetails._id,
             adjustmentNumber: adjustmentDetails.adjustmentNumber,
             locationName: locationName,
             adjustmentType: adjustmentDetails.adjustmentType,
             itemCount: itemCount,
-            createdByName: createdByName
+            createdByName: createdByName,
+            isAutoApproved: isAutoApproved
           },
-          priority: 'medium',
+          priority: isAutoApproved ? 'low' : 'medium',
           actionUrl: `/inventory/adjustments/${adjustmentDetails._id}`
         }).catch(error => {
           logger.error(`Failed to send in-app notification to admin ${admin._id}:`, error);
@@ -862,9 +869,130 @@ class NotificationService {
       await Promise.allSettled(inAppPromises);
       logger.info(`In-app notifications sent to ${superAdmins.length} super admin(s) for stock adjustment`);
 
+      // TODO: Implement email notifications to super admins
+      // Email service integration pending
+      logger.info(`TODO: Email notifications would be sent to ${superAdmins.length} super admin(s) for stock adjustment ${adjustmentDetails.adjustmentNumber}`);
+
       return { success: true, message: `In-app notifications sent to ${superAdmins.length} super admin(s)` };
     } catch (error) {
       logger.error('Error in notifyStockAdjustmentCreation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send notification when a stock adjustment is approved
+   * Sends in-app notification ONLY to the creator (no email)
+   * @param {string} companyId - Company ID
+   * @param {Object} adjustmentDetails - Adjustment details
+   */
+  async notifyStockAdjustmentApproval(companyId, adjustmentDetails) {
+    try {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+
+      // Get creator user ID
+      const creatorId = adjustmentDetails.createdBy;
+      
+      if (!creatorId) {
+        logger.warn(`No creator found for adjustment ${adjustmentDetails.adjustmentNumber}`);
+        return { success: false, message: 'No creator found' };
+      }
+
+      // Fetch creator details
+      const creator = await CompanyUser.findById(creatorId).select('name email').lean();
+      
+      if (!creator) {
+        logger.warn(`Creator user ${creatorId} not found for adjustment ${adjustmentDetails.adjustmentNumber}`);
+        return { success: false, message: 'Creator user not found' };
+      }
+
+      const locationName = adjustmentDetails.locationId?.name || 'Unknown location';
+      const itemCount = adjustmentDetails.items?.length || 0;
+
+      // Send in-app notification ONLY to the creator
+      await this.sendToCompanyUser(companyId, creatorId, {
+        category: 'inventory',
+        event: 'stock_adjustment_approved',
+        title: 'Stock Adjustment Approved',
+        message: `Your stock adjustment ${adjustmentDetails.adjustmentNumber} at ${locationName} has been approved. ${itemCount} item(s) processed.`,
+        data: {
+          adjustmentId: adjustmentDetails._id,
+          adjustmentNumber: adjustmentDetails.adjustmentNumber,
+          locationName: locationName,
+          adjustmentType: adjustmentDetails.adjustmentType,
+          itemCount: itemCount,
+          approvedBy: adjustmentDetails.approvedBy
+        },
+        priority: 'medium',
+        actionUrl: `/inventory/adjustments/${adjustmentDetails._id}`
+      });
+
+      logger.info(`Approval notification sent to creator ${creator.name} for adjustment ${adjustmentDetails.adjustmentNumber}`);
+
+      // Note: Email notifications are intentionally NOT sent for approvals (in-app only)
+
+      return { success: true, message: 'Approval notification sent to creator' };
+    } catch (error) {
+      logger.error('Error in notifyStockAdjustmentApproval:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Notify creator about stock adjustment rejection
+   * @param {string} companyId - Company ID
+   * @param {Object} adjustmentDetails - Adjustment details
+   */
+  async notifyStockAdjustmentRejection(companyId, adjustmentDetails) {
+    try {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+
+      // Get creator user ID
+      const creatorId = adjustmentDetails.createdBy;
+      
+      if (!creatorId) {
+        logger.warn(`No creator found for adjustment ${adjustmentDetails.adjustmentNumber}`);
+        return { success: false, message: 'No creator found' };
+      }
+
+      // Fetch creator details
+      const creator = await CompanyUser.findById(creatorId).select('name email').lean();
+      
+      if (!creator) {
+        logger.warn(`Creator user ${creatorId} not found for adjustment ${adjustmentDetails.adjustmentNumber}`);
+        return { success: false, message: 'Creator user not found' };
+      }
+
+      const locationName = adjustmentDetails.locationId?.name || 'Unknown location';
+      const itemCount = adjustmentDetails.items?.length || 0;
+      const rejectionReason = adjustmentDetails.rejectionReason || 'No reason provided';
+
+      // Send in-app notification ONLY to the creator
+      await this.sendToCompanyUser(companyId, creatorId, {
+        category: 'inventory',
+        event: 'stock_adjustment_rejected',
+        title: 'Stock Adjustment Rejected',
+        message: `Your stock adjustment ${adjustmentDetails.adjustmentNumber} at ${locationName} has been rejected. Reason: ${rejectionReason}`,
+        data: {
+          adjustmentId: adjustmentDetails._id,
+          adjustmentNumber: adjustmentDetails.adjustmentNumber,
+          locationName: locationName,
+          adjustmentType: adjustmentDetails.adjustmentType,
+          itemCount: itemCount,
+          rejectedBy: adjustmentDetails.rejectedBy,
+          rejectionReason: rejectionReason
+        },
+        priority: 'high',
+        actionUrl: `/inventory/adjustments/${adjustmentDetails._id}`
+      });
+
+      logger.info(`Rejection notification sent to creator ${creator.name} for adjustment ${adjustmentDetails.adjustmentNumber}`);
+
+      // Note: Email notifications are intentionally NOT sent for rejections (in-app only)
+
+      return { success: true, message: 'Rejection notification sent to creator' };
+    } catch (error) {
+      logger.error('Error in notifyStockAdjustmentRejection:', error);
       throw error;
     }
   }
