@@ -900,17 +900,12 @@ class NotificationService {
         return { success: false, message: 'No super admins found' };
       }
 
-      // Get creator ID
-      const creatorId = adjustmentDetails.createdBy?._id || adjustmentDetails.createdBy;
-
-      // Filter out the creator if auto-approved (super admin creating their own adjustment)
-      const recipientAdmins = isAutoApproved 
-        ? superAdmins.filter(admin => admin._id.toString() !== creatorId?.toString())
-        : superAdmins;
+      // Include all super admins as recipients (including the creator if they are a super admin)
+      const recipientAdmins = superAdmins;
 
       if (recipientAdmins.length === 0) {
-        logger.info(`No other super admins to notify for auto-approved adjustment ${adjustmentDetails.adjustmentNumber}`);
-        return { success: true, message: 'No other super admins to notify' };
+        logger.info(`No super admins to notify for adjustment ${adjustmentDetails.adjustmentNumber}`);
+        return { success: true, message: 'No super admins to notify' };
       }
 
       logger.info(`Sending in-app notifications to ${recipientAdmins.length} super admin(s) for stock adjustment`);
