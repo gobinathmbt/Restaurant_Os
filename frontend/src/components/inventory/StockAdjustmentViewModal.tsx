@@ -11,7 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Package, Building2, FileText, Bell, TrendingUp, TrendingDown, RefreshCw, CheckCircle2, XCircle, FileEdit, Clock } from 'lucide-react';
+import { Loader2, Package, Building2, FileText, Bell, Mail, TrendingUp, TrendingDown, RefreshCw, CheckCircle2, XCircle, FileEdit, Clock } from 'lucide-react';
 import api from '@/api/services';
 
 interface StockAdjustmentDetails {
@@ -121,6 +121,7 @@ export default function StockAdjustmentViewModal({
   const [loading, setLoading] = useState(false);
   const [adjustmentDetails, setAdjustmentDetails] = useState<StockAdjustmentDetails | null>(null);
   const [resendingInApp, setResendingInApp] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
   
   // Approval/rejection state
   const [approving, setApproving] = useState(false);
@@ -205,6 +206,29 @@ export default function StockAdjustmentViewModal({
       });
     } finally {
       setResendingInApp(false);
+    }
+  };
+
+  const handleResendEmailNotifications = async () => {
+    if (!adjustmentDetails) return;
+    
+    setResendingEmail(true);
+    try {
+      const response = await api.inventory.resendStockAdjustmentEmailNotifications(branchId, adjustmentId);
+      toast({
+        title: 'Success',
+        description: response.data.message || 'Email notifications sent successfully',
+        variant: 'success',
+      });
+    } catch (error: any) {
+      console.error('Error resending email notifications:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to resend email notifications',
+        variant: 'destructive',
+      });
+    } finally {
+      setResendingEmail(false);
     }
   };
 
@@ -687,6 +711,24 @@ export default function StockAdjustmentViewModal({
                 <>
                   <Bell className="mr-2 h-4 w-4" />
                   Send In-App
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleResendEmailNotifications}
+              disabled={!adjustmentDetails || resendingEmail}
+              size="sm"
+            >
+              {resendingEmail ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Send Email
                 </>
               )}
             </Button>

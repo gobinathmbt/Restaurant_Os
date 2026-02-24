@@ -1208,6 +1208,60 @@ export const resendStockAdjustmentInAppNotifications = async (req, res, next) =>
 };
 
 /**
+ * Resend stock adjustment email notifications
+ * POST /api/inventory/adjustments/:branchId/:adjustmentId/resend-email-notifications
+ */
+export const resendStockAdjustmentEmailNotifications = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { branchId, adjustmentId } = req.params;
+
+    // Validate branchId and adjustmentId are provided
+    if (!branchId || !adjustmentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID and Adjustment ID are required'
+      });
+    }
+
+    // Verify branch access
+    const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this branch'
+      });
+    }
+
+    // Resend email notifications
+    const result = await inventoryService.resendStockAdjustmentEmailNotifications(adjustmentId, companyId);
+
+    logger.info('Stock adjustment email notifications resent via API', { 
+      adjustmentId, 
+      companyId, 
+      branchId, 
+      userId 
+    });
+
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    logger.error('Resend stock adjustment email notifications error', error);
+    
+    if (error.message === 'Stock adjustment not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+/**
  * Create stock transfer
  * POST /api/inventory/transfers
  */

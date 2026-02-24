@@ -2145,6 +2145,94 @@ export const resendStockAdjustmentInAppNotifications = async (adjustmentId, comp
 };
 
 /**
+ * Resend stock adjustment email notifications
+ * @param {string} adjustmentId - Stock adjustment ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>}
+ */
+export const resendStockAdjustmentEmailNotifications = async (adjustmentId, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockAdjustment = getStockAdjustmentModel(companyDB);
+
+    // Get stock adjustment with populated locationId and items.inventoryItem
+    const adjustment = await StockAdjustment.findById(adjustmentId)
+      .populate('locationId', 'name code address')
+      .populate('items.inventoryItem', 'name type unit sku')
+      .lean();
+
+    if (!adjustment) {
+      throw new Error('Stock adjustment not found');
+    }
+
+    // Manually populate createdBy from platform database
+    if (adjustment.createdBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(adjustment.createdBy).select('name email').lean();
+      if (user) {
+        adjustment.createdBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
+    }
+
+    // Manually populate approvedBy from platform database if exists
+    if (adjustment.approvedBy) {
+      const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+      const user = await CompanyUser.findById(adjustment.approvedBy).select('name email').lean();
+      if (user) {
+        adjustment.approvedBy = {
+          _id: user._id,
+          name: user.name,
+          email: user.email
+        };
+      }
+    }
+
+    // Import email service
+    const stockAdjustmentEmailService = (await import('./emailTemplates/stockAdjustmentEmailService.js')).default;
+    const { default: CompanyUser } = await import('../models/platform/CompanyUser.js');
+    
+    // Find all active super admin users
+    const superAdmins = await CompanyUser.find({
+      companyId,
+      role: { $in: ['company_super_admin_primary', 'company_super_admin_secondary'] },
+      isActive: true
+    });
+
+    if (superAdmins.length === 0) {
+      logger.warn(`No active super admins found for company ${companyId}`);
+      return { success: false, message: 'No super admins found' };
+    }
+
+    const isAutoApproved = adjustment.status === 'approved';
+
+    // Send email notifications to all super admins
+    const emailPromises = superAdmins.map(admin =>
+      stockAdjustmentEmailService.sendStockAdjustmentNotification(admin.email, {
+        adjustment,
+        isAutoApproved,
+        recipientName: admin.name
+      }).catch(error => {
+        logger.error(`Failed to send email to super admin ${admin.email}:`, error);
+        return false;
+      })
+    );
+
+    await Promise.allSettled(emailPromises);
+    
+    logger.info(`Stock adjustment email notifications resent successfully to ${superAdmins.length} super admin(s) for ${adjustment.adjustmentNumber}`);
+    
+    return { success: true, message: `Email notifications sent to ${superAdmins.length} super admin(s)` };
+  } catch (error) {
+    logger.error('Error resending stock adjustment email notifications:', error);
+    throw error;
+  }
+};
+
+/**
  * Get stock adjustment details by ID
  * @param {string} adjustmentId - Stock adjustment ID
  * @param {string} companyId - Company ID

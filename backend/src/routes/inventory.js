@@ -14,6 +14,7 @@ import {
   getStockAdjustmentById,
   getStockAdjustmentDetails,
   resendStockAdjustmentInAppNotifications,
+  resendStockAdjustmentEmailNotifications,
   createStockTransfer,
   getStockTransfers,
   getStockTransferById,
@@ -126,6 +127,7 @@ router.get('/adjustments', getStockAdjustments);
 router.post('/adjustments', createStockAdjustment);
 router.get('/adjustments/:branchId/:adjustmentId', getStockAdjustmentDetails);
 router.post('/adjustments/:branchId/:adjustmentId/resend-inapp-notifications', resendStockAdjustmentInAppNotifications);
+router.post('/adjustments/:branchId/:adjustmentId/resend-email-notifications', resendStockAdjustmentEmailNotifications);
 router.put('/adjustments/:id/approve', approveAdjustment);
 router.put('/adjustments/:id/reject', rejectAdjustment);
 router.get('/adjustments/:id', getStockAdjustmentById);

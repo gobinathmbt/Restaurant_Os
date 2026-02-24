@@ -441,6 +441,9 @@ export const inventoryServices = {
   resendStockAdjustmentInAppNotifications: (locationId: string, adjustmentId: string) =>
     apiClient.post(`/api/inventory/adjustments/${locationId}/${adjustmentId}/resend-inapp-notifications`),
 
+  resendStockAdjustmentEmailNotifications: (locationId: string, adjustmentId: string) =>
+    apiClient.post(`/api/inventory/adjustments/${locationId}/${adjustmentId}/resend-email-notifications`),
+
   approveStockAdjustment: (branchId: string, adjustmentId: string) =>
     apiClient.put(`/api/inventory/adjustments/${adjustmentId}/approve`),
 
