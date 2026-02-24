@@ -53,7 +53,7 @@ const generateAdjustmentNumber = async (companyDB) => {
  * @param {string} companyId - Company ID
  * @returns {Promise<Object>} Created adjustment
  */
-export const createAdjustment = async (adjustmentData, companyId, userRole) => {
+export const createAdjustment = async (adjustmentData, companyId, role) => {
   try {
     const companyDB = getCompanyDB(companyId);
     const StockAdjustment = getStockAdjustmentModel(companyDB);
@@ -123,11 +123,7 @@ export const createAdjustment = async (adjustmentData, companyId, userRole) => {
 
       // Set current quantity from database
       item.currentQuantity = itemLocation.availableQuantity || 0;
-    
-      // Calculate quantityDelta based on adjustment type
-      // - 'correction': adjustedQuantity is the NEW total quantity (replace current with this exact value)
-      // - 'decrease': adjustedQuantity is the amount to DECREASE (subtract from current)
-      // - 'increase': adjustedQuantity is the amount to INCREASE (add to current)
+
       
       if (adjustmentData.adjustmentType === 'correction') {
         // adjustedQuantity represents the NEW total quantity after correction
@@ -162,8 +158,8 @@ export const createAdjustment = async (adjustmentData, companyId, userRole) => {
     await adjustment.save();
 
     // Check if user is super admin
-    const isSuperAdmin = userRole === 'company_super_admin_primary' || 
-                         userRole === 'company_super_admin_secondary';
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
     
     if (isSuperAdmin) {
       // Auto-approve for super admins

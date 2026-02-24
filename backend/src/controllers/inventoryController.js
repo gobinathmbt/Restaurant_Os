@@ -909,7 +909,8 @@ export const createStockAdjustment = async (req, res, next) => {
     // Create stock adjustment using stockAdjustmentService
     const adjustment = await stockAdjustmentService.createAdjustment(
       adjustmentData,
-      companyId
+      companyId,
+      role
     );
 
     logger.info('Stock adjustment created via API', { 
