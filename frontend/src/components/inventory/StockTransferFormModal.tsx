@@ -110,7 +110,7 @@ export default function StockTransferFormModal({
 
   const fetchInventoryItems = async (branchId: string) => {
     try {
-      const response = await inventoryServices.getInventoryItems(branchId, { limit: 1000 });
+      const response = await inventoryServices.getInventoryItems({ branchId, limit: 1000 });
       setInventoryItems(response.data.data.items || []);
     } catch (error: any) {
       toast({
@@ -235,7 +235,7 @@ export default function StockTransferFormModal({
           .filter(item => item.inventoryItem)
           .map(item => ({
             inventoryItem: item.inventoryItem,
-            quantity: item.quantity,
+            sentQuantity: item.quantity,
             unit: item.unit
           }))
       };

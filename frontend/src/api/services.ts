@@ -450,24 +450,7 @@ export const inventoryServices = {
   rejectStockAdjustment: (branchId: string, adjustmentId: string, data: { rejectionReason: string }) =>
     apiClient.put(`/api/inventory/adjustments/${adjustmentId}/reject`, data),
 
-  // Stock Transfers - Updated to support location parameters
-  getStockTransfers: (params?: { 
-    locationId?: string;
-    branchId?: string; // Keep for backward compatibility
-    direction?: 'from' | 'to' | 'both';
-    page?: number; 
-    limit?: number; 
-    search?: string; 
-    status?: string;
-  }) => {
-    // Use locationId if provided, otherwise fall back to branchId
-    const queryParams = { ...params };
-    if (params?.locationId) {
-      queryParams.branchId = params.locationId;
-      delete queryParams.locationId;
-    }
-    return apiClient.get("/api/inventory/transfers", { params: queryParams });
-  },
+
 
   createStockTransfer: (data: {
     fromLocation?: string;
@@ -495,6 +478,19 @@ export const inventoryServices = {
     }
     return apiClient.post("/api/inventory/transfers", requestData);
   },
+
+  getStockTransfers: (branchId: string, params?: { 
+    page?: number; 
+    limit?: number; 
+    search?: string; 
+    status?: string;
+  }) => {
+    const queryParams = { ...params, branchId };
+    return apiClient.get("/api/inventory/transfers", { params: queryParams });
+  },
+
+  getStockTransferById: (id: string) =>
+    apiClient.get(`/api/inventory/transfers/${id}`),
 
   approveStockTransfer: (id: string) =>
     apiClient.put(`/api/inventory/transfers/${id}/approve`),
