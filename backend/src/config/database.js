@@ -14,6 +14,8 @@ import { getInventoryItemModel } from '../models/company/InventoryItem.js';
 import { getGRNModel } from '../models/company/GRN.js';
 import { getStockAdjustmentModel } from '../models/company/StockAdjustment.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
+import { getStockRequestModel } from '../models/company/StockRequest.js';
+import { getStockBackorderModel } from '../models/company/StockBackorder.js';
 
 // Store company database connections for reuse
 const companyConnections = new Map();
@@ -125,6 +127,8 @@ export const getCompanyDB = (companyId) => {
       getGRNModel(companyConnection);
       getStockAdjustmentModel(companyConnection);
       getStockTransferModel(companyConnection);
+      getStockRequestModel(companyConnection);
+      getStockBackorderModel(companyConnection);
     } catch (regErr) {
       logger.warn('One or more company models failed to register on connection:', regErr);
     }

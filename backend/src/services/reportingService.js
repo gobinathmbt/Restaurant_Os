@@ -3,6 +3,10 @@ import { getInventoryItemLocationModel } from '../models/company/InventoryItemLo
 import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
 import { getInventoryLedgerModel } from '../models/company/InventoryLedger.js';
+import { getDashboardCacheModel } from '../models/company/DashboardCache.js';
+import { getStockRequestModel } from '../models/company/StockRequest.js';
+import { getStockBackorderModel } from '../models/company/StockBackorder.js';
+import PDFDocument from 'pdfkit';
 
 /**
  * ReportingService
@@ -539,11 +543,456 @@ export const clearReportCache = () => {
   logger.info('Report cache cleared');
 };
 
+/**
+ * Get stock requests dashboard data
+ * Returns cached aggregated statistics for fast response (< 200ms)
+ * Applies location-based filtering for non-Super Admins
+ * Requirements: 6.9, 16.1-16.10
+ */
+export const getStockRequestsDashboard = async (companyDB, companyId, user) => {
+  try {
+    const DashboardCache = getDashboardCacheModel(companyDB);
+    
+    // Get cached dashboard data
+    let cache = await DashboardCache.findOne({
+      companyId,
+      cacheType: 'stock_requests_dashboard'
+    });
+
+    // If cache doesn't exist, create empty one
+    if (!cache) {
+      logger.warn(`Dashboard cache not found for company ${companyId}, creating empty cache`);
+      cache = await DashboardCache.getOrCreate(companyId);
+    }
+
+    // Check if cache is stale (older than 5 minutes)
+    if (cache.isStale(5)) {
+      logger.warn(`Dashboard cache is stale for company ${companyId} (last updated: ${cache.lastUpdatedAt})`);
+    }
+
+    // Apply location-based filtering for non-Super Admins
+    let filteredData = {
+      requestCounts: cache.requestCounts,
+      transferCounts: cache.transferCounts,
+      backorderCountsByLocation: cache.backorderCountsByLocation,
+      totalPendingBackorders: cache.totalPendingBackorders,
+      performanceMetrics: cache.performanceMetrics,
+      topRequestedItems: cache.topRequestedItems,
+      topLocationsByPendingRequests: cache.topLocationsByPendingRequests,
+      lastUpdatedAt: cache.lastUpdatedAt,
+      dataAsOfDate: cache.dataAsOfDate
+    };
+
+    // If user is not Super Admin, filter by their accessible locations
+    const isSuperAdmin = user.role === 'company_super_admin_primary' || 
+                         user.role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      const userLocationIds = [
+        ...(user.branchIds || []),
+        ...(user.warehouseIds || [])
+      ].map(id => id.toString());
+
+      // Filter backorder counts by accessible locations
+      filteredData.backorderCountsByLocation = cache.backorderCountsByLocation.filter(
+        item => userLocationIds.includes(item.fromLocation.toString())
+      );
+
+      // Recalculate total pending backorders for filtered locations
+      filteredData.totalPendingBackorders = filteredData.backorderCountsByLocation.reduce(
+        (sum, item) => sum + item.pendingBackorderCount, 
+        0
+      );
+
+      // Filter top locations by accessible locations
+      filteredData.topLocationsByPendingRequests = cache.topLocationsByPendingRequests.filter(
+        item => userLocationIds.includes(item.location.toString())
+      );
+
+      logger.info(`Applied location-based filtering for user ${user._id}, accessible locations: ${userLocationIds.length}`);
+    }
+
+    return {
+      success: true,
+      data: filteredData,
+      metadata: {
+        cacheAge: Date.now() - cache.lastUpdatedAt.getTime(),
+        isStale: cache.isStale(5),
+        updateDurationMs: cache.updateDurationMs,
+        locationFiltered: !isSuperAdmin
+      }
+    };
+
+  } catch (error) {
+    logger.error('Error getting stock requests dashboard:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Export stock requests to CSV format
+ * Includes all audit trail information
+ * Requirements: 16.9
+ */
+export const exportStockRequestsCSV = async (companyDB, filters = {}) => {
+  try {
+    const StockRequest = getStockRequestModel(companyDB);
+    
+    // Build query
+    const query = { isArchived: false };
+    if (filters.status) query.status = filters.status;
+    if (filters.fromLocation) query.fromLocation = filters.fromLocation;
+    if (filters.toLocation) query.toLocation = filters.toLocation;
+    if (filters.startDate || filters.endDate) {
+      query.requestDate = {};
+      if (filters.startDate) query.requestDate.$gte = new Date(filters.startDate);
+      if (filters.endDate) query.requestDate.$lte = new Date(filters.endDate);
+    }
+
+    const requests = await StockRequest.find(query)
+      .populate('fromLocation', 'name code')
+      .populate('toLocation', 'name code')
+      .populate('requestedBy', 'name email')
+      .populate('approvedBy', 'name email')
+      .populate('rejectedBy', 'name email')
+      .populate('cancelledBy', 'name email')
+      .populate('items.inventoryItem', 'name code')
+      .sort({ requestDate: -1 })
+      .lean();
+
+    // Generate CSV header
+    const headers = [
+      'Request Number',
+      'Status',
+      'Priority',
+      'From Location',
+      'To Location',
+      'Requested By',
+      'Request Date',
+      'Request IP',
+      'Approved By',
+      'Approved Date',
+      'Approved IP',
+      'Rejected By',
+      'Rejected Date',
+      'Rejection Reason',
+      'Cancelled By',
+      'Cancelled Date',
+      'Cancellation Reason',
+      'Items Count',
+      'Notes'
+    ];
+
+    // Generate CSV rows
+    const rows = requests.map(req => [
+      req.requestNumber,
+      req.status,
+      req.priority,
+      req.fromLocation?.name || '',
+      req.toLocation?.name || '',
+      req.requestedBy?.name || '',
+      req.requestDate ? new Date(req.requestDate).toISOString() : '',
+      req.requestIpAddress || '',
+      req.approvedBy?.name || '',
+      req.approvedDate ? new Date(req.approvedDate).toISOString() : '',
+      req.approvedIpAddress || '',
+      req.rejectedBy?.name || '',
+      req.rejectedDate ? new Date(req.rejectedDate).toISOString() : '',
+      req.rejectionReason || '',
+      req.cancelledBy?.name || '',
+      req.cancelledDate ? new Date(req.cancelledDate).toISOString() : '',
+      req.cancellationReason || '',
+      req.items?.length || 0,
+      req.notes || ''
+    ]);
+
+    // Convert to CSV string
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    logger.info(`Exported ${requests.length} stock requests to CSV`);
+    return csvContent;
+
+  } catch (error) {
+    logger.error('Error exporting stock requests to CSV:', error);
+    throw error;
+  }
+};
+
+/**
+ * Export stock transfers to CSV format
+ * Includes all audit trail information
+ * Requirements: 16.9
+ */
+export const exportStockTransfersCSV = async (companyDB, filters = {}) => {
+  try {
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    // Build query
+    const query = { isArchived: false };
+    if (filters.status) query.status = filters.status;
+    if (filters.fromLocation) query.fromLocation = filters.fromLocation;
+    if (filters.toLocation) query.toLocation = filters.toLocation;
+    if (filters.startDate || filters.endDate) {
+      query.requestDate = {};
+      if (filters.startDate) query.requestDate.$gte = new Date(filters.startDate);
+      if (filters.endDate) query.requestDate.$lte = new Date(filters.endDate);
+    }
+
+    const transfers = await StockTransfer.find(query)
+      .populate('fromLocation', 'name code')
+      .populate('toLocation', 'name code')
+      .populate('requestedBy', 'name email')
+      .populate('shippedBy', 'name email')
+      .populate('receivedBy', 'name email')
+      .populate('items.inventoryItem', 'name code')
+      .sort({ requestDate: -1 })
+      .lean();
+
+    // Generate CSV header
+    const headers = [
+      'Transfer Number',
+      'Status',
+      'Transfer Type',
+      'From Location',
+      'To Location',
+      'Requested By',
+      'Request Date',
+      'Shipped By',
+      'Shipped Date',
+      'Shipped IP',
+      'Received By',
+      'Received Date',
+      'Received IP',
+      'Completed Date',
+      'Items Count',
+      'Notes'
+    ];
+
+    // Generate CSV rows
+    const rows = transfers.map(transfer => [
+      transfer.transferNumber,
+      transfer.status,
+      transfer.transferType || 'request_based',
+      transfer.fromLocation?.name || '',
+      transfer.toLocation?.name || '',
+      transfer.requestedBy?.name || '',
+      transfer.requestDate ? new Date(transfer.requestDate).toISOString() : '',
+      transfer.shippedBy?.name || '',
+      transfer.shippedDate ? new Date(transfer.shippedDate).toISOString() : '',
+      transfer.shippedIpAddress || '',
+      transfer.receivedBy?.name || '',
+      transfer.receivedDate ? new Date(transfer.receivedDate).toISOString() : '',
+      transfer.receivedIpAddress || '',
+      transfer.completedDate ? new Date(transfer.completedDate).toISOString() : '',
+      transfer.items?.length || 0,
+      transfer.notes || ''
+    ]);
+
+    // Convert to CSV string
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    logger.info(`Exported ${transfers.length} stock transfers to CSV`);
+    return csvContent;
+
+  } catch (error) {
+    logger.error('Error exporting stock transfers to CSV:', error);
+    throw error;
+  }
+};
+
+/**
+ * Export stock backorders to CSV format
+ * Includes all audit trail information
+ * Requirements: 16.9
+ */
+export const exportStockBackordersCSV = async (companyDB, filters = {}) => {
+  try {
+    const StockBackorder = getStockBackorderModel(companyDB);
+    
+    // Build query
+    const query = { isArchived: false };
+    if (filters.status) query.status = filters.status;
+    if (filters.fromLocation) query.fromLocation = filters.fromLocation;
+    if (filters.toLocation) query.toLocation = filters.toLocation;
+
+    const backorders = await StockBackorder.find(query)
+      .populate('fromLocation', 'name code')
+      .populate('toLocation', 'name code')
+      .populate('inventoryItem', 'name code')
+      .populate('createdBy', 'name email')
+      .populate('fulfilledBy', 'name email')
+      .populate('cancelledBy', 'name email')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Generate CSV header
+    const headers = [
+      'From Location',
+      'To Location',
+      'Inventory Item',
+      'Backorder Quantity',
+      'Unit',
+      'Status',
+      'Created By',
+      'Created Date',
+      'Fulfilled By',
+      'Fulfilled Date',
+      'Cancelled By',
+      'Cancelled Date',
+      'Cancellation Reason',
+      'Age (Days)',
+      'Notes'
+    ];
+
+    // Generate CSV rows
+    const now = new Date();
+    const rows = backorders.map(backorder => {
+      const ageInDays = Math.floor((now - new Date(backorder.createdAt)) / (1000 * 60 * 60 * 24));
+      
+      return [
+        backorder.fromLocation?.name || '',
+        backorder.toLocation?.name || '',
+        backorder.inventoryItem?.name || '',
+        backorder.backorderedQuantity || 0,
+        backorder.unit || '',
+        backorder.status,
+        backorder.createdBy?.name || '',
+        backorder.createdAt ? new Date(backorder.createdAt).toISOString() : '',
+        backorder.fulfilledBy?.name || '',
+        backorder.fulfilledDate ? new Date(backorder.fulfilledDate).toISOString() : '',
+        backorder.cancelledBy?.name || '',
+        backorder.cancelledDate ? new Date(backorder.cancelledDate).toISOString() : '',
+        backorder.cancellationReason || '',
+        ageInDays,
+        backorder.notes || ''
+      ];
+    });
+
+    // Convert to CSV string
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    logger.info(`Exported ${backorders.length} stock backorders to CSV`);
+    return csvContent;
+
+  } catch (error) {
+    logger.error('Error exporting stock backorders to CSV:', error);
+    throw error;
+  }
+};
+
+/**
+ * Export stock requests to PDF format
+ * Includes all audit trail information
+ * Requirements: 16.9
+ */
+export const exportStockRequestsPDF = async (companyDB, filters = {}) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const StockRequest = getStockRequestModel(companyDB);
+      
+      // Build query
+      const query = { isArchived: false };
+      if (filters.status) query.status = filters.status;
+      if (filters.fromLocation) query.fromLocation = filters.fromLocation;
+      if (filters.toLocation) query.toLocation = filters.toLocation;
+      if (filters.startDate || filters.endDate) {
+        query.requestDate = {};
+        if (filters.startDate) query.requestDate.$gte = new Date(filters.startDate);
+        if (filters.endDate) query.requestDate.$lte = new Date(filters.endDate);
+      }
+
+      const requests = await StockRequest.find(query)
+        .populate('fromLocation', 'name code')
+        .populate('toLocation', 'name code')
+        .populate('requestedBy', 'name email')
+        .populate('approvedBy', 'name email')
+        .populate('items.inventoryItem', 'name code')
+        .sort({ requestDate: -1 })
+        .limit(100) // Limit for PDF
+        .lean();
+
+      // Create PDF document
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks = [];
+      
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // Colors
+      const colors = {
+        primary: '#10b981',
+        dark: '#000000',
+        gray: '#6b7280',
+        lightGray: '#f3f4f6'
+      };
+
+      // Header
+      doc.fontSize(24).fillColor(colors.primary).text('Stock Requests Report', 50, 50);
+      doc.fontSize(10).fillColor(colors.gray).text(`Generated on ${new Date().toLocaleDateString()}`, 50, 80);
+      
+      // Summary
+      doc.fontSize(12).fillColor(colors.dark).text(`Total Requests: ${requests.length}`, 50, 110);
+      
+      let yPosition = 140;
+
+      // Requests list
+      requests.forEach((req, index) => {
+        if (yPosition > 700) {
+          doc.addPage();
+          yPosition = 50;
+        }
+
+        // Request box
+        doc.rect(50, yPosition, 495, 80).fillAndStroke(colors.lightGray, colors.lightGray);
+        
+        doc.fontSize(10).fillColor(colors.dark).font('Helvetica-Bold')
+          .text(`${req.requestNumber}`, 60, yPosition + 10);
+        
+        doc.fontSize(9).font('Helvetica').fillColor(colors.gray)
+          .text(`Status: ${req.status}`, 60, yPosition + 25)
+          .text(`Priority: ${req.priority}`, 60, yPosition + 40)
+          .text(`From: ${req.fromLocation?.name || 'N/A'}`, 60, yPosition + 55);
+        
+        doc.text(`To: ${req.toLocation?.name || 'N/A'}`, 250, yPosition + 55);
+        doc.text(`Requested: ${new Date(req.requestDate).toLocaleDateString()}`, 250, yPosition + 25);
+        doc.text(`Items: ${req.items?.length || 0}`, 250, yPosition + 40);
+
+        yPosition += 90;
+      });
+
+      doc.end();
+      logger.info(`Exported ${requests.length} stock requests to PDF`);
+
+    } catch (error) {
+      logger.error('Error exporting stock requests to PDF:', error);
+      reject(error);
+    }
+  });
+};
+
+
+
 export default {
   getInventoryValuation,
   getInventoryAging,
   getTransferSummary,
   getStockMovement,
   getExpiryForecast,
-  clearReportCache
+  clearReportCache,
+  getStockRequestsDashboard,
+  exportStockRequestsCSV,
+  exportStockTransfersCSV,
+  exportStockBackordersCSV,
+  exportStockRequestsPDF
 };

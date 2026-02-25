@@ -5,6 +5,76 @@
 
 import * as stockTransferService from '../services/stockTransferService.js';
 import { logger } from '../utils/logger.js';
+import { getAccessibleLocations } from '../middlewares/locationAccess.js';
+
+/**
+ * List stock transfers with offset-based pagination and location-based filtering
+ * GET /api/v2/stock-transfers
+ */
+export const listTransfers = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const { 
+      status, 
+      page = 1, 
+      limit = 10, 
+      transferType,
+      fromLocation,
+      toLocation,
+      startDate,
+      endDate
+    } = req.query;
+
+    // Validate pagination parameters
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const parsedLimit = Math.min(parseInt(limit) || 10, 100);
+
+    // Get accessible locations for the user
+    const { isUnrestricted, locationIds } = getAccessibleLocations(req.user);
+
+    // Build filters
+    const filters = {
+      status,
+      transferType,
+      fromLocation,
+      toLocation,
+      startDate,
+      endDate
+    };
+
+    // Apply location-based filtering
+    if (!isUnrestricted) {
+      // For non-Super Admins, filter by accessible locations
+      // Show transfers where user has access to fromLocation OR toLocation
+      filters.accessibleLocations = locationIds;
+    }
+
+    const result = await stockTransferService.listTransfers(
+      companyId,
+      filters,
+      {
+        page: parsedPage,
+        limit: parsedLimit
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        transfers: result.transfers,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          pages: result.pages
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('List stock transfers error', error);
+    next(error);
+  }
+};
 
 /**
  * Create a new stock transfer
@@ -115,19 +185,27 @@ export const approveTransfer = async (req, res, next) => {
     const { companyId, userId } = req.user;
     const { id } = req.params;
 
-    const transfer = await stockTransferService.approveTransfer(id, userId, companyId);
+    // Capture IP address and device info for audit trail
+    const options = {
+      allowPartialFulfillment: req.body.allowPartialFulfillment !== false,
+      ipAddress: req.ip || req.connection.remoteAddress,
+      deviceInfo: req.headers['user-agent']
+    };
+
+    const result = await stockTransferService.approveTransfer(id, userId, companyId, options);
 
     logger.info('Stock transfer approved via API', {
       transferId: id,
-      transferNumber: transfer.transferNumber,
+      transferNumber: result.transfer.transferNumber,
       companyId,
-      userId
+      userId,
+      backordersCreated: result.backorders?.length || 0
     });
 
     res.json({
       success: true,
       message: 'Stock transfer approved successfully',
-      data: { transfer }
+      data: result
     });
   } catch (error) {
     logger.error('Approve stock transfer error', error);
@@ -140,7 +218,9 @@ export const approveTransfer = async (req, res, next) => {
     }
 
     if (error.message.includes('Cannot transition') ||
-        error.message.includes('Insufficient available quantity')) {
+        error.message.includes('Insufficient available quantity') ||
+        error.message.includes('Inventory underflow') ||
+        error.message.includes('Concurrent batch modification')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -272,10 +352,17 @@ export const completeTransfer = async (req, res, next) => {
     const { id } = req.params;
     const { receivedQuantities } = req.body;
 
+    // Add IP and device info to receivedQuantities for audit trail
+    const receivedQuantitiesWithMetadata = {
+      ...receivedQuantities,
+      ipAddress: req.ip || req.connection.remoteAddress,
+      deviceInfo: req.headers['user-agent']
+    };
+
     const transfer = await stockTransferService.completeTransfer(
       id,
       userId,
-      receivedQuantities,
+      receivedQuantitiesWithMetadata,
       companyId
     );
 
@@ -302,7 +389,9 @@ export const completeTransfer = async (req, res, next) => {
     }
 
     if (error.message.includes('Cannot transition') ||
-        error.message.includes('Insufficient in-transit quantity')) {
+        error.message.includes('Insufficient in-transit quantity') ||
+        error.message.includes('cannot exceed sent quantity') ||
+        error.message.includes('cannot be negative')) {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -430,6 +519,156 @@ export const getTransfersByStatus = async (req, res, next) => {
     logger.error('Get transfers by status error', error);
 
     if (error.message.includes('Invalid status')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Ship a stock transfer (Warehouse Admin marks as shipped)
+ * POST /api/v2/stock-transfers/:transferId/ship
+ */
+export const shipTransfer = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { transferId } = req.params;
+    const { notes } = req.body;
+
+    // Get transfer to validate location access
+    const transfer = await stockTransferService.getTransfer(transferId, companyId);
+    
+    // Validate user has access to fromLocation (Warehouse Admin)
+    const { hasLocationAccess } = await import('../middlewares/locationAccess.js');
+    if (!hasLocationAccess(req.user, transfer.fromLocation._id.toString())) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You do not have permission to ship transfers from this location.'
+      });
+    }
+
+    // Capture IP address and device info for audit trail
+    const options = {
+      ipAddress: req.ip || req.connection.remoteAddress,
+      deviceInfo: req.headers['user-agent'],
+      notes
+    };
+
+    const shippedTransfer = await stockTransferService.shipTransfer(transferId, userId, companyId, options);
+
+    logger.info('Stock transfer shipped via API', {
+      transferId,
+      transferNumber: shippedTransfer.transferNumber,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Stock transfer shipped successfully',
+      data: { transfer: shippedTransfer }
+    });
+  } catch (error) {
+    logger.error('Ship stock transfer error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Cannot ship') ||
+        error.message.includes('Insufficient available quantity') ||
+        error.message.includes('Inventory underflow') ||
+        error.message.includes('Concurrent batch modification')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Receive a stock transfer (Branch Admin marks as received)
+ * POST /api/v2/stock-transfers/:transferId/receive
+ */
+export const receiveTransfer = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { transferId } = req.params;
+    const { items, notes } = req.body;
+
+    // Get transfer to validate location access
+    const transfer = await stockTransferService.getTransfer(transferId, companyId);
+    
+    // Validate user has access to toLocation (Branch Admin)
+    const { hasLocationAccess } = await import('../middlewares/locationAccess.js');
+    if (!hasLocationAccess(req.user, transfer.toLocation._id.toString())) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You do not have permission to receive transfers at this location.'
+      });
+    }
+
+    // Build receivedQuantities map from items array
+    const receivedQuantities = {};
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        if (item.inventoryItem && item.receivedQuantity !== undefined) {
+          receivedQuantities[item.inventoryItem] = item.receivedQuantity;
+        }
+      }
+    }
+
+    // Add IP and device info to receivedQuantities for audit trail
+    receivedQuantities.ipAddress = req.ip || req.connection.remoteAddress;
+    receivedQuantities.deviceInfo = req.headers['user-agent'];
+    if (notes) {
+      receivedQuantities.notes = notes;
+    }
+
+    const receivedTransfer = await stockTransferService.receiveTransfer(
+      transferId,
+      userId,
+      receivedQuantities,
+      companyId
+    );
+
+    logger.info('Stock transfer received via API', {
+      transferId,
+      transferNumber: receivedTransfer.transferNumber,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Stock transfer received successfully',
+      data: { transfer: receivedTransfer }
+    });
+  } catch (error) {
+    logger.error('Receive stock transfer error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Cannot receive') ||
+        error.message.includes('cannot exceed sent quantity') ||
+        error.message.includes('cannot be negative')) {
       return res.status(400).json({
         success: false,
         message: error.message

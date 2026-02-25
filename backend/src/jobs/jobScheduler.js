@@ -3,6 +3,7 @@ import inventoryRecalculationJob from './inventoryRecalculationJob.js';
 import archivedDataCleanupJob from './archivedDataCleanupJob.js';
 import reservationExpiryCleanupJob from './reservationExpiryCleanupJob.js';
 import ledgerArchivalJob from './ledgerArchivalJob.js';
+import dashboardCacheUpdateJob from './dashboardCacheUpdateJob.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -46,6 +47,12 @@ class JobScheduler {
       schedule: 'monthly', // Run monthly
       dayOfMonth: 1, // First day of month
       time: '05:00' // 5 AM
+    });
+    
+    // Register dashboard cache update job (runs every 5 minutes)
+    this.registerJob('dashboardCacheUpdate', dashboardCacheUpdateJob, {
+      schedule: 'interval', // Run at fixed interval
+      intervalMinutes: 5 // Every 5 minutes
     });
   }
 

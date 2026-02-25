@@ -1,7 +1,19 @@
 /**
  * Idempotency Middleware
  * Prevents duplicate transactions from network retries
- * Implements Requirements: 28.1, 28.2, 28.6
+ * Implements Requirements: 13.6-13.8, 28.1, 28.2, 28.6
+ * 
+ * Supports idempotency for:
+ * - Stock request approval/rejection/cancellation
+ * - Stock transfer shipment/receipt/cancellation
+ * - Backorder fulfillment/cancellation
+ * - Legacy operations (transfer approval, GRN creation, adjustment approval)
+ * 
+ * Features:
+ * - 24-hour expiration for idempotency keys
+ * - Cached response return for duplicate requests
+ * - Concurrent request detection (409 Conflict)
+ * - Failed request retry support
  */
 
 import { getIdempotencyRecordModel } from '../models/company/IdempotencyRecord.js';
@@ -9,7 +21,18 @@ import { logger } from '../utils/logger.js';
 
 /**
  * Idempotency middleware factory
- * @param {string} operationType - Type of operation (TRANSFER_APPROVAL, GRN_CREATION, ADJUSTMENT_APPROVAL)
+ * @param {string} operationType - Type of operation:
+ *   - STOCK_REQUEST_APPROVAL: Approving a stock request
+ *   - STOCK_REQUEST_REJECTION: Rejecting a stock request
+ *   - STOCK_REQUEST_CANCELLATION: Cancelling a stock request
+ *   - STOCK_TRANSFER_SHIPMENT: Marking transfer as shipped
+ *   - STOCK_TRANSFER_RECEIPT: Marking transfer as received
+ *   - STOCK_TRANSFER_CANCELLATION: Cancelling a transfer
+ *   - BACKORDER_FULFILLMENT: Fulfilling a backorder
+ *   - BACKORDER_CANCELLATION: Cancelling a backorder
+ *   - TRANSFER_APPROVAL: Legacy transfer approval
+ *   - GRN_CREATION: GRN creation
+ *   - ADJUSTMENT_APPROVAL: Stock adjustment approval
  * @returns {Function} Express middleware function
  */
 export const idempotencyMiddleware = (operationType) => {
@@ -49,7 +72,11 @@ export const idempotencyMiddleware = (operationType) => {
       if (existingRecord) {
         // Validate operation type matches
         if (existingRecord.operationType !== operationType) {
-          logger.warn(`Idempotency key reused for different operation type: ${idempotencyKey}`);
+          logger.warn(`Idempotency key reused for different operation type: ${idempotencyKey}`, {
+            existingOperationType: existingRecord.operationType,
+            requestedOperationType: operationType,
+            userId: req.user?._id
+          });
           return res.status(409).json({
             success: false,
             message: 'Idempotency key already used for a different operation type',
@@ -60,22 +87,40 @@ export const idempotencyMiddleware = (operationType) => {
           });
         }
         
-        // Check status
-        if (existingRecord.status === 'completed') {
-          // Return cached response
-          logger.info(`Returning cached response for idempotency key: ${idempotencyKey}`);
+        // Check if record has expired (shouldn't happen due to TTL, but check anyway)
+        if (existingRecord.expiresAt && existingRecord.expiresAt < new Date()) {
+          logger.info(`Expired idempotency record found, allowing retry: ${idempotencyKey}`);
+          await IdempotencyRecord.deleteOne({ _id: existingRecord._id });
+          // Continue to create new record below
+        } else if (existingRecord.status === 'completed') {
+          // Return cached response (idempotent behavior)
+          logger.info(`Returning cached response for idempotency key: ${idempotencyKey}`, {
+            operationType,
+            userId: req.user?._id,
+            originalRequestDate: existingRecord.requestDate,
+            completedDate: existingRecord.completedDate
+          });
           return res.status(200).json(existingRecord.responseData);
         } else if (existingRecord.status === 'processing') {
-          // Request is still being processed
-          logger.info(`Request still processing for idempotency key: ${idempotencyKey}`);
+          // Request is still being processed (concurrent request detected)
+          logger.warn(`Concurrent request detected for idempotency key: ${idempotencyKey}`, {
+            operationType,
+            userId: req.user?._id,
+            originalRequestDate: existingRecord.requestDate
+          });
           return res.status(409).json({
             success: false,
-            message: 'Request is currently being processed',
+            message: 'Request is currently being processed. Please wait and do not retry.',
+            error: 'CONCURRENT_REQUEST',
             retryAfter: 5 // Suggest retry after 5 seconds
           });
         } else if (existingRecord.status === 'failed') {
           // Previous attempt failed, allow retry
-          logger.info(`Previous attempt failed for idempotency key: ${idempotencyKey}, allowing retry`);
+          logger.info(`Previous attempt failed for idempotency key: ${idempotencyKey}, allowing retry`, {
+            operationType,
+            userId: req.user?._id,
+            errorMessage: existingRecord.errorMessage
+          });
           // Delete the failed record to allow retry
           await IdempotencyRecord.deleteOne({ _id: existingRecord._id });
         }
@@ -87,7 +132,14 @@ export const idempotencyMiddleware = (operationType) => {
         operationType,
         status: 'processing',
         requestedBy: req.user._id,
-        requestDate: new Date()
+        requestDate: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
+      });
+      
+      logger.info(`Created idempotency record for key: ${idempotencyKey}`, {
+        operationType,
+        userId: req.user?._id,
+        expiresAt: newRecord.expiresAt
       });
       
       // Store idempotency record ID in request for later use
@@ -103,10 +155,14 @@ export const idempotencyMiddleware = (operationType) => {
             const status = data.success !== false ? 'completed' : 'failed';
             await IdempotencyRecord.findByIdAndUpdate(req.idempotencyRecordId, { 
               status,
-              
               responseData: data,
               completedDate: new Date(),
               errorMessage: status === 'failed' ? data.message : undefined
+            });
+            
+            logger.info(`Updated idempotency record to ${status}: ${req.idempotencyKey}`, {
+              operationType,
+              userId: req.user?._id
             });
           }
         } catch (error) {
@@ -160,6 +216,43 @@ export const cleanupExpiredRecords = async (companyDB) => {
     logger.error('Error cleaning up expired idempotency records:', error);
     throw error;
   }
+};
+
+/**
+ * Pre-configured idempotency middleware for stock request operations
+ */
+export const stockRequestApprovalIdempotency = idempotencyMiddleware('STOCK_REQUEST_APPROVAL');
+export const stockRequestRejectionIdempotency = idempotencyMiddleware('STOCK_REQUEST_REJECTION');
+export const stockRequestCancellationIdempotency = idempotencyMiddleware('STOCK_REQUEST_CANCELLATION');
+
+/**
+ * Pre-configured idempotency middleware for stock transfer operations
+ */
+export const stockTransferShipmentIdempotency = idempotencyMiddleware('STOCK_TRANSFER_SHIPMENT');
+export const stockTransferReceiptIdempotency = idempotencyMiddleware('STOCK_TRANSFER_RECEIPT');
+export const stockTransferCancellationIdempotency = idempotencyMiddleware('STOCK_TRANSFER_CANCELLATION');
+
+/**
+ * Pre-configured idempotency middleware for backorder operations
+ */
+export const backorderFulfillmentIdempotency = idempotencyMiddleware('BACKORDER_FULFILLMENT');
+export const backorderCancellationIdempotency = idempotencyMiddleware('BACKORDER_CANCELLATION');
+
+/**
+ * Operation type constants for use in controllers
+ */
+export const OPERATION_TYPES = {
+  STOCK_REQUEST_APPROVAL: 'STOCK_REQUEST_APPROVAL',
+  STOCK_REQUEST_REJECTION: 'STOCK_REQUEST_REJECTION',
+  STOCK_REQUEST_CANCELLATION: 'STOCK_REQUEST_CANCELLATION',
+  STOCK_TRANSFER_SHIPMENT: 'STOCK_TRANSFER_SHIPMENT',
+  STOCK_TRANSFER_RECEIPT: 'STOCK_TRANSFER_RECEIPT',
+  STOCK_TRANSFER_CANCELLATION: 'STOCK_TRANSFER_CANCELLATION',
+  BACKORDER_FULFILLMENT: 'BACKORDER_FULFILLMENT',
+  BACKORDER_CANCELLATION: 'BACKORDER_CANCELLATION',
+  TRANSFER_APPROVAL: 'TRANSFER_APPROVAL',
+  GRN_CREATION: 'GRN_CREATION',
+  ADJUSTMENT_APPROVAL: 'ADJUSTMENT_APPROVAL'
 };
 
 export default idempotencyMiddleware;

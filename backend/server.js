@@ -29,6 +29,8 @@ import supplierRoutes from './src/routes/suppliers.js';
 import categoryRoutes from './src/routes/categories.js';
 import menuRoutes from './src/routes/menuRoutes.js';
 import stockTransferRoutes from './src/routes/stockTransferRoutes.js';
+import stockRequestRoutes from './src/routes/stockRequestRoutes.js';
+import backorderRoutes from './src/routes/backorderRoutes.js';
 import stockAdjustmentRoutes from './src/routes/stockAdjustmentRoutes.js';
 import stockCountSessionRoutes from './src/routes/stockCountSessionRoutes.js';
 import grnRoutes from './src/routes/grnRoutes.js';
@@ -89,6 +91,8 @@ const startServer = async () => {
     app.use('/api/categories', categoryRoutes);
     app.use('/api/menu', menuRoutes);
     app.use('/api/transfers', stockTransferRoutes);
+    app.use('/api/v2/stock-requests', stockRequestRoutes);
+    app.use('/api/v2/backorders', backorderRoutes);
     app.use('/api/adjustments', stockAdjustmentRoutes);
     app.use('/api/stock-count-sessions', stockCountSessionRoutes);
     app.use('/api/grn', grnRoutes);

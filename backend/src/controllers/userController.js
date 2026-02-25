@@ -21,6 +21,20 @@ export const getUsers = async (req, res, next) => {
     if (currentUserRole === 'company_admin') {
       // Company admin can only see employees
       query.role = 'employee';
+    } else if (currentUserRole === 'warehouse_admin') {
+      // Warehouse admin cannot see any users (no permission to manage users)
+      return res.json({
+        success: true,
+        data: {
+          users: [],
+          pagination: {
+            currentPage: parseInt(page),
+            limit: parseInt(limit),
+            total: 0,
+            totalPages: 0
+          }
+        }
+      });
     } else if (currentUserRole === 'company_super_admin_secondary') {
       // Secondary admin cannot see primary admin
       query.role = { $ne: 'company_super_admin_primary' };
@@ -140,7 +154,7 @@ export const getUserById = async (req, res, next) => {
 export const createUser = async (req, res, next) => {
   try {
     const { companyId, userId, role: creatorRole } = req.user;
-    const { name, email, password, role, branchIds } = req.body;
+    const { name, email, password, role, branchIds, warehouseIds } = req.body;
 
     // Validate required fields
     if (!name || !email || !password || !role) {
@@ -150,19 +164,39 @@ export const createUser = async (req, res, next) => {
       });
     }
 
-    // Validate branch selection for company_admin and employee
-    if ((role === 'company_admin' || role === 'employee') && (!branchIds || branchIds.length === 0)) {
-      return res.status(400).json({
-        success: false,
-        message: 'At least one branch must be selected for company_admin and employee roles'
-      });
+    // Validate location access based on role
+    if (role === 'warehouse_admin') {
+      // Warehouse admin must have at least one warehouse
+      if (!warehouseIds || warehouseIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'At least one warehouse must be selected for warehouse_admin role'
+        });
+      }
+    } else if (role === 'company_admin') {
+      // Company admin must have at least one branch
+      if (!branchIds || branchIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'At least one branch must be selected for company_admin role'
+        });
+      }
+    } else if (role === 'employee') {
+      // Employee must have at least one branch
+      if (!branchIds || branchIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'At least one branch must be selected for employee role'
+        });
+      }
     }
 
     // Check role-based permissions
     const allowedRoles = {
-      company_super_admin_primary: ['company_super_admin_secondary', 'company_admin', 'employee'],
-      company_super_admin_secondary: ['company_admin', 'employee'],
-      company_admin: ['employee']
+      company_super_admin_primary: ['company_super_admin_secondary', 'company_admin', 'warehouse_admin', 'employee'],
+      company_super_admin_secondary: ['company_admin', 'warehouse_admin', 'employee'],
+      company_admin: ['employee'],
+      warehouse_admin: [] // Warehouse admin cannot create users
     };
 
     if (!allowedRoles[creatorRole] || !allowedRoles[creatorRole].includes(role)) {
@@ -181,15 +215,29 @@ export const createUser = async (req, res, next) => {
       });
     }
 
-    // Create user
-    const newUser = await CompanyUser.create({
+    // Create user with appropriate location access based on role
+    const userData = {
       name,
       email,
       password,
       role,
-      companyId,
-      branchIds: branchIds || []
-    });
+      companyId
+    };
+
+    // Set location access based on role
+    if (role === 'warehouse_admin') {
+      userData.warehouseIds = warehouseIds || [];
+      userData.branchIds = []; // Warehouse admin has no branch access
+    } else if (role === 'company_admin' || role === 'employee') {
+      userData.branchIds = branchIds || [];
+      userData.warehouseIds = []; // Company admin and employee have no warehouse access
+    } else {
+      // Super admins have no specific location restrictions
+      userData.branchIds = [];
+      userData.warehouseIds = [];
+    }
+
+    const newUser = await CompanyUser.create(userData);
 
     // Remove password from response
     const userResponse = newUser.toJSON();
@@ -299,6 +347,7 @@ export const createUser = async (req, res, next) => {
         companyId,
         companyName: company?.companyName || 'Your Company',
         branchIds: branchIds || [],
+        warehouseIds: warehouseIds || [],
         createdBy: creator.name,
         bccEmails
       });
@@ -318,6 +367,7 @@ export const createUser = async (req, res, next) => {
             createdBy: creator.name,
             creatorRole: creatorRole,
             branchIds: branchIds || [],
+            warehouseIds: warehouseIds || [],
             createdAt: newUser.createdAt
           },
           priority: 'medium',
@@ -335,7 +385,8 @@ export const createUser = async (req, res, next) => {
           companyName: company?.companyName,
           role,
           createdBy: creator.name,
-          branchIds: branchIds || []
+          branchIds: branchIds || [],
+          warehouseIds: warehouseIds || []
         },
         priority: 'high',
         actionUrl: '/settings/profile'
@@ -370,7 +421,7 @@ export const updateUser = async (req, res, next) => {
   try {
     const { companyId, userId: currentUserId, role: creatorRole } = req.user;
     const { id } = req.params;
-    const { name, email, role, branchIds, isActive, password } = req.body;
+    const { name, email, role, branchIds, warehouseIds, isActive, password } = req.body;
 
     // Find user
     const user = await CompanyUser.findOne({ _id: id, companyId });
@@ -396,9 +447,10 @@ export const updateUser = async (req, res, next) => {
     // Check permissions for role change
     if (role && role !== user.role) {
       const allowedRoles = {
-        company_super_admin_primary: ['company_super_admin_secondary', 'company_admin', 'employee'],
-        company_super_admin_secondary: ['company_admin', 'employee'],
-        company_admin: ['employee']
+        company_super_admin_primary: ['company_super_admin_secondary', 'company_admin', 'warehouse_admin', 'employee'],
+        company_super_admin_secondary: ['company_admin', 'warehouse_admin', 'employee'],
+        company_admin: ['employee'],
+        warehouse_admin: [] // Warehouse admin cannot update user roles
       };
 
       if (!allowedRoles[creatorRole] || !allowedRoles[creatorRole].includes(role)) {
@@ -423,8 +475,25 @@ export const updateUser = async (req, res, next) => {
     // Update user
     if (name) user.name = name;
     if (email) user.email = email;
-    if (role) user.role = role;
-    if (branchIds !== undefined) user.branchIds = branchIds;
+    if (role) {
+      user.role = role;
+      // Clear inappropriate location access when role changes
+      if (role === 'warehouse_admin') {
+        user.branchIds = [];
+        user.warehouseIds = warehouseIds !== undefined ? warehouseIds : user.warehouseIds;
+      } else if (role === 'company_admin' || role === 'employee') {
+        user.warehouseIds = [];
+        user.branchIds = branchIds !== undefined ? branchIds : user.branchIds;
+      } else {
+        // Super admins have no location restrictions
+        user.branchIds = [];
+        user.warehouseIds = [];
+      }
+    } else {
+      // Role not changing, update location access normally
+      if (branchIds !== undefined) user.branchIds = branchIds;
+      if (warehouseIds !== undefined) user.warehouseIds = warehouseIds;
+    }
     if (isActive !== undefined) user.isActive = isActive;
 
     await user.save();
@@ -479,9 +548,10 @@ export const deleteUser = async (req, res, next) => {
 
     // Check permissions
     const canDelete = {
-      company_super_admin_primary: ['company_super_admin_secondary', 'company_admin', 'employee'],
-      company_super_admin_secondary: ['company_admin', 'employee'],
-      company_admin: ['employee']
+      company_super_admin_primary: ['company_super_admin_secondary', 'company_admin', 'warehouse_admin', 'employee'],
+      company_super_admin_secondary: ['company_admin', 'warehouse_admin', 'employee'],
+      company_admin: ['employee'],
+      warehouse_admin: [] // Warehouse admin cannot delete users
     };
 
     if (!canDelete[creatorRole] || !canDelete[creatorRole].includes(user.role)) {

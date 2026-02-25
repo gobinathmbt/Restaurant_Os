@@ -14,12 +14,18 @@ const stockTransferItemSchema = new mongoose.Schema({
   requestedQuantity: {
     type: Number,
     required: true,
-    min: 0
+    min: 0.000001 // Must be greater than zero
   },
   sentQuantity: {
     type: Number,
     required: true,
-    min: 0
+    min: 0,
+    validate: {
+      validator: function() {
+        return this.sentQuantity <= this.requestedQuantity;
+      },
+      message: 'Sent quantity cannot exceed requested quantity'
+    }
   },
   backorderedQuantity: {
     type: Number,
@@ -29,6 +35,11 @@ const stockTransferItemSchema = new mongoose.Schema({
   receivedQuantity: {
     type: Number,
     min: 0
+  },
+  // Discrepancy tracking for shrinkage/damage analysis
+  discrepancyQuantity: {
+    type: Number,
+    default: 0
   },
   unit: {
     type: String,
@@ -51,6 +62,11 @@ const stockTransferItemSchema = new mongoose.Schema({
   totalCost: {
     type: Number,
     min: 0
+  },
+  // Cost snapshot at approval for historical accuracy
+  averageUnitCostAtApproval: {
+    type: Number,
+    min: 0
   }
 }, { _id: false });
 
@@ -65,6 +81,13 @@ const stockTransferSchema = new mongoose.Schema({
     required: true,
     unique: true,
     trim: true
+  },
+  
+  // Company isolation for future-proofing and cross-company reporting
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    index: true
   },
   
   // Location references (replaces branch references)
@@ -97,6 +120,32 @@ const stockTransferSchema = new mongoose.Schema({
     default: 'push'
   },
   
+  // Link to original stock request (for request-approval workflow)
+  originalRequestId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'StockRequest',
+    index: true
+  },
+  
+  // System-generated flag for auto-created transfers (e.g., backorder fulfillment)
+  systemGenerated: {
+    type: Boolean,
+    default: false
+  },
+  
+  // Transfer priority for operational management
+  priority: {
+    type: String,
+    enum: ['low', 'normal', 'high', 'urgent'],
+    default: 'normal',
+    index: true
+  },
+  
+  // Expected delivery date for SLA tracking
+  expectedDeliveryDate: {
+    type: Date
+  },
+  
   // Items being transferred
   items: {
     type: [stockTransferItemSchema],
@@ -109,12 +158,20 @@ const stockTransferSchema = new mongoose.Schema({
     }
   },
   
-  // State machine: pending → approved → completed/returned
+  // State machine: approved → in_transit → completed/cancelled/returned
+  // Note: 'pending' status removed - transfers now start at 'approved' (created from approved requests)
+  // Legacy 'pending' status kept for backward compatibility with existing data
   status: {
     type: String,
     required: true,
-    enum: ['pending', 'approved', 'rejected', 'completed', 'cancelled', 'returned'],
-    default: 'pending'
+    enum: ['pending', 'approved', 'in_transit', 'rejected', 'completed', 'cancelled', 'returned'],
+    default: 'approved'
+  },
+  
+  // Optimistic locking for concurrency control
+  version: {
+    type: Number,
+    default: 0
   },
   
   // Audit trail - Request/Creation
@@ -138,6 +195,36 @@ const stockTransferSchema = new mongoose.Schema({
   },
   approvedDate: {
     type: Date
+  },
+  
+  // Audit trail - Shipment (Warehouse Admin marks as shipped)
+  shippedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CompanyUser'
+  },
+  shippedDate: {
+    type: Date
+  },
+  shippedIpAddress: {
+    type: String
+  },
+  shippedDeviceInfo: {
+    type: String
+  },
+  
+  // Audit trail - Receipt (Branch Admin marks as received)
+  receivedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CompanyUser'
+  },
+  receivedDate: {
+    type: Date
+  },
+  receivedIpAddress: {
+    type: String
+  },
+  receivedDeviceInfo: {
+    type: String
   },
   
   // Audit trail - Completion
@@ -182,6 +269,33 @@ const stockTransferSchema = new mongoose.Schema({
   returnReason: {
     type: String,
     trim: true
+  },
+  
+  // Compliance tracking for enterprise audit requirements
+  approvedIpAddress: {
+    type: String
+  },
+  approvedDeviceInfo: {
+    type: String
+  },
+  completedIpAddress: {
+    type: String
+  },
+  completedDeviceInfo: {
+    type: String
+  },
+  
+  // Soft delete support for compliance
+  isArchived: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  archivedAt: {
+    type: Date
+  },
+  archivedBy: {
+    type: mongoose.Schema.Types.ObjectId
   }
 }, {
   timestamps: true
@@ -189,11 +303,41 @@ const stockTransferSchema = new mongoose.Schema({
 
 // Indexes for performance
 stockTransferSchema.index({ transferNumber: 1 }, { unique: true });
+stockTransferSchema.index({ companyId: 1, status: 1 });
 stockTransferSchema.index({ fromLocation: 1, status: 1 });
 stockTransferSchema.index({ toLocation: 1, status: 1 });
 stockTransferSchema.index({ status: 1, requestDate: -1 });
 stockTransferSchema.index({ fromLocation: 1, toLocation: 1, status: 1 });
 stockTransferSchema.index({ transferType: 1 });
+stockTransferSchema.index({ originalRequestId: 1 }); // Link to stock request
+
+// Compound indexes including companyId for future-proofing (DB merge scenarios)
+// Partial indexes to exclude archived records from operational queries
+stockTransferSchema.index(
+  { companyId: 1, status: 1, requestDate: -1 },
+  { partialFilterExpression: { isArchived: false } }
+);
+stockTransferSchema.index(
+  { companyId: 1, fromLocation: 1, status: 1 },
+  { partialFilterExpression: { isArchived: false } }
+);
+stockTransferSchema.index(
+  { companyId: 1, toLocation: 1, status: 1 },
+  { partialFilterExpression: { isArchived: false } }
+);
+stockTransferSchema.index(
+  { companyId: 1, status: 1, priority: 1, requestDate: -1 },
+  { partialFilterExpression: { isArchived: false } }
+);
+
+// Dashboard and operational queries
+stockTransferSchema.index({ status: 1, fromLocation: 1, requestDate: -1 });
+stockTransferSchema.index({ status: 1, toLocation: 1, requestDate: -1 });
+stockTransferSchema.index({ status: 1, priority: 1, requestDate: -1 });
+stockTransferSchema.index({ status: 1, approvedBy: 1 });
+
+// Archive queries
+stockTransferSchema.index({ isArchived: 1, archivedAt: -1 });
 
 // Legacy indexes for backward compatibility
 stockTransferSchema.index({ fromBranch: 1, status: 1 });

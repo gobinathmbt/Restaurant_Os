@@ -518,6 +518,7 @@ export const getMe = async (req, res, next) => {
     if (userType === 'company') {
       userData.companyId = user.companyId;
       userData.branchIds = user.branchIds;
+      userData.warehouseIds = user.warehouseIds;
       
       // Get company details if user belongs to a company
       let company = null;

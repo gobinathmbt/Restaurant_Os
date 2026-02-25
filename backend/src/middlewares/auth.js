@@ -88,6 +88,7 @@ export const authenticate = async (req, res, next) => {
     if (userType === 'company') {
       req.user.companyId = user.companyId;
       req.user.branchIds = user.branchIds;
+      req.user.warehouseIds = user.warehouseIds;
     }
 
     // Add platform admin-specific fields

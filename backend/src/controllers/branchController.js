@@ -12,19 +12,18 @@ import { logger } from '../utils/logger.js';
 export const getBranches = async (req, res, next) => {
   try {
     const { companyId, userId, role } = req.user;
-    const { page = 1, limit = 10, search, isActive } = req.query;
+    const { page = 1, limit = 10, search, isActive, type = 'branch' } = req.query;
 
     const companyDB = getCompanyDB(companyId);
     const Location = getLocationModel(companyDB);
 
-    const query = { type: 'branch' }; // Only get branch-type locations
+    const query = { type }; // Filter by location type (branch, warehouse, etc.)
     
-    // If user is company_admin, filter by their assigned branches
+    // Filter by user role and location access
     if (role === 'company_admin') {
       const user = await CompanyUser.findById(userId).select('branchIds');
       
-      if (!user || !user.branchIds || user.branchIds.length === 0) {
-        // Company admin has no branch access
+      if (!user) {
         return res.json({
           success: true,
           data: {
@@ -39,15 +38,69 @@ export const getBranches = async (req, res, next) => {
         });
       }
       
-      // Filter branches to only those the admin has access to
-      query._id = { $in: user.branchIds };
+      // Company admin can only access branches
+      if (type === 'branch' && user.branchIds && user.branchIds.length > 0) {
+        query._id = { $in: user.branchIds };
+      } else {
+        // No access to other location types
+        return res.json({
+          success: true,
+          data: {
+            branches: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
     }
-    // Super admins (primary and secondary) can see all branches
-    // Employees shouldn't typically access this endpoint, but if they do, show their branches
+    // Warehouse admin can only access warehouses
+    else if (role === 'warehouse_admin') {
+      const user = await CompanyUser.findById(userId).select('warehouseIds');
+      
+      if (!user) {
+        return res.json({
+          success: true,
+          data: {
+            branches: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
+      
+      // Warehouse admin can only access warehouses
+      if (type === 'warehouse' && user.warehouseIds && user.warehouseIds.length > 0) {
+        query._id = { $in: user.warehouseIds };
+      } else {
+        // No access to other location types
+        return res.json({
+          success: true,
+          data: {
+            branches: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
+    }
+    // Super admins (primary and secondary) can see all locations
+    // Employees can only access branches
     else if (role === 'employee') {
       const user = await CompanyUser.findById(userId).select('branchIds');
       
-      if (!user || !user.branchIds || user.branchIds.length === 0) {
+      if (!user) {
         return res.json({
           success: true,
           data: {
@@ -62,7 +115,23 @@ export const getBranches = async (req, res, next) => {
         });
       }
       
-      query._id = { $in: user.branchIds };
+      // Employee can only access branches
+      if (type === 'branch' && user.branchIds && user.branchIds.length > 0) {
+        query._id = { $in: user.branchIds };
+      } else {
+        return res.json({
+          success: true,
+          data: {
+            branches: [],
+            pagination: {
+              currentPage: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
     }
     
     if (search) {

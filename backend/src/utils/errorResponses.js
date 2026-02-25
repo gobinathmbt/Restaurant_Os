@@ -1,8 +1,11 @@
 /**
  * Error Response Utilities
- * Provides standardized error and success response formatting for category-branch consistency operations
- * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
+ * Provides standardized error and success response formatting for:
+ * - Category-branch consistency operations (Requirements: 6.1-6.6)
+ * - Stock request approval system (Requirements: 17.3-17.8, 20.5-20.6)
  */
+
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Format validation error response (HTTP 409 - Conflict)
@@ -154,4 +157,287 @@ export const formatTransactionError = ({
       }
     }
   };
+};
+
+// ============================================================================
+// Stock Request Approval System Error Responses
+// Requirements: 17.3-17.8, 20.5-20.6
+// ============================================================================
+
+/**
+ * Format validation error response (HTTP 400 - Bad Request)
+ * Used when input validation fails
+ * 
+ * @param {Object} params - Error parameters
+ * @param {string} params.message - Error message
+ * @param {Array<Object>} [params.errors] - Array of validation errors
+ * @param {string} [params.requestId] - Request ID for tracing
+ * @returns {Object} Formatted error response
+ */
+export const formatValidationErrorV2 = ({ message, errors = [], requestId = null }) => {
+  return {
+    success: false,
+    error: {
+      code: 'VALIDATION_ERROR',
+      message,
+      errors,
+      requestId: requestId || uuidv4(),
+      timestamp: new Date().toISOString()
+    }
+  };
+};
+
+/**
+ * Format forbidden error response (HTTP 403 - Forbidden)
+ * Used when user lacks permission to perform an action
+ * 
+ * @param {Object} params - Error parameters
+ * @param {string} params.message - Error message
+ * @param {string} [params.resource] - Resource being accessed
+ * @param {string} [params.action] - Action being attempted
+ * @param {string} [params.requestId] - Request ID for tracing
+ * @returns {Object} Formatted error response
+ */
+export const formatForbiddenError = ({ message, resource = null, action = null, requestId = null }) => {
+  return {
+    success: false,
+    error: {
+      code: 'FORBIDDEN',
+      message,
+      ...(resource && { resource }),
+      ...(action && { action }),
+      requestId: requestId || uuidv4(),
+      timestamp: new Date().toISOString()
+    }
+  };
+};
+
+/**
+ * Format not found error response (HTTP 404 - Not Found)
+ * Used when a requested resource does not exist
+ * 
+ * @param {Object} params - Error parameters
+ * @param {string} params.message - Error message
+ * @param {string} [params.resource] - Resource type
+ * @param {string} [params.resourceId] - Resource ID
+ * @param {string} [params.requestId] - Request ID for tracing
+ * @returns {Object} Formatted error response
+ */
+export const formatNotFoundError = ({ message, resource = null, resourceId = null, requestId = null }) => {
+  return {
+    success: false,
+    error: {
+      code: 'NOT_FOUND',
+      message,
+      ...(resource && { resource }),
+      ...(resourceId && { resourceId }),
+      requestId: requestId || uuidv4(),
+      timestamp: new Date().toISOString()
+    }
+  };
+};
+
+/**
+ * Format conflict error response (HTTP 409 - Conflict)
+ * Used when optimistic locking fails or resource state conflicts
+ * 
+ * @param {Object} params - Error parameters
+ * @param {string} params.message - Error message
+ * @param {number} [params.currentVersion] - Current version of the resource
+ * @param {number} [params.providedVersion] - Version provided in the request
+ * @param {string} [params.requestId] - Request ID for tracing
+ * @returns {Object} Formatted error response
+ */
+export const formatConflictError = ({ message, currentVersion = null, providedVersion = null, requestId = null }) => {
+  return {
+    success: false,
+    error: {
+      code: 'CONFLICT',
+      message,
+      ...(currentVersion !== null && { currentVersion }),
+      ...(providedVersion !== null && { providedVersion }),
+      requestId: requestId || uuidv4(),
+      timestamp: new Date().toISOString()
+    }
+  };
+};
+
+/**
+ * Format insufficient inventory error response (HTTP 422 - Unprocessable Entity)
+ * Used when there is not enough inventory to fulfill a request
+ * 
+ * @param {Object} params - Error parameters
+ * @param {string} params.message - Error message
+ * @param {string} params.inventoryItem - Inventory item ID or name
+ * @param {number} params.requested - Requested quantity
+ * @param {number} params.available - Available quantity
+ * @param {string} [params.location] - Location ID
+ * @param {string} [params.requestId] - Request ID for tracing
+ * @returns {Object} Formatted error response
+ */
+export const formatInsufficientInventoryError = ({ 
+  message, 
+  inventoryItem, 
+  requested, 
+  available, 
+  location = null,
+  requestId = null 
+}) => {
+  return {
+    success: false,
+    error: {
+      code: 'INSUFFICIENT_INVENTORY',
+      message,
+      details: {
+        inventoryItem,
+        requested,
+        available,
+        shortfall: requested - available,
+        ...(location && { location })
+      },
+      requestId: requestId || uuidv4(),
+      timestamp: new Date().toISOString()
+    }
+  };
+};
+
+/**
+ * Format internal server error response (HTTP 500 - Internal Server Error)
+ * Used when an unexpected error occurs
+ * 
+ * @param {Object} params - Error parameters
+ * @param {string} params.message - Error message
+ * @param {Error} [params.error] - Original error object
+ * @param {string} [params.requestId] - Request ID for tracing
+ * @returns {Object} Formatted error response
+ */
+export const formatInternalServerError = ({ message, error = null, requestId = null }) => {
+  return {
+    success: false,
+    error: {
+      code: 'INTERNAL_SERVER_ERROR',
+      message,
+      ...(error && process.env.NODE_ENV !== 'production' && { 
+        stack: error.stack,
+        details: error.message 
+      }),
+      requestId: requestId || uuidv4(),
+      timestamp: new Date().toISOString()
+    }
+  };
+};
+
+/**
+ * Create a custom error class for stock request system errors
+ */
+class StockRequestError extends Error {
+  constructor(message, statusCode, code, details = {}) {
+    super(message);
+    this.name = 'StockRequestError';
+    this.statusCode = statusCode;
+    this.code = code;
+    this.details = details;
+    this.requestId = uuidv4();
+    this.timestamp = new Date().toISOString();
+  }
+
+  toJSON() {
+    return {
+      success: false,
+      error: {
+        code: this.code,
+        message: this.message,
+        ...this.details,
+        requestId: this.requestId,
+        timestamp: this.timestamp
+      }
+    };
+  }
+}
+
+/**
+ * Validation Error (HTTP 400)
+ */
+class ValidationError extends StockRequestError {
+  constructor(message, errors = []) {
+    super(message, 400, 'VALIDATION_ERROR', { errors });
+  }
+}
+
+/**
+ * Forbidden Error (HTTP 403)
+ */
+class ForbiddenError extends StockRequestError {
+  constructor(message, resource = null, action = null) {
+    super(message, 403, 'FORBIDDEN', { 
+      ...(resource && { resource }),
+      ...(action && { action })
+    });
+  }
+}
+
+/**
+ * Not Found Error (HTTP 404)
+ */
+class NotFoundError extends StockRequestError {
+  constructor(message, resource = null, resourceId = null) {
+    super(message, 404, 'NOT_FOUND', { 
+      ...(resource && { resource }),
+      ...(resourceId && { resourceId })
+    });
+  }
+}
+
+/**
+ * Conflict Error (HTTP 409)
+ */
+class ConflictError extends StockRequestError {
+  constructor(message, currentVersion = null, providedVersion = null) {
+    super(message, 409, 'CONFLICT', { 
+      ...(currentVersion !== null && { currentVersion }),
+      ...(providedVersion !== null && { providedVersion })
+    });
+  }
+}
+
+/**
+ * Insufficient Inventory Error (HTTP 422)
+ */
+class InsufficientInventoryError extends StockRequestError {
+  constructor(message, inventoryItem, requested, available, location = null) {
+    super(message, 422, 'INSUFFICIENT_INVENTORY', {
+      details: {
+        inventoryItem,
+        requested,
+        available,
+        shortfall: requested - available,
+        ...(location && { location })
+      }
+    });
+  }
+}
+
+/**
+ * Internal Server Error (HTTP 500)
+ */
+class InternalServerError extends StockRequestError {
+  constructor(message, error = null) {
+    super(message, 500, 'INTERNAL_SERVER_ERROR', {
+      ...(error && process.env.NODE_ENV !== 'production' && { 
+        stack: error.stack,
+        details: error.message 
+      })
+    });
+  }
+}
+
+// Export error classes
+export {
+  StockRequestError,
+  ValidationError,
+  ForbiddenError,
+  NotFoundError,
+  ConflictError,
+  InsufficientInventoryError,
+  InternalServerError
 };

@@ -17,7 +17,20 @@ const idempotencyRecordSchema = new mongoose.Schema({
   operationType: {
     type: String,
     required: true,
-    enum: ['TRANSFER_APPROVAL', 'GRN_CREATION', 'ADJUSTMENT_APPROVAL', 'OTHER']
+    enum: [
+      'TRANSFER_APPROVAL', 
+      'GRN_CREATION', 
+      'ADJUSTMENT_APPROVAL', 
+      'STOCK_REQUEST_APPROVAL',
+      'STOCK_REQUEST_REJECTION',
+      'STOCK_REQUEST_CANCELLATION',
+      'STOCK_TRANSFER_SHIPMENT',
+      'STOCK_TRANSFER_RECEIPT',
+      'STOCK_TRANSFER_CANCELLATION',
+      'BACKORDER_FULFILLMENT',
+      'BACKORDER_CANCELLATION',
+      'OTHER'
+    ]
   },
   
   // Response data (cached for duplicate requests)

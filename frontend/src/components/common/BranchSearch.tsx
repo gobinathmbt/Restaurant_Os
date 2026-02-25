@@ -20,6 +20,7 @@ interface Branch {
   _id: string;
   name: string;
   code: string;
+  type?: string;
 }
 
 interface BranchSearchProps {
@@ -31,6 +32,8 @@ interface BranchSearchProps {
   className?: string;
   singleSelect?: boolean;
   autoSelectSingleBranch?: boolean;
+  locationType?: 'branch' | 'warehouse'; // New prop to specify location type
+  locationLabel?: string; // Custom label for the location type
 }
 
 export default function BranchSearch({
@@ -42,6 +45,8 @@ export default function BranchSearch({
   className = '',
   singleSelect = false,
   autoSelectSingleBranch = false,
+  locationType = 'branch',
+  locationLabel,
 }: BranchSearchProps) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -95,20 +100,25 @@ export default function BranchSearch({
       const response = await branchServices.getBranches({
         limit: 50,
         isActive: true,
+        type: locationType, // Filter by location type
       });
       let branches = response.data.data.branches || [];
       
       // Filter branches based on user role
       const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
-      if (!isSuperAdmin && user?.branchIds) {
-        branches = branches.filter((branch: Branch) => user.branchIds?.includes(branch._id));
+      if (!isSuperAdmin) {
+        if (locationType === 'warehouse' && user?.warehouseIds) {
+          branches = branches.filter((branch: Branch) => user.warehouseIds?.includes(branch._id));
+        } else if (locationType === 'branch' && user?.branchIds) {
+          branches = branches.filter((branch: Branch) => user.branchIds?.includes(branch._id));
+        }
       }
       
       setInitialBranches(branches);
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Failed to fetch branches',
+        description: `Failed to fetch ${locationLabel || locationType + 's'}`,
         variant: 'destructive',
       });
     } finally {
@@ -123,20 +133,25 @@ export default function BranchSearch({
         limit: 50,
         isActive: true,
         search,
+        type: locationType, // Filter by location type
       });
       let branches = response.data.data.branches || [];
       
       // Filter branches based on user role
       const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
-      if (!isSuperAdmin && user?.branchIds) {
-        branches = branches.filter((branch: Branch) => user.branchIds?.includes(branch._id));
+      if (!isSuperAdmin) {
+        if (locationType === 'warehouse' && user?.warehouseIds) {
+          branches = branches.filter((branch: Branch) => user.warehouseIds?.includes(branch._id));
+        } else if (locationType === 'branch' && user?.branchIds) {
+          branches = branches.filter((branch: Branch) => user.branchIds?.includes(branch._id));
+        }
       }
       
       setSearchBranches(branches);
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Failed to search branches',
+        description: `Failed to search ${locationLabel || locationType + 's'}`,
         variant: 'destructive',
       });
     } finally {
@@ -201,7 +216,7 @@ export default function BranchSearch({
               {selectedBranchIds.length > 0
                 ? singleSelect
                   ? selectedBranches[0]?.name || placeholder
-                  : `${selectedBranchIds.length} branch${selectedBranchIds.length > 1 ? 'es' : ''} selected`
+                  : `${selectedBranchIds.length} ${locationLabel?.toLowerCase() || locationType}${selectedBranchIds.length > 1 ? (locationType === 'branch' ? 'es' : 's') : ''} selected`
                 : placeholder}
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
@@ -210,7 +225,7 @@ export default function BranchSearch({
           <PopoverContent className="w-full p-0" align="start">
             <Command shouldFilter={false}>
               <CommandInput
-                placeholder="Search branches..."
+                placeholder={`Search ${locationLabel || locationType + 's'}...`}
                 value={searchQuery}
                 onValueChange={setSearchQuery}
               />
@@ -218,8 +233,8 @@ export default function BranchSearch({
                 {loading
                   ? 'Searching...'
                   : searchQuery
-                    ? `No branches found matching "${searchQuery}"`
-                    : 'No branches available'}
+                    ? `No ${locationLabel || locationType + 's'} found matching "${searchQuery}"`
+                    : `No ${locationLabel || locationType + 's'} available`}
               </CommandEmpty>
               <CommandList>
                 <CommandGroup>
@@ -238,7 +253,7 @@ export default function BranchSearch({
                   )}
                   {loading ? (
                     <div className="py-6 text-center text-sm text-muted-foreground">
-                      Loading branches...
+                      Loading {locationLabel || locationType + 's'}...
                     </div>
                   ) : (
                     displayBranches.map((branch) => (
@@ -265,7 +280,7 @@ export default function BranchSearch({
                   <div className="px-2 py-1.5 text-xs text-amber-600 border-t">
                     {searchQuery
                       ? 'Showing first 50 results. Refine your search for more specific results.'
-                      : 'Showing first 50 branches. Use search to find more.'}
+                      : `Showing first 50 ${locationLabel || locationType + 's'}. Use search to find more.`}
                   </div>
                 )}
               </CommandList>
@@ -293,15 +308,15 @@ export default function BranchSearch({
       {!singleSelect && (
         <p className="text-sm text-muted-foreground">
           {selectedBranchIds.length > 0
-            ? `${selectedBranchIds.length} branch${selectedBranchIds.length !== 1 ? 'es' : ''} selected`
-            : 'Please select at least one branch'}
+            ? `${selectedBranchIds.length} ${locationLabel?.toLowerCase() || locationType}${selectedBranchIds.length !== 1 ? (locationType === 'branch' ? 'es' : 's') : ''} selected`
+            : `Please select at least one ${locationLabel?.toLowerCase() || locationType}`}
         </p>
       )}
       
       {/* Single-branch admin info */}
       {autoSelectSingleBranch && isSingleBranchAdmin && (
         <p className="text-xs text-muted-foreground">
-          Branch is automatically selected based on your access
+          {locationLabel || locationType.charAt(0).toUpperCase() + locationType.slice(1)} is automatically selected based on your access
         </p>
       )}
     </div>

@@ -41,7 +41,7 @@ export const notificationServices = {
 // Branch Services
 export const branchServices = {
   // Get all branches
-  getBranches: (params?: { page?: number; limit?: number; search?: string; isActive?: boolean }) =>
+  getBranches: (params?: { page?: number; limit?: number; search?: string; isActive?: boolean; type?: string }) =>
     apiClient.get("/api/branches", { params }),
 
   // Get single branch
@@ -513,6 +513,68 @@ export const inventoryServices = {
 
   cancelBackorder: (transferId: string, backorderId: string, reason: string) =>
     apiClient.put(`/api/inventory/transfers/${transferId}/backorders/${backorderId}/cancel`, { reason }),
+
+  // Stock Request API endpoints (new request-approval workflow)
+  getStockRequests: (branchId: string, params?: { 
+    page?: number; 
+    limit?: number; 
+    search?: string; 
+    status?: string;
+    priority?: string;
+  }) => {
+    const queryParams = { ...params, branchId };
+    return apiClient.get("/api/v2/stock-requests", { params: queryParams });
+  },
+
+  getStockRequestById: (id: string) =>
+    apiClient.get(`/api/v2/stock-requests/${id}`),
+
+  createStockRequest: (data: {
+    fromLocation: string;
+    toLocation: string;
+    priority: 'low' | 'normal' | 'high' | 'urgent';
+    items: Array<{
+      inventoryItem: string;
+      requestedQuantity: number;
+      unit: string;
+      notes?: string;
+    }>;
+    notes?: string;
+  }) => apiClient.post("/api/v2/stock-requests", data),
+
+  approveStockRequest: (id: string, data: {
+    items: Array<{
+      inventoryItem: string;
+      approvedQuantity: number;
+    }>;
+    notes?: string;
+  }) => apiClient.post(`/api/v2/stock-requests/${id}/approve`, data),
+
+  rejectStockRequest: (id: string, data: { rejectionReason: string }) =>
+    apiClient.post(`/api/v2/stock-requests/${id}/reject`, data),
+
+  cancelStockRequest: (id: string, data: { cancellationReason: string }) =>
+    apiClient.post(`/api/v2/stock-requests/${id}/cancel`, data),
+
+  // Backorder endpoints
+  getBackorders: (params?: { 
+    page?: number; 
+    limit?: number; 
+    status?: string;
+    fromLocation?: string;
+  }) => apiClient.get("/api/v2/backorders", { params }),
+
+  fulfillBackorderV2: (backorderId: string, data: {
+    fulfilledQuantity: number;
+    notes?: string;
+  }) => apiClient.post(`/api/v2/backorders/${backorderId}/fulfill`, data),
+
+  cancelBackorderV2: (backorderId: string, data: { cancellationReason: string }) =>
+    apiClient.post(`/api/v2/backorders/${backorderId}/cancel`, data),
+
+  // Ship transfer (mark as in_transit)
+  shipTransfer: (transferId: string) =>
+    apiClient.post(`/api/inventory/transfers/${transferId}/ship`),
 };
 
 // Inventory Item Location Services

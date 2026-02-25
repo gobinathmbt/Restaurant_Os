@@ -5,6 +5,7 @@
 
 import express from 'express';
 import {
+  listTransfers,
   createTransfer,
   getTransferById,
   approveTransfer,
@@ -13,7 +14,9 @@ import {
   completeTransfer,
   returnTransfer,
   getTransfersByLocation,
-  getTransfersByStatus
+  getTransfersByStatus,
+  shipTransfer,
+  receiveTransfer
 } from '../controllers/stockTransferController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { idempotencyMiddleware } from '../middlewares/idempotency.js';
@@ -22,6 +25,32 @@ const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// V2 API endpoints with location-based access control
+
+// List stock transfers with cursor pagination (location-based filtering applied in controller)
+router.get('/v2', listTransfers);
+
+// Get a single transfer by ID
+router.get('/v2/:transferId', getTransferById);
+
+// Ship a stock transfer (Warehouse Admin marks as shipped)
+// Location-based access control is validated in the service layer (fromLocation)
+router.post(
+  '/v2/:transferId/ship',
+  idempotencyMiddleware('TRANSFER_SHIP'),
+  shipTransfer
+);
+
+// Receive a stock transfer (Branch Admin marks as received)
+// Location-based access control is validated in the service layer (toLocation)
+router.post(
+  '/v2/:transferId/receive',
+  idempotencyMiddleware('TRANSFER_RECEIVE'),
+  receiveTransfer
+);
+
+// Legacy V1 API endpoints (maintained for backward compatibility)
 
 // Create a new stock transfer
 router.post('/', createTransfer);

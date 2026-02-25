@@ -31,7 +31,8 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
     email: '',
     password: '',
     role: 'employee',
-    branchIds: [] as string[]
+    branchIds: [] as string[],
+    warehouseIds: [] as string[]
   });
 
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
@@ -44,15 +45,18 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
       company_super_admin_primary: [
         { value: 'company_super_admin_secondary', label: 'Super Admin (Secondary)' },
         { value: 'company_admin', label: 'Admin' },
+        { value: 'warehouse_admin', label: 'Warehouse Admin' },
         { value: 'employee', label: 'Employee' }
       ],
       company_super_admin_secondary: [
         { value: 'company_admin', label: 'Admin' },
+        { value: 'warehouse_admin', label: 'Warehouse Admin' },
         { value: 'employee', label: 'Employee' }
       ],
       company_admin: [
         { value: 'employee', label: 'Employee' }
-      ]
+      ],
+      warehouse_admin: [] // Warehouse admin cannot create users
     };
 
     return roleMap[currentUser?.role || ''] || [];
@@ -65,7 +69,8 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
         email: user.email || '',
         password: '',
         role: user.role || 'employee',
-        branchIds: user.branchIds || []
+        branchIds: user.branchIds || [],
+        warehouseIds: user.warehouseIds || []
       });
     } else {
       setFormData({
@@ -73,7 +78,8 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
         email: '',
         password: '',
         role: 'employee',
-        branchIds: []
+        branchIds: [],
+        warehouseIds: []
       });
     }
   }, [user, open]);
@@ -82,6 +88,13 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
     setFormData(prev => ({
       ...prev,
       branchIds
+    }));
+  };
+
+  const handleWarehousesChange = (warehouseIds: string[]) => {
+    setFormData(prev => ({
+      ...prev,
+      warehouseIds
     }));
   };
 
@@ -106,14 +119,34 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
       return;
     }
 
-    // Validate branch selection for company_admin and employee
-    if ((formData.role === 'company_admin' || formData.role === 'employee') && formData.branchIds.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "At least one branch must be selected for this role",
-        variant: "destructive",
-      });
-      return;
+    // Validate location access based on role
+    if (formData.role === 'warehouse_admin') {
+      if (formData.warehouseIds.length === 0) {
+        toast({
+          title: "Validation Error",
+          description: "At least one warehouse must be selected for warehouse admin role",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else if (formData.role === 'company_admin') {
+      if (formData.branchIds.length === 0) {
+        toast({
+          title: "Validation Error",
+          description: "At least one branch must be selected for company admin role",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else if (formData.role === 'employee') {
+      if (formData.branchIds.length === 0) {
+        toast({
+          title: "Validation Error",
+          description: "At least one branch must be selected for employee role",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     try {
@@ -122,9 +155,21 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
       const submitData: any = {
         name: formData.name,
         email: formData.email,
-        role: formData.role,
-        branchIds: formData.branchIds
+        role: formData.role
       };
+
+      // Add location access based on role
+      if (formData.role === 'warehouse_admin') {
+        submitData.warehouseIds = formData.warehouseIds;
+        submitData.branchIds = []; // Explicitly clear branchIds
+      } else if (formData.role === 'company_admin' || formData.role === 'employee') {
+        submitData.branchIds = formData.branchIds;
+        submitData.warehouseIds = []; // Explicitly clear warehouseIds
+      } else {
+        // Super admins have no location restrictions
+        submitData.branchIds = [];
+        submitData.warehouseIds = [];
+      }
 
       // Only include password if it's provided
       if (formData.password) {
@@ -245,19 +290,46 @@ export default function UserFormModal({ open, onClose, user, onSuccess }: UserFo
             </div>
           </div>
 
-          {/* Branch Access */}
+          {/* Location Access - Show based on role */}
+          {formData.role === 'warehouse_admin' && (
+            <div className="space-y-4">
+              <h3 className="font-semibold">Warehouse Access *</h3>
+              <p className="text-sm text-muted-foreground">
+                Select which warehouses this warehouse admin can access (required)
+              </p>
+              
+              <div>
+                <Label>Warehouses</Label>
+                <BranchSearch
+                  selectedBranchIds={formData.warehouseIds}
+                  onBranchesChange={handleWarehousesChange}
+                  placeholder="Select warehouses..."
+                  showSelectAll={isSuperAdmin}
+                  locationType="warehouse"
+                  locationLabel="warehouses"
+                />
+              </div>
+            </div>
+          )}
+
           {(formData.role === 'company_admin' || formData.role === 'employee') && (
             <div className="space-y-4">
               <h3 className="font-semibold">Branch Access *</h3>
               <p className="text-sm text-muted-foreground">
                 Select which branches this user can access (required)
               </p>
-              <BranchSearch
-                selectedBranchIds={formData.branchIds}
-                onBranchesChange={handleBranchesChange}
-                placeholder="Select branches..."
-                showSelectAll={isSuperAdmin}
-              />
+              
+              <div>
+                <Label>Branches</Label>
+                <BranchSearch
+                  selectedBranchIds={formData.branchIds}
+                  onBranchesChange={handleBranchesChange}
+                  placeholder="Select branches..."
+                  showSelectAll={isSuperAdmin}
+                  locationType="branch"
+                  locationLabel="branches"
+                />
+              </div>
             </div>
           )}
           </form>

@@ -1,0 +1,1244 @@
+/**
+ * Stock Request Service
+ * Business logic for stock request and approval workflow
+ * Handles request creation, approval, rejection, and cancellation
+ * Optimized for 5000+ branches with location-based access control
+ */
+
+import { getCompanyDB } from '../config/database.js';
+import { getStockRequestModel } from '../models/company/StockRequest.js';
+import { getCounterModel } from '../models/company/Counter.js';
+import { logger } from '../utils/logger.js';
+import CompanyUser from '../models/platform/CompanyUser.js';
+import notificationService from './notificationService.js';
+import locationNotificationRouter from './locationNotificationRouter.js';
+import stockRequestEmailService from './emailTemplates/stockRequestEmailService.js';
+
+/**
+ * Generate unique request number in format REQ-YYYYMMDD-NNNN
+ * @param {Object} companyDB - Company database connection
+ * @returns {Promise<string>} Unique request number
+ */
+const generateRequestNumber = async (companyDB) => {
+  const Counter = getCounterModel(companyDB);
+  
+  const today = new Date();
+  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+  const counterId = `REQUEST_${dateStr}`;
+  
+  // Atomic increment to prevent race conditions
+  const counter = await Counter.findOneAndUpdate(
+    { _id: counterId },
+    { $inc: { sequence: 1 } },
+    { 
+      upsert: true, 
+      new: true,
+      setDefaultsOnInsert: true
+    }
+  );
+  
+  const requestNumber = `REQ-${dateStr}-${counter.sequence.toString().padStart(4, '0')}`;
+  return requestNumber;
+};
+
+/**
+ * Calculate expected delivery date based on priority
+ * @param {string} priority - Priority level (urgent, high, normal, low)
+ * @returns {Date} Expected delivery date
+ */
+const calculateExpectedDeliveryDate = (priority) => {
+  const now = new Date();
+  const daysToAdd = {
+    urgent: 1,
+    high: 3,
+    normal: 7,
+    low: 14
+  };
+  
+  const days = daysToAdd[priority] || 7; // Default to normal (7 days)
+  const deliveryDate = new Date(now);
+  deliveryDate.setDate(deliveryDate.getDate() + days);
+  
+  return deliveryDate;
+};
+
+/**
+ * Validate user has Branch Admin role
+ * @param {Object} user - User object
+ * @returns {boolean} True if user is Branch Admin
+ */
+const isBranchAdmin = (user) => {
+  // Branch Admin roles include: company_admin, warehouse_admin, employee
+  // Super Admins also have Branch Admin capabilities
+  const branchAdminRoles = [
+    'company_super_admin_primary',
+    'company_super_admin_secondary',
+    'company_admin',
+    'warehouse_admin',
+    'employee'
+  ];
+  return branchAdminRoles.includes(user.role);
+};
+
+/**
+ * Check if user is Super Admin (has access to all locations)
+ * @param {Object} user - User object
+ * @returns {boolean} True if user is Super Admin
+ */
+const isSuperAdmin = (user) => {
+  return user.role === 'company_super_admin_primary' || 
+         user.role === 'company_super_admin_secondary';
+};
+
+/**
+ * Validate user has access to location
+ * Super Admins have access to all locations (empty arrays = all access)
+ * Other users must have locationId in their branchIds or warehouseIds
+ * @param {Object} user - User object
+ * @param {string} locationId - Location ID to check
+ * @returns {boolean} True if user has access
+ */
+const hasLocationAccess = (user, locationId) => {
+  // Super Admins have access to all locations
+  if (isSuperAdmin(user)) {
+    return true;
+  }
+  
+  // Convert locationId to string for comparison
+  const locationIdStr = locationId.toString();
+  
+  // Check if location is in user's branchIds or warehouseIds
+  const hasBranchAccess = user.branchIds && user.branchIds.some(
+    id => id.toString() === locationIdStr
+  );
+  const hasWarehouseAccess = user.warehouseIds && user.warehouseIds.some(
+    id => id.toString() === locationIdStr
+  );
+  
+  return hasBranchAccess || hasWarehouseAccess;
+};
+
+/**
+ * Create new stock request
+ * @param {string} companyId - Company ID
+ * @param {string} userId - User ID creating the request
+ * @param {Object} requestData - Request data
+ * @param {string} ipAddress - IP address of requester
+ * @param {string} deviceInfo - Device information
+ * @returns {Promise<Object>} Created stock request
+ */
+export const createRequest = async (
+  companyId,
+  userId,
+  requestData,
+  ipAddress,
+  deviceInfo
+) => {
+  try {
+    // Validate required fields
+    const requiredFields = ['fromLocation', 'toLocation', 'items'];
+    const missingFields = requiredFields.filter(field => !requestData[field]);
+    
+    if (missingFields.length > 0) {
+      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    // Validate items array
+    if (!Array.isArray(requestData.items) || requestData.items.length === 0) {
+      throw new Error('At least one item is required');
+    }
+
+    // Validate each item has required fields and requestedQuantity > 0
+    for (const item of requestData.items) {
+      if (!item.inventoryItem) {
+        throw new Error('Each item must have an inventoryItem');
+      }
+      if (!item.requestedQuantity || item.requestedQuantity <= 0) {
+        throw new Error('Each item must have requestedQuantity greater than zero');
+      }
+      if (!item.unit) {
+        throw new Error('Each item must have a unit');
+      }
+    }
+
+    // Validate fromLocation != toLocation
+    if (requestData.fromLocation.toString() === requestData.toLocation.toString()) {
+      throw new Error('fromLocation and toLocation cannot be the same');
+    }
+
+    // Get user details
+    const user = await CompanyUser.findOne({
+      _id: userId,
+      companyId: companyId,
+      isActive: true
+    });
+
+    if (!user) {
+      throw new Error('User not found or inactive');
+    }
+
+    // Validate user has Branch Admin role
+    if (!isBranchAdmin(user)) {
+      throw new Error('User must have Branch Admin role to create stock requests');
+    }
+
+    // Validate user has access to toLocation
+    if (!hasLocationAccess(user, requestData.toLocation)) {
+      throw new Error('User does not have access to the destination location');
+    }
+
+    // Get company database
+    const companyDB = getCompanyDB(companyId);
+    const StockRequest = getStockRequestModel(companyDB);
+
+    // Generate unique request number
+    const requestNumber = await generateRequestNumber(companyDB);
+
+    // Calculate expected delivery date based on priority
+    const priority = requestData.priority || 'normal';
+    const expectedDeliveryDate = calculateExpectedDeliveryDate(priority);
+
+    // Create stock request
+    const stockRequest = new StockRequest({
+      requestNumber,
+      companyId,
+      fromLocation: requestData.fromLocation,
+      toLocation: requestData.toLocation,
+      priority,
+      expectedDeliveryDate,
+      items: requestData.items,
+      status: 'pending',
+      requestedBy: userId,
+      requestDate: new Date(),
+      requestIpAddress: ipAddress,
+      requestDeviceInfo: deviceInfo,
+      notes: requestData.notes || '',
+      version: 0
+    });
+
+    await stockRequest.save();
+
+    logger.info(`Stock request created: ${requestNumber} by user ${userId} for company ${companyId}`);
+
+    // Send notifications to Super Admins + users with toLocation access
+    try {
+      const recipients = await locationNotificationRouter.getNotificationRecipients(
+        companyId,
+        requestData.toLocation.toString(),
+        'request_created'
+      );
+
+      // Populate request for notification
+      const populatedRequest = await StockRequest.findById(stockRequest._id)
+        .populate('fromLocation')
+        .populate('toLocation')
+        .populate('requestedBy');
+
+      const fromLocationName = populatedRequest.fromLocation?.name || 'Unknown location';
+      const toLocationName = populatedRequest.toLocation?.name || 'Unknown location';
+      const requesterName = populatedRequest.requestedBy?.name || 'Unknown user';
+      const itemCount = populatedRequest.items?.length || 0;
+
+      // Notify Super Admins
+      for (const admin of recipients.superAdmins) {
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'stock_request_created',
+          title: 'New Stock Request',
+          message: `Stock request ${requestNumber} created by ${requesterName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}, Priority: ${priority}`,
+          data: {
+            requestId: stockRequest._id,
+            requestNumber: requestNumber,
+            fromLocationName,
+            toLocationName,
+            itemCount,
+            priority,
+            requesterName
+          },
+          priority: priority === 'urgent' ? 'high' : 'medium',
+          actionUrl: `/inventory/stock-requests/${stockRequest._id}`
+        }).catch(error => {
+          logger.error(`Failed to send notification to super admin ${admin._id}:`, error);
+        });
+
+        // Send email notification
+        if (admin.email) {
+          await stockRequestEmailService.sendStockRequestCreationNotification(admin.email, {
+            request: populatedRequest,
+            recipientName: admin.name
+          }).catch(error => {
+            logger.error(`Failed to send email to super admin ${admin.email}:`, error);
+          });
+        }
+      }
+
+      // Notify users with toLocation access
+      for (const user of recipients.locationUsers) {
+        await notificationService.sendToCompanyUser(companyId, user._id, {
+          category: 'inventory',
+          event: 'stock_request_created',
+          title: 'New Stock Request',
+          message: `Stock request ${requestNumber} created by ${requesterName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}, Priority: ${priority}`,
+          data: {
+            requestId: stockRequest._id,
+            requestNumber: requestNumber,
+            fromLocationName,
+            toLocationName,
+            itemCount,
+            priority,
+            requesterName
+          },
+          priority: priority === 'urgent' ? 'high' : 'medium',
+          actionUrl: `/inventory/stock-requests/${stockRequest._id}`
+        }).catch(error => {
+          logger.error(`Failed to send notification to user ${user._id}:`, error);
+        });
+
+        // Send email notification
+        if (user.email) {
+          await stockRequestEmailService.sendStockRequestCreationNotification(user.email, {
+            request: populatedRequest,
+            recipientName: user.name
+          }).catch(error => {
+            logger.error(`Failed to send email to user ${user.email}:`, error);
+          });
+        }
+      }
+
+      logger.info(`Notifications sent for stock request ${requestNumber}: ${recipients.superAdmins.length} super admins, ${recipients.locationUsers.length} location users`);
+    } catch (notificationError) {
+      // Log but don't fail the request creation
+      logger.error('Error sending request creation notifications:', notificationError);
+    }
+
+    return stockRequest;
+  } catch (error) {
+    logger.error('Error creating stock request:', error);
+    throw error;
+  }
+};
+
+/**
+ * Check if user is Warehouse Admin
+ * @param {Object} user - User object
+ * @returns {boolean} True if user is Warehouse Admin
+ */
+const isWarehouseAdmin = (user) => {
+  return user.role === 'warehouse_admin';
+};
+
+/**
+ * Validate user can approve requests (Super Admin or Warehouse Admin with location access)
+ * @param {Object} user - User object
+ * @param {string} toLocationId - Destination location ID
+ * @returns {boolean} True if user can approve
+ */
+const canApproveRequest = (user, toLocationId) => {
+  // Super Admins can approve all requests
+  if (isSuperAdmin(user)) {
+    return true;
+  }
+  
+  // Warehouse Admins can approve if they have access to toLocation
+  if (isWarehouseAdmin(user) && hasLocationAccess(user, toLocationId)) {
+    return true;
+  }
+  
+  return false;
+};
+
+/**
+ * Reserve inventory using FIFO with FEFO prioritization
+ * Queries InventoryBatchLocation in FIFO order (oldest createdAt first)
+ * Excludes expired batches and non-active batches
+ * Prioritizes by earliest expiryDate within FIFO order (FEFO within FIFO)
+ * 
+ * @param {Object} companyDB - Company database connection
+ * @param {string} fromLocationId - Source location ID
+ * @param {string} inventoryItemId - Inventory item ID
+ * @param {number} quantityToReserve - Quantity to reserve
+ * @param {Object} session - Mongoose session for transaction
+ * @returns {Promise<Array>} Array of batch reservations with retry logic
+ */
+const reserveInventoryFIFO = async (
+  companyDB,
+  fromLocationId,
+  inventoryItemId,
+  quantityToReserve,
+  session
+) => {
+  const InventoryBatchLocation = companyDB.model('InventoryBatchLocation');
+  const maxRetries = 3;
+  const baseBackoffMs = 100;
+  
+  let attempt = 0;
+  
+  while (attempt < maxRetries) {
+    try {
+      // Query batches in FIFO order with FEFO prioritization
+      // 1. Filter: active status, not expired, has available quantity
+      // 2. Sort: createdAt ASC (FIFO), then expiryDate ASC (FEFO within FIFO)
+      const now = new Date();
+      
+      const batches = await InventoryBatchLocation.find({
+        locationId: fromLocationId,
+        inventoryItem: inventoryItemId,
+        status: 'active',
+        availableQuantity: { $gt: 0 },
+        $or: [
+          { expiryDate: { $exists: false } },
+          { expiryDate: { $gte: now } }
+        ]
+      })
+      .sort({ createdAt: 1, expiryDate: 1 }) // FIFO with FEFO
+      .session(session);
+      
+      // Calculate total available quantity
+      const totalAvailable = batches.reduce((sum, batch) => sum + batch.availableQuantity, 0);
+      
+      if (totalAvailable < quantityToReserve) {
+        throw new Error(
+          `Insufficient inventory: requested ${quantityToReserve}, available ${totalAvailable}`
+        );
+      }
+      
+      // Reserve inventory from batches using FIFO
+      let remainingToReserve = quantityToReserve;
+      const reservations = [];
+      
+      for (const batch of batches) {
+        if (remainingToReserve <= 0) break;
+        
+        const quantityFromThisBatch = Math.min(batch.availableQuantity, remainingToReserve);
+        
+        // Update batch with optimistic locking
+        const updateResult = await InventoryBatchLocation.updateOne(
+          {
+            _id: batch._id,
+            version: batch.version // Optimistic locking check
+          },
+          {
+            $inc: {
+              reservedQuantity: quantityFromThisBatch,
+              version: 1
+            }
+          },
+          { session }
+        );
+        
+        if (updateResult.modifiedCount === 0) {
+          // Optimistic locking failure - version mismatch
+          throw new Error('OPTIMISTIC_LOCK_FAILURE');
+        }
+        
+        // Verify inventory invariant after update
+        const updatedBatch = await InventoryBatchLocation.findById(batch._id).session(session);
+        const totalQuantity = updatedBatch.availableQuantity + updatedBatch.reservedQuantity;
+        const originalTotal = batch.availableQuantity + batch.reservedQuantity + quantityFromThisBatch;
+        
+        if (Math.abs(totalQuantity - originalTotal) > 0.000001) {
+          throw new Error(
+            `Inventory invariant violation: expected ${originalTotal}, got ${totalQuantity}`
+          );
+        }
+        
+        reservations.push({
+          batchId: batch._id,
+          batchNumber: batch.batchNumber,
+          quantityReserved: quantityFromThisBatch,
+          unitCost: batch.unitCost,
+          expiryDate: batch.expiryDate,
+          manufacturingDate: batch.manufacturingDate
+        });
+        
+        remainingToReserve -= quantityFromThisBatch;
+      }
+      
+      return reservations;
+      
+    } catch (error) {
+      if (error.message === 'OPTIMISTIC_LOCK_FAILURE' && attempt < maxRetries - 1) {
+        // Retry with exponential backoff
+        attempt++;
+        const backoffMs = baseBackoffMs * Math.pow(2, attempt - 1);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        logger.warn(`Optimistic locking failure, retrying (attempt ${attempt}/${maxRetries})`);
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  
+  throw new Error('Max retries exceeded for inventory reservation');
+};
+
+/**
+ * Generate unique transfer number in format TRF-YYYYMMDD-NNNN
+ * @param {Object} companyDB - Company database connection
+ * @returns {Promise<string>} Unique transfer number
+ */
+const generateTransferNumber = async (companyDB) => {
+  const Counter = getCounterModel(companyDB);
+  
+  const today = new Date();
+  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+  const counterId = `TRANSFER_${dateStr}`;
+  
+  const counter = await Counter.findOneAndUpdate(
+    { _id: counterId },
+    { $inc: { sequence: 1 } },
+    { 
+      upsert: true, 
+      new: true,
+      setDefaultsOnInsert: true
+    }
+  );
+  
+  const transferNumber = `TRF-${dateStr}-${counter.sequence.toString().padStart(4, '0')}`;
+  return transferNumber;
+};
+
+/**
+ * Approve stock request (full or partial approval)
+ * Creates transfer and backorders as needed
+ * Uses database transaction for atomicity
+ * 
+ * @param {string} companyId - Company ID
+ * @param {string} requestId - Stock request ID
+ * @param {string} userId - User ID approving the request
+ * @param {Object} approvalData - Approval data with items and approved quantities
+ * @param {string} ipAddress - IP address of approver
+ * @param {string} deviceInfo - Device information
+ * @returns {Promise<Object>} Approval result with request, transfer, and backorders
+ */
+export const approveRequest = async (
+  companyId,
+  requestId,
+  userId,
+  approvalData,
+  ipAddress,
+  deviceInfo
+) => {
+  const mongoose = (await import('mongoose')).default;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    // Get user details
+    const user = await CompanyUser.findOne({
+      _id: userId,
+      companyId: companyId,
+      isActive: true
+    });
+    
+    if (!user) {
+      throw new Error('User not found or inactive');
+    }
+    
+    // Get company database
+    const companyDB = getCompanyDB(companyId);
+    const StockRequest = getStockRequestModel(companyDB);
+    const StockTransfer = companyDB.model('StockTransfer');
+    const StockBackorder = companyDB.model('StockBackorder');
+    
+    // Get stock request with optimistic locking
+    const request = await StockRequest.findOne({
+      _id: requestId,
+      companyId: companyId
+    }).session(session);
+    
+    if (!request) {
+      throw new Error('Stock request not found');
+    }
+    
+    // Validate request status is 'pending'
+    if (request.status !== 'pending') {
+      throw new Error(`Cannot approve request with status '${request.status}'. Only 'pending' requests can be approved.`);
+    }
+    
+    // Validate user authorization
+    if (!canApproveRequest(user, request.toLocation)) {
+      throw new Error('User is not authorized to approve this request. Must be Super Admin or Warehouse Admin with access to destination location.');
+    }
+    
+    // Validate approval data
+    if (!approvalData.items || !Array.isArray(approvalData.items) || approvalData.items.length === 0) {
+      throw new Error('Approval data must include items array');
+    }
+    
+    // Validate approved quantities
+    const approvalMap = new Map();
+    for (const approvalItem of approvalData.items) {
+      if (!approvalItem.inventoryItem) {
+        throw new Error('Each approval item must have inventoryItem');
+      }
+      
+      if (approvalItem.approvedQuantity < 0) {
+        throw new Error('Approved quantity cannot be negative');
+      }
+      
+      // Find corresponding request item
+      const requestItem = request.items.find(
+        item => item.inventoryItem.toString() === approvalItem.inventoryItem.toString()
+      );
+      
+      if (!requestItem) {
+        throw new Error(`Item ${approvalItem.inventoryItem} not found in request`);
+      }
+      
+      if (approvalItem.approvedQuantity > requestItem.requestedQuantity) {
+        throw new Error(
+          `Approved quantity (${approvalItem.approvedQuantity}) cannot exceed requested quantity (${requestItem.requestedQuantity})`
+        );
+      }
+      
+      approvalMap.set(approvalItem.inventoryItem.toString(), approvalItem.approvedQuantity);
+    }
+    
+    // Reserve inventory for each approved item
+    const transferItems = [];
+    const backorderItems = [];
+    
+    for (const requestItem of request.items) {
+      const itemIdStr = requestItem.inventoryItem.toString();
+      const approvedQuantity = approvalMap.get(itemIdStr) || 0;
+      const backorderedQuantity = requestItem.requestedQuantity - approvedQuantity;
+      
+      // Update request item with approved and backordered quantities
+      requestItem.approvedQuantity = approvedQuantity;
+      requestItem.backorderedQuantity = backorderedQuantity;
+      
+      // Reserve inventory if approved quantity > 0
+      if (approvedQuantity > 0) {
+        const reservations = await reserveInventoryFIFO(
+          companyDB,
+          request.fromLocation,
+          requestItem.inventoryItem,
+          approvedQuantity,
+          session
+        );
+        
+        // Create transfer item
+        transferItems.push({
+          inventoryItem: requestItem.inventoryItem,
+          requestedQuantity: approvedQuantity,
+          sentQuantity: approvedQuantity,
+          backorderedQuantity: 0,
+          unit: requestItem.unit,
+          notes: requestItem.notes,
+          batchCosts: reservations.map(r => ({
+            sourceBatchId: r.batchId,
+            quantity: r.quantityReserved,
+            unitCost: r.unitCost,
+            totalCost: r.quantityReserved * r.unitCost
+          })),
+          totalCost: reservations.reduce((sum, r) => sum + (r.quantityReserved * r.unitCost), 0)
+        });
+      }
+      
+      // Create backorder if backordered quantity > 0
+      if (backorderedQuantity > 0) {
+        backorderItems.push({
+          companyId: companyId,
+          originalRequestId: request._id,
+          originalTransferId: null, // Will be set after transfer creation
+          fromLocation: request.fromLocation,
+          toLocation: request.toLocation,
+          inventoryItem: requestItem.inventoryItem,
+          backorderedQuantity: backorderedQuantity,
+          unit: requestItem.unit,
+          status: 'pending',
+          createdBy: userId,
+          createdIpAddress: ipAddress,
+          createdDeviceInfo: deviceInfo,
+          notes: `Backorder from request ${request.requestNumber}`
+        });
+      }
+    }
+    
+    // Update request status to 'approved' with optimistic locking
+    const updateResult = await StockRequest.updateOne(
+      {
+        _id: request._id,
+        version: request.version
+      },
+      {
+        $set: {
+          status: 'approved',
+          approvedBy: userId,
+          approvedDate: new Date(),
+          approvedIpAddress: ipAddress,
+          approvedDeviceInfo: deviceInfo,
+          approvalNotes: approvalData.notes || ''
+        },
+        $inc: { version: 1 }
+      },
+      { session }
+    );
+    
+    if (updateResult.modifiedCount === 0) {
+      throw new Error('Request was modified by another user. Please refresh and try again.');
+    }
+    
+    // Create stock transfer if any items were approved
+    let transfer = null;
+    if (transferItems.length > 0) {
+      const transferNumber = await generateTransferNumber(companyDB);
+      
+      transfer = new StockTransfer({
+        transferNumber,
+        companyId: companyId,
+        fromLocation: request.fromLocation,
+        toLocation: request.toLocation,
+        transferType: 'request',
+        originalRequestId: request._id,
+        priority: request.priority,
+        expectedDeliveryDate: request.expectedDeliveryDate,
+        items: transferItems,
+        status: 'approved',
+        requestedBy: request.requestedBy,
+        requestDate: request.requestDate,
+        approvedBy: userId,
+        approvedDate: new Date(),
+        notes: `Transfer created from approved request ${request.requestNumber}`,
+        version: 0
+      });
+      
+      await transfer.save({ session });
+      
+      // Link transfer back to request
+      await StockRequest.updateOne(
+        { _id: request._id },
+        { $set: { createdTransferId: transfer._id } },
+        { session }
+      );
+    }
+    
+    // Create backorders
+    const backorders = [];
+    if (backorderItems.length > 0 && transfer) {
+      // Set originalTransferId for backorders
+      for (const backorderItem of backorderItems) {
+        backorderItem.originalTransferId = transfer._id;
+      }
+      
+      const createdBackorders = await StockBackorder.insertMany(backorderItems, { session });
+      backorders.push(...createdBackorders);
+    }
+    
+    // Commit transaction
+    await session.commitTransaction();
+    
+    // Get updated request
+    const updatedRequest = await StockRequest.findById(request._id)
+      .populate('fromLocation')
+      .populate('toLocation')
+      .populate('requestedBy')
+      .populate('approvedBy');
+    
+    logger.info(
+      `Stock request ${request.requestNumber} approved by user ${userId} for company ${companyId}. ` +
+      `Transfer: ${transfer ? transfer.transferNumber : 'none'}, Backorders: ${backorders.length}`
+    );
+
+    // Send notifications: requestedBy user + Super Admins
+    try {
+      const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+      
+      const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
+      const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
+      const approverName = updatedRequest.approvedBy?.name || 'Unknown user';
+      const itemCount = updatedRequest.items?.length || 0;
+      const hasBackorders = backorders.length > 0;
+
+      // Notify the requester
+      await notificationService.sendToCompanyUser(companyId, updatedRequest.requestedBy._id, {
+        category: 'inventory',
+        event: 'stock_request_approved',
+        title: 'Stock Request Approved',
+        message: `Your stock request ${request.requestNumber} has been approved by ${approverName}. ${hasBackorders ? `${backorders.length} item(s) backordered.` : 'All items approved.'}`,
+        data: {
+          requestId: updatedRequest._id,
+          requestNumber: request.requestNumber,
+          fromLocationName,
+          toLocationName,
+          itemCount,
+          approverName,
+          transferNumber: transfer?.transferNumber,
+          backorderCount: backorders.length
+        },
+        priority: 'medium',
+        actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
+      }).catch(error => {
+        logger.error(`Failed to send approval notification to requester ${updatedRequest.requestedBy._id}:`, error);
+      });
+
+      // Send email notification to requester
+      if (updatedRequest.requestedBy.email) {
+        await stockRequestEmailService.sendStockRequestApprovalNotification(updatedRequest.requestedBy.email, {
+          request: updatedRequest,
+          recipientName: updatedRequest.requestedBy.name,
+          transfer: transfer,
+          backorders: backorders
+        }).catch(error => {
+          logger.error(`Failed to send approval email to requester ${updatedRequest.requestedBy.email}:`, error);
+        });
+      }
+
+      // Notify Super Admins
+      for (const admin of superAdmins) {
+        // Skip if admin is the approver
+        if (admin._id.toString() === userId.toString()) continue;
+
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'stock_request_approved',
+          title: 'Stock Request Approved',
+          message: `Stock request ${request.requestNumber} approved by ${approverName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}${hasBackorders ? `, Backorders: ${backorders.length}` : ''}`,
+          data: {
+            requestId: updatedRequest._id,
+            requestNumber: request.requestNumber,
+            fromLocationName,
+            toLocationName,
+            itemCount,
+            approverName,
+            transferNumber: transfer?.transferNumber,
+            backorderCount: backorders.length
+          },
+          priority: 'low',
+          actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
+        }).catch(error => {
+          logger.error(`Failed to send approval notification to super admin ${admin._id}:`, error);
+        });
+
+        // Send email notification to super admin
+        if (admin.email) {
+          await stockRequestEmailService.sendStockRequestApprovalNotification(admin.email, {
+            request: updatedRequest,
+            recipientName: admin.name,
+            transfer: transfer,
+            backorders: backorders
+          }).catch(error => {
+            logger.error(`Failed to send approval email to super admin ${admin.email}:`, error);
+          });
+        }
+      }
+
+      // If backorders were created, notify the requester separately
+      if (hasBackorders) {
+        await notificationService.sendToCompanyUser(companyId, updatedRequest.requestedBy._id, {
+          category: 'inventory',
+          event: 'backorder_created',
+          title: 'Backorder Created',
+          message: `${backorders.length} item(s) from request ${request.requestNumber} have been backordered due to insufficient inventory.`,
+          data: {
+            requestId: updatedRequest._id,
+            requestNumber: request.requestNumber,
+            backorderCount: backorders.length,
+            backorderIds: backorders.map(b => b._id)
+          },
+          priority: 'medium',
+          actionUrl: `/inventory/backorders`
+        }).catch(error => {
+          logger.error(`Failed to send backorder notification to requester ${updatedRequest.requestedBy._id}:`, error);
+        });
+
+        // Send email notification for each backorder
+        for (const backorder of backorders) {
+          if (updatedRequest.requestedBy.email) {
+            // Populate backorder with location and item details
+            const populatedBackorder = {
+              ...backorder.toObject(),
+              originalRequestId: updatedRequest,
+              fromLocation: updatedRequest.fromLocation,
+              toLocation: updatedRequest.toLocation,
+              inventoryItem: updatedRequest.items.find(item => 
+                item.inventoryItem._id.toString() === backorder.inventoryItem.toString()
+              )?.inventoryItem
+            };
+
+            await stockRequestEmailService.sendBackorderCreationNotification(updatedRequest.requestedBy.email, {
+              backorder: populatedBackorder,
+              recipientName: updatedRequest.requestedBy.name
+            }).catch(error => {
+              logger.error(`Failed to send backorder email to requester ${updatedRequest.requestedBy.email}:`, error);
+            });
+          }
+        }
+      }
+
+      logger.info(`Approval notifications sent for stock request ${request.requestNumber}`);
+    } catch (notificationError) {
+      // Log but don't fail the approval
+      logger.error('Error sending approval notifications:', notificationError);
+    }
+    
+    return {
+      request: updatedRequest,
+      transfer: transfer,
+      backorders: backorders
+    };
+    
+  } catch (error) {
+    await session.abortTransaction();
+    logger.error('Error approving stock request:', error);
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
+ * Reject stock request
+ * @param {string} companyId - Company ID
+ * @param {string} requestId - Request ID to reject
+ * @param {string} userId - User ID performing rejection
+ * @param {string} rejectionReason - Reason for rejection (required)
+ * @param {string} ipAddress - IP address of user
+ * @param {string} deviceInfo - Device information
+ * @returns {Promise<Object>} Rejected stock request
+ */
+export const rejectRequest = async (
+  companyId,
+  requestId,
+  userId,
+  rejectionReason,
+  ipAddress,
+  deviceInfo
+) => {
+  const mongoose = (await import('mongoose')).default;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    // Validate rejection reason is non-empty
+    if (!rejectionReason || rejectionReason.trim().length === 0) {
+      throw new Error('Rejection reason is required and cannot be empty');
+    }
+    
+    // Get user details
+    const user = await CompanyUser.findOne({
+      _id: userId,
+      companyId: companyId,
+      isActive: true
+    });
+    
+    if (!user) {
+      throw new Error('User not found or inactive');
+    }
+    
+    // Get company database
+    const companyDB = getCompanyDB(companyId);
+    const StockRequest = getStockRequestModel(companyDB);
+    
+    // Get stock request with optimistic locking
+    const request = await StockRequest.findOne({
+      _id: requestId,
+      companyId: companyId
+    }).session(session);
+    
+    if (!request) {
+      throw new Error('Stock request not found');
+    }
+    
+    // Validate request status is 'pending'
+    if (request.status !== 'pending') {
+      throw new Error(`Cannot reject request with status '${request.status}'. Only 'pending' requests can be rejected.`);
+    }
+    
+    // Validate user authorization
+    // Must be Super Admin or Warehouse Admin with access to toLocation
+    if (!canApproveRequest(user, request.toLocation)) {
+      throw new Error('User is not authorized to reject this request. Must be Super Admin or Warehouse Admin with access to destination location.');
+    }
+    
+    // Update request status to 'rejected' with optimistic locking
+    const updateResult = await StockRequest.updateOne(
+      {
+        _id: request._id,
+        version: request.version
+      },
+      {
+        $set: {
+          status: 'rejected',
+          rejectedBy: userId,
+          rejectedDate: new Date(),
+          rejectedIpAddress: ipAddress,
+          rejectedDeviceInfo: deviceInfo,
+          rejectionReason: rejectionReason.trim()
+        },
+        $inc: { version: 1 }
+      },
+      { session }
+    );
+    
+    if (updateResult.modifiedCount === 0) {
+      throw new Error('Request was modified by another user. Please refresh and try again.');
+    }
+    
+    // Commit transaction
+    await session.commitTransaction();
+    
+    // Get updated request
+    const updatedRequest = await StockRequest.findById(request._id)
+      .populate('fromLocation')
+      .populate('toLocation')
+      .populate('requestedBy')
+      .populate('rejectedBy');
+    
+    logger.info(
+      `Stock request ${request.requestNumber} rejected by user ${userId} for company ${companyId}. ` +
+      `Reason: ${rejectionReason}`
+    );
+
+    // Send notification to requestedBy user with rejectionReason
+    try {
+      const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
+      const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
+      const rejectorName = updatedRequest.rejectedBy?.name || 'Unknown user';
+
+      await notificationService.sendToCompanyUser(companyId, updatedRequest.requestedBy._id, {
+        category: 'inventory',
+        event: 'stock_request_rejected',
+        title: 'Stock Request Rejected',
+        message: `Your stock request ${request.requestNumber} has been rejected by ${rejectorName}. Reason: ${rejectionReason}`,
+        data: {
+          requestId: updatedRequest._id,
+          requestNumber: request.requestNumber,
+          fromLocationName,
+          toLocationName,
+          rejectorName,
+          rejectionReason
+        },
+        priority: 'high',
+        actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
+      }).catch(error => {
+        logger.error(`Failed to send rejection notification to requester ${updatedRequest.requestedBy._id}:`, error);
+      });
+
+      // Send email notification to requester
+      if (updatedRequest.requestedBy.email) {
+        await stockRequestEmailService.sendStockRequestRejectionNotification(updatedRequest.requestedBy.email, {
+          request: updatedRequest,
+          recipientName: updatedRequest.requestedBy.name
+        }).catch(error => {
+          logger.error(`Failed to send rejection email to requester ${updatedRequest.requestedBy.email}:`, error);
+        });
+      }
+
+      logger.info(`Rejection notification sent for stock request ${request.requestNumber}`);
+    } catch (notificationError) {
+      // Log but don't fail the rejection
+      logger.error('Error sending rejection notification:', notificationError);
+    }
+    
+    return updatedRequest;
+    
+  } catch (error) {
+    await session.abortTransaction();
+    logger.error('Error rejecting stock request:', error);
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
+ * Cancel stock request
+ * @param {string} companyId - Company ID
+ * @param {string} requestId - Request ID to cancel
+ * @param {string} userId - User ID performing cancellation
+ * @param {string} cancellationReason - Reason for cancellation (required)
+ * @param {string} ipAddress - IP address of user
+ * @param {string} deviceInfo - Device information
+ * @returns {Promise<Object>} Cancelled stock request
+ */
+export const cancelRequest = async (
+  companyId,
+  requestId,
+  userId,
+  cancellationReason,
+  ipAddress,
+  deviceInfo
+) => {
+  const mongoose = (await import('mongoose')).default;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    // Validate cancellation reason is non-empty
+    if (!cancellationReason || cancellationReason.trim().length === 0) {
+      throw new Error('Cancellation reason is required and cannot be empty');
+    }
+    
+    // Get user details
+    const user = await CompanyUser.findOne({
+      _id: userId,
+      companyId: companyId,
+      isActive: true
+    });
+    
+    if (!user) {
+      throw new Error('User not found or inactive');
+    }
+    
+    // Get company database
+    const companyDB = getCompanyDB(companyId);
+    const StockRequest = getStockRequestModel(companyDB);
+    
+    // Get stock request with optimistic locking
+    const request = await StockRequest.findOne({
+      _id: requestId,
+      companyId: companyId
+    }).session(session);
+    
+    if (!request) {
+      throw new Error('Stock request not found');
+    }
+    
+    // Validate user authorization
+    // User must be the requester OR have approval rights (Super Admin or Warehouse Admin with location access)
+    const isRequester = request.requestedBy.toString() === userId.toString();
+    const hasApprovalRights = canApproveRequest(user, request.toLocation);
+    
+    if (!isRequester && !hasApprovalRights) {
+      throw new Error('User is not authorized to cancel this request. Must be the requester, Super Admin, or Warehouse Admin with access to destination location.');
+    }
+    
+    // Validate request can be cancelled (only pending or approved requests can be cancelled)
+    if (!['pending', 'approved'].includes(request.status)) {
+      throw new Error(`Cannot cancel request with status '${request.status}'. Only 'pending' or 'approved' requests can be cancelled.`);
+    }
+    
+    // If request is approved, we need to release inventory reservations
+    if (request.status === 'approved') {
+      // Get the associated transfer
+      if (request.createdTransferId) {
+        const StockTransfer = companyDB.model('StockTransfer');
+        const transfer = await StockTransfer.findById(request.createdTransferId).session(session);
+        
+        if (transfer && transfer.status === 'approved') {
+          // Release inventory reservations
+          const InventoryBatchLocation = companyDB.model('InventoryBatchLocation');
+          
+          for (const item of transfer.items) {
+            if (item.batchCosts && item.batchCosts.length > 0) {
+              for (const batchCost of item.batchCosts) {
+                // Decrement reservedQuantity with optimistic locking and retry
+                let retries = 3;
+                let success = false;
+                
+                while (retries > 0 && !success) {
+                  try {
+                    const batch = await InventoryBatchLocation.findById(batchCost.sourceBatchId).session(session);
+                    
+                    if (batch) {
+                      const updateResult = await InventoryBatchLocation.updateOne(
+                        {
+                          _id: batch._id,
+                          version: batch.version
+                        },
+                        {
+                          $inc: { 
+                            reservedQuantity: -batchCost.quantity,
+                            version: 1
+                          }
+                        },
+                        { session }
+                      );
+                      
+                      if (updateResult.modifiedCount > 0) {
+                        success = true;
+                      } else {
+                        retries--;
+                        if (retries > 0) {
+                          // Exponential backoff
+                          await new Promise(resolve => setTimeout(resolve, 100 * (4 - retries)));
+                        }
+                      }
+                    } else {
+                      success = true; // Batch doesn't exist, skip
+                    }
+                  } catch (err) {
+                    retries--;
+                    if (retries === 0) {
+                      throw new Error(`Failed to release inventory reservation for batch ${batchCost.sourceBatchId}: ${err.message}`);
+                    }
+                    // Exponential backoff
+                    await new Promise(resolve => setTimeout(resolve, 100 * (4 - retries)));
+                  }
+                }
+              }
+            }
+          }
+          
+          // Cancel the transfer
+          await StockTransfer.updateOne(
+            { _id: transfer._id },
+            { 
+              $set: { 
+                status: 'cancelled',
+                cancelledBy: userId,
+                cancelledDate: new Date(),
+                cancelledIpAddress: ipAddress,
+                cancelledDeviceInfo: deviceInfo,
+                cancellationReason: `Transfer cancelled due to request cancellation: ${cancellationReason}`
+              },
+              $inc: { version: 1 }
+            },
+            { session }
+          );
+        }
+      }
+    }
+    
+    // Update request status to 'cancelled' with optimistic locking
+    const updateResult = await StockRequest.updateOne(
+      {
+        _id: request._id,
+        version: request.version
+      },
+      {
+        $set: {
+          status: 'cancelled',
+          cancelledBy: userId,
+          cancelledDate: new Date(),
+          cancelledIpAddress: ipAddress,
+          cancelledDeviceInfo: deviceInfo,
+          cancellationReason: cancellationReason.trim()
+        },
+        $inc: { version: 1 }
+      },
+      { session }
+    );
+    
+    if (updateResult.modifiedCount === 0) {
+      throw new Error('Request was modified by another user. Please refresh and try again.');
+    }
+    
+    // Commit transaction
+    await session.commitTransaction();
+    
+    // Get updated request
+    const updatedRequest = await StockRequest.findById(request._id)
+      .populate('fromLocation')
+      .populate('toLocation')
+      .populate('requestedBy')
+      .populate('cancelledBy');
+    
+    logger.info(
+      `Stock request ${request.requestNumber} cancelled by user ${userId} for company ${companyId}. ` +
+      `Reason: ${cancellationReason}`
+    );
+    
+    return updatedRequest;
+    
+  } catch (error) {
+    await session.abortTransaction();
+    logger.error('Error cancelling stock request:', error);
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};

@@ -11,6 +11,7 @@ import { getStockBackorderModel } from '../models/company/StockBackorder.js';
 import { getLocationModel } from '../models/company/Location.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
+import { getCounterModel } from '../models/company/Counter.js';
 import { validateCapability } from './locationService.js';
 import { recordLedgerEntry } from './inventoryLedgerService.js';
 import { consumeInventoryFIFO } from './inventoryCostingService.js';
@@ -21,35 +22,36 @@ import {
   sortLocationsForLocking,
   withTransferSerialization
 } from '../utils/concurrencyControl.js';
+import notificationService from './notificationService.js';
+import locationNotificationRouter from './locationNotificationRouter.js';
+import stockRequestEmailService from './emailTemplates/stockRequestEmailService.js';
 
 /**
- * Generate unique transfer number
+ * Generate unique transfer number using atomic counter
  * Format: TRF-YYYYMMDD-XXXXX
+ * Uses atomic findOneAndUpdate to prevent race conditions
  * @param {Object} companyDB - Company database connection
  * @returns {Promise<string>} Unique transfer number
  */
 const generateTransferNumber = async (companyDB) => {
-  const StockTransfer = getStockTransferModel(companyDB);
+  const Counter = getCounterModel(companyDB);
   
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
-  const prefix = `TRF-${dateStr}-`;
+  const counterId = `TRANSFER_${dateStr}`;
   
-  // Find the last transfer number for today
-  const lastTransfer = await StockTransfer.findOne({
-    transferNumber: { $regex: `^${prefix}` }
-  })
-    .sort({ transferNumber: -1 })
-    .select('transferNumber')
-    .lean();
+  // Atomic increment to prevent race conditions
+  const counter = await Counter.findOneAndUpdate(
+    { _id: counterId },
+    { $inc: { sequence: 1 } },
+    { 
+      upsert: true, 
+      new: true,
+      setDefaultsOnInsert: true
+    }
+  );
   
-  let sequence = 1;
-  if (lastTransfer) {
-    const lastSequence = parseInt(lastTransfer.transferNumber.split('-')[2]);
-    sequence = lastSequence + 1;
-  }
-  
-  const transferNumber = `${prefix}${sequence.toString().padStart(5, '0')}`;
+  const transferNumber = `TRF-${dateStr}-${counter.sequence.toString().padStart(5, '0')}`;
   return transferNumber;
 };
 
@@ -100,6 +102,16 @@ export const createTransfer = async (transferData, companyId) => {
     // Validate items array
     if (!Array.isArray(transferData.items) || transferData.items.length === 0) {
       throw new Error('At least one item is required');
+    }
+
+    // Validate item quantities
+    for (const item of transferData.items) {
+      if (!item.requestedQuantity || item.requestedQuantity <= 0) {
+        throw new Error(
+          `Invalid requested quantity for item ${item.inventoryItem}. ` +
+          `Quantity must be greater than zero.`
+        );
+      }
     }
 
     // Validate source and destination are different
@@ -160,14 +172,18 @@ export const createTransfer = async (transferData, companyId) => {
     // Create transfer
     const transfer = new StockTransfer({
       transferNumber,
+      companyId, // Add company isolation
       fromLocation: transferData.fromLocation,
       toLocation: transferData.toLocation,
       transferType: transferData.transferType,
+      priority: transferData.priority || 'normal',
+      expectedDeliveryDate: transferData.expectedDeliveryDate,
       items: transferData.items,
       status: 'pending',
       requestedBy: transferData.requestedBy,
       requestDate: new Date(),
-      notes: transferData.notes
+      notes: transferData.notes,
+      version: 0
     });
 
     await transfer.save();
@@ -245,12 +261,6 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
       transfer.fromLocation,
       transfer.toLocation,
       async () => {
-        // Sort locations for deterministic lock ordering (prevents deadlocks)
-        const sortedLocations = sortLocationsForLocking([
-          transfer.fromLocation,
-          transfer.toLocation
-        ]);
-
         // Execute with transaction and retry logic
         return await withTransactionAndRetry(
       companyDB,
@@ -289,6 +299,15 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
           // Determine actual quantity to send (partial fulfillment logic)
           const requestedQty = item.requestedQuantity || item.sentQuantity;
           const availableQty = sourceInventory.availableQuantity;
+          
+          // Validate quantities are positive
+          if (requestedQty < 0) {
+            throw new Error(
+              `Invalid requested quantity for item ${item.inventoryItem}: ${requestedQty}. ` +
+              `Quantity cannot be negative.`
+            );
+          }
+
           let actualSentQty = requestedQty;
           let backorderedQty = 0;
 
@@ -305,6 +324,14 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
             backorderedQty = requestedQty - actualSentQty;
           }
 
+          // Additional safety check for negative quantities
+          if (actualSentQty < 0 || backorderedQty < 0) {
+            throw new Error(
+              `Quantity calculation error for item ${item.inventoryItem}. ` +
+              `Sent: ${actualSentQty}, Backordered: ${backorderedQty}`
+            );
+          }
+
           // Update item with actual quantities
           if (!item.requestedQuantity) {
             item.requestedQuantity = requestedQty;
@@ -315,6 +342,7 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
           // Create backorder record if there's unfulfilled quantity
           if (backorderedQty > 0) {
             const backorder = new StockBackorder({
+              companyId, // Add company isolation
               originalTransferId: currentTransfer._id,
               fromLocation: currentTransfer.fromLocation,
               toLocation: currentTransfer.toLocation,
@@ -370,7 +398,7 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
           const destBeforeReserved = destInventory.reservedQuantity;
           const destBeforeInTransit = destInventory.inTransitQuantity;
 
-          // For FIFO costing, consume batches and record costs
+          // For FIFO costing, consume batches and record costs with atomic updates
           let batchCosts = [];
           let totalCost = 0;
           
@@ -394,10 +422,30 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
 
               const consumeFromBatch = Math.min(batch.availableQuantity, remainingToConsume);
               
-              // Update batch quantity
-              batch.availableQuantity -= consumeFromBatch;
-              batch.version += 1;
-              await batch.save({ session });
+              // Atomic batch consumption with version check
+              const updated = await InventoryBatchLocation.findOneAndUpdate(
+                {
+                  _id: batch._id,
+                  availableQuantity: { $gte: consumeFromBatch }
+                },
+                {
+                  $inc: { 
+                    availableQuantity: -consumeFromBatch,
+                    version: 1
+                  }
+                },
+                { 
+                  session,
+                  new: true
+                }
+              );
+
+              if (!updated) {
+                throw new Error(
+                  `Concurrent batch modification detected for batch ${batch._id}. ` +
+                  `Required: ${consumeFromBatch}, Available: ${batch.availableQuantity}`
+                );
+              }
 
               // Calculate cost for this batch
               const batchCost = consumeFromBatch * batch.unitCost;
@@ -415,10 +463,19 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
             }
           }
 
-          // Store batch costs in transfer item
+          // Store batch costs and average unit cost in transfer item
           if (batchCosts.length > 0) {
             item.batchCosts = batchCosts;
             item.totalCost = totalCost;
+            item.averageUnitCostAtApproval = totalCost / actualSentQty;
+          }
+
+          // Inventory underflow protection
+          if (sourceInventory.availableQuantity < actualSentQty) {
+            throw new Error(
+              `Inventory underflow detected for item ${item.inventoryItem}. ` +
+              `Available: ${sourceInventory.availableQuantity}, Required: ${actualSentQty}`
+            );
           }
 
           // Update source inventory: deduct from available
@@ -486,11 +543,46 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
           );
         }
 
-        // Update transfer status
-        currentTransfer.status = 'approved';
-        currentTransfer.approvedBy = userId;
-        currentTransfer.approvedDate = new Date();
-        await currentTransfer.save({ session });
+        // Update transfer status with TRUE optimistic locking (version enforcement in query)
+        const updateData = {
+          status: 'approved',
+          approvedBy: userId,
+          approvedDate: new Date()
+        };
+        
+        // Capture IP and device info if provided in options
+        if (options.ipAddress) {
+          updateData.approvedIpAddress = options.ipAddress;
+        }
+        if (options.deviceInfo) {
+          updateData.approvedDeviceInfo = options.deviceInfo;
+        }
+        
+        // Enforce version in update query for true optimistic locking
+        const updatedTransfer = await StockTransfer.findOneAndUpdate(
+          {
+            _id: currentTransfer._id,
+            version: currentTransfer.version // Enforce current version
+          },
+          {
+            $set: updateData,
+            $inc: { version: 1 }
+          },
+          {
+            session,
+            new: true
+          }
+        );
+        
+        if (!updatedTransfer) {
+          throw new Error(
+            `Concurrent modification detected for transfer ${currentTransfer.transferNumber}. ` +
+            `Please retry the operation.`
+          );
+        }
+        
+        // Update reference for domain event
+        Object.assign(currentTransfer, updatedTransfer.toObject());
 
         // Publish domain event
         await publishDomainEvent(companyDB, {
@@ -530,6 +622,923 @@ export const approveTransfer = async (transferId, userId, companyId, options = {
     return result;
   } catch (error) {
     logger.error('Error approving transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Ship a stock transfer (Warehouse Admin execution)
+ * Validates transfer status is 'approved'
+ * Transitions status to 'in_transit' with optimistic locking
+ * Consumes InventoryBatchLocation documents in FIFO order (oldest createdAt first)
+ * Excludes expired batches and prioritizes by earliest expiryDate within FIFO (FEFO)
+ * Decrements availableQuantity and reservedQuantity at fromLocation
+ * Records specific batch identifiers, quantities, unitCost, totalCost in transfer's batchCosts array
+ * @param {string} transferId - Transfer ID
+ * @param {string} userId - User shipping the transfer (Warehouse Admin)
+ * @param {string} companyId - Company ID
+ * @param {Object} options - Additional options (ipAddress, deviceInfo, notes)
+ * @returns {Promise<Object>} Shipped transfer
+ */
+export const shipTransfer = async (transferId, userId, companyId, options = {}) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
+
+    // Get transfer (outside transaction to validate early)
+    const transfer = await StockTransfer.findById(transferId);
+    
+    if (!transfer) {
+      throw new Error(`Transfer not found: ${transferId}`);
+    }
+
+    // Validate state transition
+    if (transfer.status !== 'approved') {
+      throw new Error(
+        `Cannot ship transfer with status '${transfer.status}'. ` +
+        `Transfer must be in 'approved' status to be shipped.`
+      );
+    }
+
+    // Serialize transfers between same location pairs to prevent deadlocks
+    const result = await withTransferSerialization(
+      transfer.fromLocation,
+      transfer.toLocation,
+      async () => {
+        // Execute with transaction and retry logic
+        return await withTransactionAndRetry(
+          companyDB,
+          async (session) => {
+            // Re-fetch transfer within transaction to ensure latest state
+            const currentTransfer = await StockTransfer.findById(transferId).session(session);
+            
+            if (!currentTransfer) {
+              throw new Error(`Transfer not found: ${transferId}`);
+            }
+
+            // Re-validate state transition (may have changed)
+            if (currentTransfer.status !== 'approved') {
+              throw new Error(
+                `Cannot ship transfer with status '${currentTransfer.status}'`
+              );
+            }
+
+            // Process each item in the transfer
+            for (const item of currentTransfer.items) {
+              const sentQty = item.sentQuantity || item.requestedQuantity;
+
+              // Skip if nothing to send
+              if (sentQty === 0) {
+                continue;
+              }
+
+              // Get source inventory
+              const sourceInventory = await InventoryItemLocation.findOne({
+                locationId: currentTransfer.fromLocation,
+                inventoryItem: item.inventoryItem,
+                isActive: true
+              }).session(session);
+
+              if (!sourceInventory) {
+                throw new Error(
+                  `Inventory item ${item.inventoryItem} not found at source location`
+                );
+              }
+
+              // Record quantities before changes
+              const sourceBeforeAvailable = sourceInventory.availableQuantity;
+              const sourceBeforeReserved = sourceInventory.reservedQuantity;
+              const sourceBeforeInTransit = sourceInventory.inTransitQuantity;
+
+              // Consume batches in FIFO order with FEFO prioritization
+              // Get batches ordered by FIFO (createdAt ascending), then by FEFO (expiryDate ascending)
+              const currentDate = new Date();
+              const batches = await InventoryBatchLocation.find({
+                locationId: currentTransfer.fromLocation,
+                inventoryItem: item.inventoryItem,
+                status: 'active',
+                availableQuantity: { $gt: 0 },
+                isActive: true,
+                $or: [
+                  { expiryDate: { $exists: false } },
+                  { expiryDate: null },
+                  { expiryDate: { $gt: currentDate } }
+                ]
+              })
+                .sort({ createdAt: 1, expiryDate: 1 })
+                .session(session);
+
+              let remainingToConsume = sentQty;
+              let batchCosts = [];
+              let totalCost = 0;
+
+              for (const batch of batches) {
+                if (remainingToConsume <= 0) break;
+
+                const consumeFromBatch = Math.min(batch.availableQuantity, remainingToConsume);
+                
+                // Atomic batch consumption with version check
+                const updated = await InventoryBatchLocation.findOneAndUpdate(
+                  {
+                    _id: batch._id,
+                    availableQuantity: { $gte: consumeFromBatch }
+                  },
+                  {
+                    $inc: { 
+                      availableQuantity: -consumeFromBatch,
+                      version: 1
+                    }
+                  },
+                  { 
+                    session,
+                    new: true
+                  }
+                );
+
+                if (!updated) {
+                  throw new Error(
+                    `Concurrent batch modification detected for batch ${batch._id}. ` +
+                    `Required: ${consumeFromBatch}, Available: ${batch.availableQuantity}`
+                  );
+                }
+
+                // Calculate cost for this batch
+                const batchCost = consumeFromBatch * batch.unitCost;
+                totalCost += batchCost;
+
+                // Record batch cost information
+                batchCosts.push({
+                  sourceBatchId: batch._id,
+                  batchNumber: batch.batchNumber,
+                  expiryDate: batch.expiryDate,
+                  manufacturingDate: batch.manufacturingDate,
+                  supplier: batch.supplier,
+                  quantity: consumeFromBatch,
+                  unitCost: batch.unitCost,
+                  totalCost: batchCost
+                });
+
+                remainingToConsume -= consumeFromBatch;
+              }
+
+              // Verify we consumed the full quantity
+              if (remainingToConsume > 0) {
+                throw new Error(
+                  `Insufficient available quantity for item ${item.inventoryItem}. ` +
+                  `Required: ${sentQty}, Available: ${sentQty - remainingToConsume}`
+                );
+              }
+
+              // Store batch costs in transfer item
+              item.batchCosts = batchCosts;
+              item.totalCost = totalCost;
+              item.averageUnitCostAtApproval = totalCost / sentQty;
+
+              // Verify batch cost summation
+              const sumBatchCosts = batchCosts.reduce((sum, bc) => sum + bc.totalCost, 0);
+              if (Math.abs(sumBatchCosts - totalCost) > 0.01) {
+                throw new Error(
+                  `Batch cost summation error for item ${item.inventoryItem}. ` +
+                  `Sum: ${sumBatchCosts}, Expected: ${totalCost}`
+                );
+              }
+
+              // Inventory underflow protection
+              if (sourceInventory.availableQuantity < sentQty) {
+                throw new Error(
+                  `Inventory underflow detected for item ${item.inventoryItem}. ` +
+                  `Available: ${sourceInventory.availableQuantity}, Required: ${sentQty}`
+                );
+              }
+
+              if (sourceInventory.reservedQuantity < sentQty) {
+                throw new Error(
+                  `Reserved quantity underflow detected for item ${item.inventoryItem}. ` +
+                  `Reserved: ${sourceInventory.reservedQuantity}, Required: ${sentQty}`
+                );
+              }
+
+              // Update source inventory: decrement both available and reserved
+              sourceInventory.availableQuantity -= sentQty;
+              sourceInventory.reservedQuantity -= sentQty;
+              sourceInventory.version += 1;
+              await sourceInventory.save({ session });
+
+              // Record ledger entry for source (shipment)
+              await recordLedgerEntry(
+                {
+                  inventoryItem: item.inventoryItem,
+                  locationId: currentTransfer.fromLocation,
+                  movementType: 'transfer_shipped',
+                  quantityDelta: -sentQty,
+                  beforeAvailable: sourceBeforeAvailable,
+                  afterAvailable: sourceInventory.availableQuantity,
+                  beforeReserved: sourceBeforeReserved,
+                  afterReserved: sourceInventory.reservedQuantity,
+                  beforeInTransit: sourceBeforeInTransit,
+                  afterInTransit: sourceInventory.inTransitQuantity,
+                  referenceType: 'TRANSFER',
+                  referenceId: currentTransfer._id,
+                  referenceNumber: currentTransfer.transferNumber,
+                  unitCost: totalCost / sentQty,
+                  totalValue: totalCost,
+                  performedBy: userId,
+                  notes: `Transfer shipped: ${currentTransfer.transferNumber}`,
+                  correlationId: currentTransfer._id.toString()
+                },
+                companyId
+              );
+            }
+
+            // Update transfer status with optimistic locking
+            const updateData = {
+              status: 'in_transit',
+              shippedBy: userId,
+              shippedDate: new Date(),
+              items: currentTransfer.items // Include updated items with batch costs
+            };
+            
+            // Capture IP and device info if provided
+            if (options.ipAddress) {
+              updateData.shippedIpAddress = options.ipAddress;
+            }
+            if (options.deviceInfo) {
+              updateData.shippedDeviceInfo = options.deviceInfo;
+            }
+            if (options.notes) {
+              updateData.notes = (currentTransfer.notes || '') + '\n' + options.notes;
+            }
+            
+            // Enforce version in update query for true optimistic locking
+            const updatedTransfer = await StockTransfer.findOneAndUpdate(
+              {
+                _id: currentTransfer._id,
+                version: currentTransfer.version
+              },
+              {
+                $set: updateData,
+                $inc: { version: 1 }
+              },
+              {
+                session,
+                new: true
+              }
+            );
+            
+            if (!updatedTransfer) {
+              throw new Error(
+                `Concurrent modification detected for transfer ${currentTransfer.transferNumber}. ` +
+                `Please retry the operation.`
+              );
+            }
+            
+            // Update reference for domain event
+            Object.assign(currentTransfer, updatedTransfer.toObject());
+
+            // Publish domain event
+            await publishDomainEvent(companyDB, {
+              eventType: 'TRANSFER_SHIPPED',
+              entityType: 'TRANSFER',
+              entityId: currentTransfer._id,
+              payload: {
+                transferNumber: currentTransfer.transferNumber,
+                transferType: currentTransfer.transferType,
+                fromLocation: currentTransfer.fromLocation,
+                toLocation: currentTransfer.toLocation,
+                itemCount: currentTransfer.items.length
+              },
+              userId: userId,
+              locationId: currentTransfer.fromLocation
+            }, companyId);
+
+            return currentTransfer;
+          },
+          {
+            operationName: `Ship transfer ${transfer.transferNumber}`,
+            maxRetries: 3
+          }
+        );
+      },
+      {
+        operationName: `Ship transfer ${transfer.transferNumber} (serialized)`
+      }
+    );
+
+    logger.info(
+      `Transfer shipped: ${result.transferNumber} by user ${userId} for company: ${companyId}`
+    );
+
+    // Send notification to Branch_Admin at toLocation
+    try {
+      const branchAdmins = await locationNotificationRouter.getBranchAdmins(
+        companyId,
+        result.toLocation.toString()
+      );
+
+      // Populate transfer for notification
+      const StockTransfer = getStockTransferModel(getCompanyDB(companyId));
+      const populatedTransfer = await StockTransfer.findById(result._id)
+        .populate('fromLocation')
+        .populate('toLocation')
+        .populate('shippedBy');
+
+      const fromLocationName = populatedTransfer.fromLocation?.name || 'Unknown location';
+      const toLocationName = populatedTransfer.toLocation?.name || 'Unknown location';
+      const shipperName = populatedTransfer.shippedBy?.name || 'Unknown user';
+      const itemCount = populatedTransfer.items?.length || 0;
+
+      // Notify Branch Admins at toLocation
+      for (const admin of branchAdmins) {
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'transfer_shipped',
+          title: 'Transfer Shipped',
+          message: `Transfer ${result.transferNumber} has been shipped by ${shipperName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}`,
+          data: {
+            transferId: result._id,
+            transferNumber: result.transferNumber,
+            fromLocationName,
+            toLocationName,
+            itemCount,
+            shipperName
+          },
+          priority: 'medium',
+          actionUrl: `/inventory/stock-transfers/${result._id}`
+        }).catch(error => {
+          logger.error(`Failed to send shipment notification to branch admin ${admin._id}:`, error);
+        });
+
+        // Send email notification
+        if (admin.email) {
+          await stockRequestEmailService.sendTransferShippedNotification(admin.email, {
+            transfer: populatedTransfer,
+            recipientName: admin.name
+          }).catch(error => {
+            logger.error(`Failed to send shipment email to branch admin ${admin.email}:`, error);
+          });
+        }
+      }
+
+      logger.info(`Shipment notifications sent for transfer ${result.transferNumber}: ${branchAdmins.length} branch admins`);
+    } catch (notificationError) {
+      // Log but don't fail the shipment
+      logger.error('Error sending shipment notifications:', notificationError);
+    }
+
+    return result;
+  } catch (error) {
+    logger.error('Error shipping transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Receive a stock transfer (Branch Admin completion)
+ * Validates transfer status is 'in_transit'
+ * Transitions status to 'completed' with optimistic locking
+ * Creates new InventoryBatchLocation documents at toLocation
+ * Preserves unitCost from source batches
+ * Copies batch metadata (batchNumber, expiryDate, manufacturingDate, supplier)
+ * Calculates discrepancyQuantity if receivedQuantity differs from sentQuantity
+ * Increments availableQuantity at toLocation
+ * @param {string} transferId - Transfer ID
+ * @param {string} userId - User receiving the transfer (Branch Admin)
+ * @param {Object} receivedQuantities - Map of item IDs to received quantities
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Completed transfer
+ */
+export const receiveTransfer = async (transferId, userId, receivedQuantities, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
+
+    // Get transfer (outside transaction to validate early)
+    const transfer = await StockTransfer.findById(transferId);
+    
+    if (!transfer) {
+      throw new Error(`Transfer not found: ${transferId}`);
+    }
+
+    // Validate state transition
+    if (transfer.status !== 'in_transit') {
+      throw new Error(
+        `Cannot receive transfer with status '${transfer.status}'. ` +
+        `Transfer must be in 'in_transit' status to be received.`
+      );
+    }
+
+    // Serialize transfers between same location pairs to prevent deadlocks
+    const result = await withTransferSerialization(
+      transfer.fromLocation,
+      transfer.toLocation,
+      async () => {
+        // Execute with transaction and retry logic
+        return await withTransactionAndRetry(
+          companyDB,
+          async (session) => {
+            // Re-fetch transfer within transaction to ensure latest state
+            const currentTransfer = await StockTransfer.findById(transferId).session(session);
+            
+            if (!currentTransfer) {
+              throw new Error(`Transfer not found: ${transferId}`);
+            }
+
+            // Re-validate state transition (may have changed)
+            if (currentTransfer.status !== 'in_transit') {
+              throw new Error(
+                `Cannot receive transfer with status '${currentTransfer.status}'`
+              );
+            }
+
+            // Process each item in the transfer
+            for (const item of currentTransfer.items) {
+              const sentQty = item.sentQuantity || item.requestedQuantity;
+              
+              // Get received quantity (default to sent quantity if not specified)
+              const receivedQty = receivedQuantities?.[item.inventoryItem.toString()] ?? sentQty;
+              
+              // Validate received quantity does not exceed sent quantity
+              if (receivedQty > sentQty) {
+                throw new Error(
+                  `Received quantity (${receivedQty}) cannot exceed sent quantity (${sentQty}) ` +
+                  `for item ${item.inventoryItem}`
+                );
+              }
+
+              // Validate received quantity is not negative
+              if (receivedQty < 0) {
+                throw new Error(
+                  `Received quantity cannot be negative for item ${item.inventoryItem}: ${receivedQty}`
+                );
+              }
+              
+              // Update item with received quantity and calculate discrepancy
+              item.receivedQuantity = receivedQty;
+              item.discrepancyQuantity = sentQty - receivedQty;
+
+              // Get or create destination inventory
+              let destInventory = await InventoryItemLocation.findOne({
+                locationId: currentTransfer.toLocation,
+                inventoryItem: item.inventoryItem,
+                isActive: true
+              }).session(session);
+
+              if (!destInventory) {
+                // Get source inventory to copy costing method
+                const sourceInventory = await InventoryItemLocation.findOne({
+                  locationId: currentTransfer.fromLocation,
+                  inventoryItem: item.inventoryItem,
+                  isActive: true
+                }).session(session);
+
+                // Create destination inventory if it doesn't exist
+                destInventory = new InventoryItemLocation({
+                  inventoryItem: item.inventoryItem,
+                  locationId: currentTransfer.toLocation,
+                  availableQuantity: 0,
+                  reservedQuantity: 0,
+                  inTransitQuantity: 0,
+                  minimumStock: 0,
+                  maximumStock: 0,
+                  reorderPoint: 0,
+                  costingMethod: sourceInventory?.costingMethod || 'FIFO',
+                  isActive: true,
+                  isArchived: false,
+                  version: 0
+                });
+                await destInventory.save({ session });
+              }
+
+              // Record quantities before changes
+              const destBeforeAvailable = destInventory.availableQuantity;
+              const destBeforeReserved = destInventory.reservedQuantity;
+              const destBeforeInTransit = destInventory.inTransitQuantity;
+
+              // Create destination batches with costs from source batches
+              let totalCost = 0;
+
+              if (item.batchCosts && item.batchCosts.length > 0) {
+                // Calculate proportional distribution if received quantity differs from sent quantity
+                const proportionReceived = receivedQty / sentQty;
+                
+                for (const batchCost of item.batchCosts) {
+                  // Proportionally distribute received quantity across batch costs
+                  const batchReceivedQty = batchCost.quantity * proportionReceived;
+                  const batchReceivedCost = batchCost.totalCost * proportionReceived;
+                  
+                  if (batchReceivedQty > 0) {
+                    // Create new batch at destination with same unit cost as source
+                    const destBatch = new InventoryBatchLocation({
+                      locationId: currentTransfer.toLocation,
+                      inventoryItem: item.inventoryItem,
+                      batchNumber: batchCost.batchNumber || `TRF-${currentTransfer.transferNumber}-${batchCost.sourceBatchId}`,
+                      availableQuantity: batchReceivedQty,
+                      unitCost: batchCost.unitCost,
+                      expiryDate: batchCost.expiryDate,
+                      manufacturingDate: batchCost.manufacturingDate,
+                      supplier: batchCost.supplier,
+                      status: 'active',
+                      grnReference: currentTransfer._id,
+                      isActive: true,
+                      version: 0
+                    });
+
+                    await destBatch.save({ session });
+                    totalCost += batchReceivedCost;
+                  }
+                }
+              }
+
+              // Update destination inventory: add to available
+              destInventory.availableQuantity += receivedQty;
+              destInventory.version += 1;
+              await destInventory.save({ session });
+
+              // Calculate average unit cost
+              const averageUnitCost = receivedQty > 0 ? totalCost / receivedQty : 0;
+              
+              // Record ledger entry for destination (receipt)
+              await recordLedgerEntry(
+                {
+                  inventoryItem: item.inventoryItem,
+                  locationId: currentTransfer.toLocation,
+                  movementType: 'transfer_received',
+                  quantityDelta: receivedQty,
+                  beforeAvailable: destBeforeAvailable,
+                  afterAvailable: destInventory.availableQuantity,
+                  beforeReserved: destBeforeReserved,
+                  afterReserved: destInventory.reservedQuantity,
+                  beforeInTransit: destBeforeInTransit,
+                  afterInTransit: destInventory.inTransitQuantity,
+                  referenceType: 'TRANSFER',
+                  referenceId: currentTransfer._id,
+                  referenceNumber: currentTransfer.transferNumber,
+                  unitCost: averageUnitCost > 0 ? averageUnitCost : undefined,
+                  totalValue: totalCost > 0 ? totalCost : undefined,
+                  performedBy: userId,
+                  notes: receivedQty !== sentQty 
+                    ? `Transfer received: ${currentTransfer.transferNumber}. Received ${receivedQty} of ${sentQty} sent. Discrepancy: ${item.discrepancyQuantity}`
+                    : `Transfer received: ${currentTransfer.transferNumber}`,
+                  correlationId: currentTransfer._id.toString()
+                },
+                companyId
+              );
+
+              // If received quantity differs from sent quantity, add note to item
+              if (receivedQty !== sentQty) {
+                item.notes = (item.notes || '') + 
+                  ` [Discrepancy: Sent ${sentQty}, Received ${receivedQty}]`;
+              }
+            }
+
+            // Update transfer status with optimistic locking
+            const updateData = {
+              status: 'completed',
+              receivedBy: userId,
+              receivedDate: new Date(),
+              items: currentTransfer.items // Include updated items with received quantities
+            };
+            
+            // Capture IP and device info if provided in receivedQuantities object
+            if (receivedQuantities?.ipAddress) {
+              updateData.receivedIpAddress = receivedQuantities.ipAddress;
+            }
+            if (receivedQuantities?.deviceInfo) {
+              updateData.receivedDeviceInfo = receivedQuantities.deviceInfo;
+            }
+            
+            // Enforce version in update query for true optimistic locking
+            const updatedTransfer = await StockTransfer.findOneAndUpdate(
+              {
+                _id: currentTransfer._id,
+                version: currentTransfer.version
+              },
+              {
+                $set: updateData,
+                $inc: { version: 1 }
+              },
+              {
+                session,
+                new: true
+              }
+            );
+            
+            if (!updatedTransfer) {
+              throw new Error(
+                `Concurrent modification detected for transfer ${currentTransfer.transferNumber}. ` +
+                `Please retry the operation.`
+              );
+            }
+            
+            // Update reference for domain event
+            Object.assign(currentTransfer, updatedTransfer.toObject());
+
+            // Publish domain event
+            await publishDomainEvent(companyDB, {
+              eventType: 'TRANSFER_RECEIVED',
+              entityType: 'TRANSFER',
+              entityId: currentTransfer._id,
+              payload: {
+                transferNumber: currentTransfer.transferNumber,
+                transferType: currentTransfer.transferType,
+                fromLocation: currentTransfer.fromLocation,
+                toLocation: currentTransfer.toLocation,
+                itemCount: currentTransfer.items.length
+              },
+              userId: userId,
+              locationId: currentTransfer.toLocation
+            }, companyId);
+
+            return currentTransfer;
+          },
+          {
+            operationName: `Receive transfer ${transfer.transferNumber}`,
+            maxRetries: 3
+          }
+        );
+      },
+      {
+        operationName: `Receive transfer ${transfer.transferNumber} (serialized)`
+      }
+    );
+
+    logger.info(
+      `Transfer received: ${result.transferNumber} by user ${userId} for company: ${companyId}`
+    );
+
+    // Send notification to Warehouse_Admin at fromLocation
+    try {
+      const warehouseAdmins = await locationNotificationRouter.getWarehouseAdmins(
+        companyId,
+        result.fromLocation.toString()
+      );
+
+      // Populate transfer for notification
+      const StockTransfer = getStockTransferModel(getCompanyDB(companyId));
+      const populatedTransfer = await StockTransfer.findById(result._id)
+        .populate('fromLocation')
+        .populate('toLocation')
+        .populate('receivedBy');
+
+      const fromLocationName = populatedTransfer.fromLocation?.name || 'Unknown location';
+      const toLocationName = populatedTransfer.toLocation?.name || 'Unknown location';
+      const receiverName = populatedTransfer.receivedBy?.name || 'Unknown user';
+      const itemCount = populatedTransfer.items?.length || 0;
+
+      // Check if there were any discrepancies
+      const hasDiscrepancies = populatedTransfer.items.some(item => 
+        item.discrepancyQuantity && item.discrepancyQuantity !== 0
+      );
+
+      // Notify Warehouse Admins at fromLocation
+      for (const admin of warehouseAdmins) {
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'transfer_completed',
+          title: 'Transfer Completed',
+          message: `Transfer ${result.transferNumber} has been received by ${receiverName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}${hasDiscrepancies ? ' (with discrepancies)' : ''}`,
+          data: {
+            transferId: result._id,
+            transferNumber: result.transferNumber,
+            fromLocationName,
+            toLocationName,
+            itemCount,
+            receiverName,
+            hasDiscrepancies
+          },
+          priority: hasDiscrepancies ? 'high' : 'low',
+          actionUrl: `/inventory/stock-transfers/${result._id}`
+        }).catch(error => {
+          logger.error(`Failed to send completion notification to warehouse admin ${admin._id}:`, error);
+        });
+
+        // Send email notification
+        if (admin.email) {
+          await stockRequestEmailService.sendTransferCompletedNotification(admin.email, {
+            transfer: populatedTransfer,
+            recipientName: admin.name
+          }).catch(error => {
+            logger.error(`Failed to send completion email to warehouse admin ${admin.email}:`, error);
+          });
+        }
+      }
+
+      logger.info(`Completion notifications sent for transfer ${result.transferNumber}: ${warehouseAdmins.length} warehouse admins`);
+    } catch (notificationError) {
+      // Log but don't fail the receipt
+      logger.error('Error sending completion notifications:', notificationError);
+    }
+
+    return result;
+  } catch (error) {
+    logger.error('Error receiving transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Cancel an approved stock transfer
+ * Validates transfer status is 'approved'
+ * Decrements reservedQuantity at fromLocation to release inventory lock
+ * Updates status to 'cancelled' with optimistic locking
+ * @param {string} transferId - Transfer ID
+ * @param {string} userId - User cancelling the transfer
+ * @param {string} cancellationReason - Reason for cancellation
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Cancelled transfer
+ */
+export const cancelApprovedTransfer = async (transferId, userId, cancellationReason, companyId) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+
+    // Validate cancellation reason
+    if (!cancellationReason || cancellationReason.trim().length === 0) {
+      throw new Error('Cancellation reason is required');
+    }
+
+    // Get transfer (outside transaction to validate early)
+    const transfer = await StockTransfer.findById(transferId);
+    
+    if (!transfer) {
+      throw new Error(`Transfer not found: ${transferId}`);
+    }
+
+    // Validate state - must be approved
+    if (transfer.status !== 'approved') {
+      throw new Error(
+        `Cannot cancel transfer with status '${transfer.status}'. ` +
+        `Transfer must be in 'approved' status to be cancelled.`
+      );
+    }
+
+    // Serialize transfers between same location pairs to prevent deadlocks
+    const result = await withTransferSerialization(
+      transfer.fromLocation,
+      transfer.toLocation,
+      async () => {
+        // Execute with transaction and retry logic
+        return await withTransactionAndRetry(
+          companyDB,
+          async (session) => {
+            // Re-fetch transfer within transaction to ensure latest state
+            const currentTransfer = await StockTransfer.findById(transferId).session(session);
+            
+            if (!currentTransfer) {
+              throw new Error(`Transfer not found: ${transferId}`);
+            }
+
+            // Re-validate state (may have changed)
+            if (currentTransfer.status !== 'approved') {
+              throw new Error(
+                `Cannot cancel transfer with status '${currentTransfer.status}'`
+              );
+            }
+
+            // Process each item to release reserved inventory
+            for (const item of currentTransfer.items) {
+              const sentQty = item.sentQuantity || item.requestedQuantity;
+
+              // Skip if nothing was reserved
+              if (sentQty === 0) {
+                continue;
+              }
+
+              // Get source inventory
+              const sourceInventory = await InventoryItemLocation.findOne({
+                locationId: currentTransfer.fromLocation,
+                inventoryItem: item.inventoryItem,
+                isActive: true
+              }).session(session);
+
+              if (!sourceInventory) {
+                throw new Error(
+                  `Inventory item ${item.inventoryItem} not found at source location`
+                );
+              }
+
+              // Validate reserved quantity
+              if (sourceInventory.reservedQuantity < sentQty) {
+                throw new Error(
+                  `Insufficient reserved quantity for item ${item.inventoryItem}. ` +
+                  `Expected: ${sentQty}, Reserved: ${sourceInventory.reservedQuantity}`
+                );
+              }
+
+              // Record quantities before changes
+              const sourceBeforeAvailable = sourceInventory.availableQuantity;
+              const sourceBeforeReserved = sourceInventory.reservedQuantity;
+              const sourceBeforeInTransit = sourceInventory.inTransitQuantity;
+
+              // Release reserved quantity
+              sourceInventory.reservedQuantity -= sentQty;
+              sourceInventory.version += 1;
+              await sourceInventory.save({ session });
+
+              // Record ledger entry for source (cancellation)
+              await recordLedgerEntry(
+                {
+                  inventoryItem: item.inventoryItem,
+                  locationId: currentTransfer.fromLocation,
+                  movementType: 'transfer_cancelled',
+                  quantityDelta: 0, // No change to available quantity
+                  beforeAvailable: sourceBeforeAvailable,
+                  afterAvailable: sourceInventory.availableQuantity,
+                  beforeReserved: sourceBeforeReserved,
+                  afterReserved: sourceInventory.reservedQuantity,
+                  beforeInTransit: sourceBeforeInTransit,
+                  afterInTransit: sourceInventory.inTransitQuantity,
+                  referenceType: 'TRANSFER',
+                  referenceId: currentTransfer._id,
+                  referenceNumber: currentTransfer.transferNumber,
+                  performedBy: userId,
+                  reason: cancellationReason,
+                  notes: `Transfer cancelled: ${currentTransfer.transferNumber}. Reason: ${cancellationReason}`,
+                  correlationId: currentTransfer._id.toString()
+                },
+                companyId
+              );
+            }
+
+            // Update transfer status with optimistic locking
+            const updateData = {
+              status: 'cancelled',
+              cancelledBy: userId,
+              cancelledDate: new Date(),
+              cancellationReason: cancellationReason
+            };
+            
+            // Enforce version in update query for true optimistic locking
+            const updatedTransfer = await StockTransfer.findOneAndUpdate(
+              {
+                _id: currentTransfer._id,
+                version: currentTransfer.version
+              },
+              {
+                $set: updateData,
+                $inc: { version: 1 }
+              },
+              {
+                session,
+                new: true
+              }
+            );
+            
+            if (!updatedTransfer) {
+              throw new Error(
+                `Concurrent modification detected for transfer ${currentTransfer.transferNumber}. ` +
+                `Please retry the operation.`
+              );
+            }
+            
+            // Update reference for domain event
+            Object.assign(currentTransfer, updatedTransfer.toObject());
+
+            // Publish domain event
+            await publishDomainEvent(companyDB, {
+              eventType: 'TRANSFER_CANCELLED',
+              entityType: 'TRANSFER',
+              entityId: currentTransfer._id,
+              payload: {
+                transferNumber: currentTransfer.transferNumber,
+                transferType: currentTransfer.transferType,
+                fromLocation: currentTransfer.fromLocation,
+                toLocation: currentTransfer.toLocation,
+                cancellationReason: cancellationReason
+              },
+              userId: userId,
+              locationId: currentTransfer.fromLocation
+            }, companyId);
+
+            return currentTransfer;
+          },
+          {
+            operationName: `Cancel approved transfer ${transfer.transferNumber}`,
+            maxRetries: 3
+          }
+        );
+      },
+      {
+        operationName: `Cancel approved transfer ${transfer.transferNumber} (serialized)`
+      }
+    );
+
+    logger.info(
+      `Approved transfer cancelled: ${result.transferNumber} by user ${userId} for company: ${companyId}. ` +
+      `Reason: ${cancellationReason}`
+    );
+
+    return result;
+  } catch (error) {
+    logger.error('Error cancelling approved transfer:', error);
     throw error;
   }
 };
@@ -596,8 +1605,24 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
           // Get received quantity (default to sent quantity if not specified)
           const receivedQty = receivedQuantities?.[item.inventoryItem.toString()] ?? item.sentQuantity;
           
-          // Update item with received quantity
+          // CRITICAL: Validate received quantity does not exceed sent quantity
+          if (receivedQty > item.sentQuantity) {
+            throw new Error(
+              `Received quantity (${receivedQty}) cannot exceed sent quantity (${item.sentQuantity}) ` +
+              `for item ${item.inventoryItem}`
+            );
+          }
+
+          // Validate received quantity is not negative
+          if (receivedQty < 0) {
+            throw new Error(
+              `Received quantity cannot be negative for item ${item.inventoryItem}: ${receivedQty}`
+            );
+          }
+          
+          // Update item with received quantity and calculate discrepancy
           item.receivedQuantity = receivedQty;
+          item.discrepancyQuantity = item.sentQuantity - receivedQty;
 
           // Get destination inventory
           const destInventory = await InventoryItemLocation.findOne({
@@ -685,7 +1710,8 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
               }
             }
             
-            averageUnitCost = totalCost / receivedQty;
+            // Division by zero protection
+            averageUnitCost = receivedQty > 0 ? totalCost / receivedQty : 0;
           }
           
           // Record ledger entry for destination (completion)
@@ -722,11 +1748,47 @@ export const completeTransfer = async (transferId, userId, receivedQuantities, c
           }
         }
 
-        // Update transfer status
-        currentTransfer.status = 'completed';
-        currentTransfer.completedBy = userId;
-        currentTransfer.completedDate = new Date();
-        await currentTransfer.save({ session });
+        // Update transfer status with TRUE optimistic locking (version enforcement in query)
+        const updateData = {
+          status: 'completed',
+          completedBy: userId,
+          completedDate: new Date(),
+          items: currentTransfer.items // Include updated items with received quantities
+        };
+        
+        // Capture IP and device info if provided in receivedQuantities object
+        if (receivedQuantities?.ipAddress) {
+          updateData.completedIpAddress = receivedQuantities.ipAddress;
+        }
+        if (receivedQuantities?.deviceInfo) {
+          updateData.completedDeviceInfo = receivedQuantities.deviceInfo;
+        }
+        
+        // Enforce version in update query for true optimistic locking
+        const updatedTransfer = await StockTransfer.findOneAndUpdate(
+          {
+            _id: currentTransfer._id,
+            version: currentTransfer.version // Enforce current version
+          },
+          {
+            $set: updateData,
+            $inc: { version: 1 }
+          },
+          {
+            session,
+            new: true
+          }
+        );
+        
+        if (!updatedTransfer) {
+          throw new Error(
+            `Concurrent modification detected for transfer ${currentTransfer.transferNumber}. ` +
+            `Please retry the operation.`
+          );
+        }
+        
+        // Update reference for domain event
+        Object.assign(currentTransfer, updatedTransfer.toObject());
 
         // Publish domain event
         await publishDomainEvent(companyDB, {
@@ -920,7 +1982,10 @@ export const getTransfer = async (transferId, companyId) => {
     const companyDB = getCompanyDB(companyId);
     const StockTransfer = getStockTransferModel(companyDB);
 
-    const transfer = await StockTransfer.findById(transferId)
+    const transfer = await StockTransfer.findOne({
+      _id: transferId,
+      companyId // Filter by companyId for future-proofing
+    })
       .populate('fromLocation', 'name code type address')
       .populate('toLocation', 'name code type address')
       .populate('items.inventoryItem', 'name itemCode unit')
@@ -939,6 +2004,110 @@ export const getTransfer = async (transferId, companyId) => {
     return transfer;
   } catch (error) {
     logger.error('Error getting transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * List stock transfers with cursor pagination and location-based filtering
+ * Supports filtering by status, transferType, locations, and date range
+ * Uses transferNumber as cursor for consistent pagination
+ * @param {string} companyId - Company ID
+ * @param {Object} filters - Filter options
+ * @param {Object} pagination - Pagination options (cursor, limit)
+ * @returns {Promise<Object>} Paginated transfers with metadata
+ */
+export const listTransfers = async (companyId, filters = {}, pagination = {}) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+
+    const {
+      status,
+      transferType,
+      fromLocation,
+      toLocation,
+      accessibleLocations,
+      startDate,
+      endDate
+    } = filters;
+
+    const { page = 1, limit = 10 } = pagination;
+    const skip = (page - 1) * limit;
+
+    // Build query
+    const query = {
+      companyId,
+      isArchived: false
+    };
+
+    // Apply status filter
+    if (status) {
+      query.status = status;
+    }
+
+    // Apply transfer type filter
+    if (transferType) {
+      query.transferType = transferType;
+    }
+
+    // Apply location filters
+    if (fromLocation) {
+      query.fromLocation = fromLocation;
+    }
+
+    if (toLocation) {
+      query.toLocation = toLocation;
+    }
+
+    // Apply location-based access control
+    // For non-Super Admins, show transfers where user has access to fromLocation OR toLocation
+    if (accessibleLocations && accessibleLocations.length > 0) {
+      query.$or = [
+        { fromLocation: { $in: accessibleLocations } },
+        { toLocation: { $in: accessibleLocations } }
+      ];
+    }
+
+    // Apply date range filter
+    if (startDate || endDate) {
+      query.requestDate = {};
+      if (startDate) {
+        query.requestDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.requestDate.$lte = new Date(endDate);
+      }
+    }
+
+    // Get total count
+    const total = await StockTransfer.countDocuments(query);
+    const pages = Math.ceil(total / limit);
+
+    // Execute query with offset pagination
+    const transfers = await StockTransfer.find(query)
+      .populate('fromLocation', 'name code type')
+      .populate('toLocation', 'name code type')
+      .populate('items.inventoryItem', 'name itemCode unit')
+      .populate('requestedBy', 'name email')
+      .populate('approvedBy', 'name email')
+      .populate('shippedBy', 'name email')
+      .populate('receivedBy', 'name email')
+      .sort({ transferNumber: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    return {
+      transfers,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      pages
+    };
+  } catch (error) {
+    logger.error('Error listing transfers:', error);
     throw error;
   }
 };
@@ -966,8 +2135,10 @@ export const getTransfersByLocation = async (locationId, direction, companyId, o
       endDate
     } = options;
 
-    // Build query
-    const query = {};
+    // Build query with companyId filter
+    const query = {
+      companyId // Always filter by companyId for future-proofing
+    };
 
     // Location filter
     if (direction === 'from') {
@@ -1061,8 +2232,11 @@ export const getTransfersByStatus = async (status, companyId, options = {}) => {
       throw new Error(`Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}`);
     }
 
-    // Build query
-    const query = { status };
+    // Build query with companyId filter
+    const query = { 
+      companyId, // Always filter by companyId for future-proofing
+      status 
+    };
 
     // Transfer type filter
     if (transferType) {
@@ -1371,6 +2545,13 @@ export const fulfillBackorder = async (backorderId, userId, companyId) => {
           );
         }
 
+        // CRITICAL: Prevent duplicate fulfillment
+        if (currentBackorder.fulfilledTransferId) {
+          throw new Error(
+            `Backorder ${backorderId} has already been fulfilled by transfer ${currentBackorder.fulfilledTransferId}`
+          );
+        }
+
         // Get original transfer for reference
         const originalTransfer = await StockTransfer.findById(
           currentBackorder.originalTransferId
@@ -1388,9 +2569,12 @@ export const fulfillBackorder = async (backorderId, userId, companyId) => {
         // Create new transfer for backorder fulfillment
         const newTransfer = new StockTransfer({
           transferNumber,
+          companyId, // Add company isolation
           fromLocation: currentBackorder.fromLocation,
           toLocation: currentBackorder.toLocation,
           transferType: originalTransfer.transferType,
+          priority: originalTransfer.priority || 'normal',
+          systemGenerated: true, // Mark as system-generated for audit clarity
           items: [{
             inventoryItem: currentBackorder.inventoryItem,
             requestedQuantity: currentBackorder.backorderedQuantity,
@@ -1402,7 +2586,8 @@ export const fulfillBackorder = async (backorderId, userId, companyId) => {
           status: 'pending',
           requestedBy: userId,
           requestDate: new Date(),
-          notes: `Backorder fulfillment for transfer ${originalTransfer.transferNumber} (Backorder ID: ${currentBackorder._id})`
+          notes: `Backorder fulfillment for transfer ${originalTransfer.transferNumber} (Backorder ID: ${currentBackorder._id})`,
+          version: 0
         });
 
         await newTransfer.save({ session });
@@ -1528,8 +2713,9 @@ export const getPendingBackorders = async (locationId, direction, companyId, opt
     const companyDB = getCompanyDB(companyId);
     const StockBackorder = getStockBackorderModel(companyDB);
 
-    // Build query
+    // Build query with companyId filter
     const query = {
+      companyId, // Always filter by companyId for future-proofing
       status: 'pending'
     };
 
@@ -1576,7 +2762,10 @@ export const getBackorder = async (backorderId, companyId) => {
     const companyDB = getCompanyDB(companyId);
     const StockBackorder = getStockBackorderModel(companyDB);
 
-    const backorder = await StockBackorder.findById(backorderId)
+    const backorder = await StockBackorder.findOne({
+      _id: backorderId,
+      companyId // Filter by companyId for future-proofing
+    })
       .populate('inventoryItem', 'name code')
       .populate('fromLocation', 'name code')
       .populate('toLocation', 'name code')

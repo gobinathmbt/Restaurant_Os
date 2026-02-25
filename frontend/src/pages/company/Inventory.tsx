@@ -125,7 +125,7 @@ export default function Inventory() {
           <TabsTrigger value="locations">Locations</TabsTrigger>
           <TabsTrigger value="grn">GRN</TabsTrigger>
           <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
-          <TabsTrigger value="transfers">Transfers</TabsTrigger>
+          <TabsTrigger value="transfers">Request for Stock</TabsTrigger>
         </TabsList>
 
         <TabsContent value="items" className="m-0 flex-1 min-h-0 overflow-hidden">

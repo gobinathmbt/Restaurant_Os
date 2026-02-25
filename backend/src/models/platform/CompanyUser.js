@@ -22,7 +22,7 @@ const companyUserSchema = new mongoose.Schema({
   // Role (Company users only - NO platform_super_admin)
   role: {
     type: String,
-    enum: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'employee'],
+    enum: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'warehouse_admin', 'employee'],
     required: true,
   },
   
@@ -35,6 +35,11 @@ const companyUserSchema = new mongoose.Schema({
   
   // Branch Access (for company_admin and employee)
   branchIds: [{
+    type: String,
+  }],
+  
+  // Warehouse Access (for company_admin and employee)
+  warehouseIds: [{
     type: String,
   }],
   
@@ -81,6 +86,7 @@ companyUserSchema.index({ createdAt: -1 }); // Sort by creation date
 companyUserSchema.index({ companyId: 1, role: 1 }); // Users by company and role
 companyUserSchema.index({ companyId: 1, isActive: 1 }); // Active users per company
 companyUserSchema.index({ companyId: 1, branchIds: 1 }); // Branch-based access
+companyUserSchema.index({ companyId: 1, warehouseIds: 1 }); // Warehouse-based access
 companyUserSchema.index({ email: 1, isActive: 1 }); // Login with active check
 
 export default mongoose.model('CompanyUser', companyUserSchema);

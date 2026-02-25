@@ -12,6 +12,7 @@ interface User {
   companyId?: string;
   companyName?: string;
   branchIds?: string[]; // Legacy field - will be migrated to locationIds
+  warehouseIds?: string[]; // Warehouse access for users
   locationIds?: string[]; // New field for location-based access control
   platformAdminPrimary?: boolean;
   permissions?: string[];
