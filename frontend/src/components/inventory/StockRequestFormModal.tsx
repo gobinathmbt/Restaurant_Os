@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { inventoryServices, locationServices } from '@/api/services';
+import { inventoryServices, locationServices, inventoryItemLocationServices } from '@/api/services';
 import { Plus, Trash2, AlertCircle, Calendar } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -40,6 +40,10 @@ interface InventoryItem {
   name: string;
   currentStock: number;
   unit: string;
+  branchConfig?: {
+    currentStock: number;
+    availableQuantity: number;
+  };
 }
 
 interface LineItem {
@@ -141,7 +145,7 @@ export default function StockRequestFormModal({
 
   const fetchInventoryItems = async (locationId: string) => {
     try {
-      const response = await inventoryServices.getInventoryItems({ branchId: locationId, limit: 1000 });
+      const response = await inventoryItemLocationServices.getInventoryItemsForLocation(locationId, { limit: 1000, isActive: true });
       setInventoryItems(response.data.data.items || []);
     } catch (error: any) {
       toast({
@@ -161,7 +165,8 @@ export default function StockRequestFormModal({
       const selectedItem = inventoryItems.find(item => item._id === value);
       if (selectedItem) {
         updatedItems[index].unit = selectedItem.unit;
-        updatedItems[index].availableStock = selectedItem.currentStock;
+        // Get currentStock from branchConfig if available, otherwise from item directly
+        updatedItems[index].availableStock = selectedItem.branchConfig?.currentStock || selectedItem.currentStock || 0;
       }
     }
 

@@ -187,9 +187,10 @@ export const createRequest = async (
       throw new Error('Warehouse admins cannot create stock requests. You can only receive and fulfill incoming requests.');
     }
 
-    // Validate user has access to toLocation
-    if (!hasLocationAccess(user, requestData.toLocation)) {
-      throw new Error('User does not have access to the destination location');
+    // Validate user has access to fromLocation (source location)
+    // Users can request TO any location, but must have access to FROM location
+    if (!hasLocationAccess(user, requestData.fromLocation)) {
+      throw new Error('Access denied. You do not have permission to access the following locations: fromLocation');
     }
 
     // Get company database

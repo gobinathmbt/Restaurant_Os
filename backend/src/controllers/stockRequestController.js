@@ -7,6 +7,65 @@
 import * as stockRequestService from '../services/stockRequestService.js';
 import { logger } from '../utils/logger.js';
 import { getAccessibleLocations } from '../middlewares/locationAccess.js';
+import CompanyUser from '../models/platform/CompanyUser.js';
+
+/**
+ * Manually populate CompanyUser fields for stock requests
+ * CompanyUser is a platform model, not in company DB, so we need to populate manually
+ * @param {Array|Object} requests - Single request or array of requests
+ * @param {string} companyId - Company ID for filtering users
+ * @param {Array<string>} fields - User fields to populate (default: ['requestedBy', 'approvedBy', 'rejectedBy', 'cancelledBy'])
+ * @returns {Promise<Array|Object>} Requests with populated user fields
+ */
+const populateCompanyUsers = async (requests, companyId, fields = ['requestedBy', 'approvedBy', 'rejectedBy', 'cancelledBy']) => {
+  const isArray = Array.isArray(requests);
+  const requestArray = isArray ? requests : [requests];
+  
+  if (requestArray.length === 0) {
+    return requests;
+  }
+
+  // Collect all unique user IDs from all specified fields
+  const userIds = new Set();
+  requestArray.forEach(request => {
+    fields.forEach(field => {
+      if (request[field]) {
+        userIds.add(request[field].toString());
+      }
+    });
+  });
+
+  if (userIds.size === 0) {
+    return requests;
+  }
+
+  // Fetch all users in one query
+  const users = await CompanyUser.find({
+    _id: { $in: Array.from(userIds) },
+    companyId: companyId,
+    isActive: true
+  })
+  .select('_id name email role')
+  .lean();
+
+  // Create a map for quick lookup
+  const userMap = new Map();
+  users.forEach(user => {
+    userMap.set(user._id.toString(), user);
+  });
+
+  // Populate user fields in requests
+  requestArray.forEach(request => {
+    fields.forEach(field => {
+      if (request[field]) {
+        const userId = request[field].toString();
+        request[field] = userMap.get(userId) || request[field];
+      }
+    });
+  });
+
+  return isArray ? requestArray : requestArray[0];
+};
 
 /**
  * Extract IP address from request
@@ -84,7 +143,7 @@ export const createRequest = async (req, res, next) => {
     // Create request
     const request = await stockRequestService.createRequest(
       companyId,
-      user,
+      userId,
       requestData,
       ipAddress,
       deviceInfo
@@ -239,15 +298,16 @@ export const listRequests = async (req, res, next) => {
       .limit(limit)
       .populate('fromLocation', 'name type')
       .populate('toLocation', 'name type')
-      .populate('requestedBy', 'name email')
-      .populate('approvedBy', 'name email')
       .populate('items.inventoryItem', 'name code')
       .lean();
+
+    // Manually populate CompanyUser fields (platform model)
+    const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy', 'approvedBy']);
 
     logger.info('Stock requests listed via API', {
       companyId,
       userId: user.userId,
-      count: requests.length,
+      count: populatedRequests.length,
       page,
       total
     });
@@ -255,7 +315,7 @@ export const listRequests = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        requests,
+        requests: populatedRequests,
         pagination: {
           total,
           page: parseInt(page),
@@ -284,10 +344,6 @@ export const getRequestById = async (req, res, next) => {
     const request = await StockRequest.findOne({ _id: requestId })
       .populate('fromLocation', 'name type address')
       .populate('toLocation', 'name type address')
-      .populate('requestedBy', 'name email role')
-      .populate('approvedBy', 'name email role')
-      .populate('rejectedBy', 'name email role')
-      .populate('cancelledBy', 'name email role')
       .populate('items.inventoryItem', 'name code unit')
       .populate('createdTransferId', 'transferNumber status')
       .lean();
@@ -299,15 +355,18 @@ export const getRequestById = async (req, res, next) => {
       });
     }
 
+    // Manually populate CompanyUser fields (platform model)
+    const populatedRequest = await populateCompanyUsers(request, companyId, ['requestedBy', 'approvedBy', 'rejectedBy', 'cancelledBy']);
+
     logger.info('Stock request retrieved via API', {
       requestId,
-      requestNumber: request.requestNumber,
+      requestNumber: populatedRequest.requestNumber,
       companyId
     });
 
     res.json({
       success: true,
-      data: { request }
+      data: { request: populatedRequest }
     });
   } catch (error) {
     logger.error('Get stock request by ID error', error);
@@ -366,7 +425,7 @@ export const approveRequest = async (req, res, next) => {
     const result = await stockRequestService.approveRequest(
       companyId,
       requestId,
-      user,
+      userId,
       approvalData,
       ipAddress,
       deviceInfo
@@ -453,7 +512,7 @@ export const rejectRequest = async (req, res, next) => {
     const request = await stockRequestService.rejectRequest(
       companyId,
       requestId,
-      user,
+      userId,
       rejectionReason,
       ipAddress,
       deviceInfo
@@ -536,7 +595,7 @@ export const cancelRequest = async (req, res, next) => {
     const request = await stockRequestService.cancelRequest(
       companyId,
       requestId,
-      user,
+      userId,
       cancellationReason,
       ipAddress,
       deviceInfo
@@ -668,10 +727,13 @@ export const getMyRequests = async (req, res, next) => {
       .populate('items.inventoryItem', 'name code')
       .lean();
 
+    // Manually populate CompanyUser fields (platform model)
+    const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy', 'approvedBy']);
+
     logger.info('My requests listed via API', {
       companyId,
       userId,
-      count: requests.length,
+      count: populatedRequests.length,
       page,
       total
     });
@@ -679,7 +741,7 @@ export const getMyRequests = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        requests,
+        requests: populatedRequests,
         pagination: {
           total,
           page: parseInt(page),
@@ -769,14 +831,16 @@ export const getRequestsToMe = async (req, res, next) => {
       .limit(limit)
       .populate('fromLocation', 'name type')
       .populate('toLocation', 'name type')
-      .populate('requestedBy', 'name email')
       .populate('items.inventoryItem', 'name code')
       .lean();
+
+    // Manually populate CompanyUser fields (platform model)
+    const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy']);
 
     logger.info('Requests to me listed via API', {
       companyId,
       userId: user.userId,
-      count: requests.length,
+      count: populatedRequests.length,
       page,
       total
     });
@@ -784,7 +848,7 @@ export const getRequestsToMe = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        requests,
+        requests: populatedRequests,
         pagination: {
           total,
           page: parseInt(page),
@@ -877,14 +941,16 @@ export const getPendingApprovals = async (req, res, next) => {
       .limit(limit)
       .populate('fromLocation', 'name type')
       .populate('toLocation', 'name type')
-      .populate('requestedBy', 'name email')
       .populate('items.inventoryItem', 'name code')
       .lean();
+
+    // Manually populate CompanyUser fields (platform model)
+    const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy']);
 
     logger.info('Pending approvals listed via API', {
       companyId,
       userId: user.userId,
-      count: requests.length,
+      count: populatedRequests.length,
       page,
       total
     });
@@ -892,7 +958,7 @@ export const getPendingApprovals = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        requests,
+        requests: populatedRequests,
         pagination: {
           total,
           page: parseInt(page),

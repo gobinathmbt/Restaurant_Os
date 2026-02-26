@@ -40,11 +40,10 @@ router.use(requireCompanyDB);
  * 
  * Middleware:
  * - authenticate: Verify user is logged in
- * - validateMultipleLocationsAccess: Verify user has access to toLocation
+ * - No location validation middleware (validation done in service layer)
  */
 router.post(
   '/',
-  validateMultipleLocationsAccess({ locationFields: ['toLocation'], source: 'body' }),
   createRequest
 );
 
