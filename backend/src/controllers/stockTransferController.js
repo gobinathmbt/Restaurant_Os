@@ -678,3 +678,252 @@ export const receiveTransfer = async (req, res, next) => {
     next(error);
   }
 };
+
+
+/**
+ * Update execution stage of a stock transfer
+ * PATCH /api/v2/stock-transfers/:transferId/stage
+ */
+export const updateExecutionStage = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { transferId } = req.params;
+    const { stage, notes } = req.body;
+
+    // Validate required fields
+    if (!stage) {
+      return res.status(400).json({
+        success: false,
+        message: 'Stage is required'
+      });
+    }
+
+    // Capture IP address and device info for audit trail
+    const options = {
+      ipAddress: req.ip || req.connection.remoteAddress,
+      deviceInfo: req.headers['user-agent'],
+      notes
+    };
+
+    const updatedTransfer = await stockTransferService.updateExecutionStage(
+      transferId,
+      stage,
+      userId,
+      companyId,
+      options
+    );
+
+    logger.info('Stock transfer execution stage updated via API', {
+      transferId,
+      transferNumber: updatedTransfer.transferNumber,
+      stage,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Execution stage updated successfully',
+      data: { transfer: updatedTransfer }
+    });
+  } catch (error) {
+    logger.error('Update execution stage error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Invalid stage transition') ||
+        error.message.includes('does not have permission') ||
+        error.message.includes('Stage is required')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Accept stock with exception recording
+ * POST /api/v2/stock-transfers/:transferId/accept
+ */
+export const acceptStock = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { transferId } = req.params;
+    const { items } = req.body;
+
+    // Validate required fields
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Items array is required'
+      });
+    }
+
+    // Get transfer to validate location access
+    const transfer = await stockTransferService.getTransfer(transferId, companyId);
+    
+    // Validate user has access to toLocation (destination admin)
+    const { hasLocationAccess } = await import('../middlewares/locationAccess.js');
+    if (!hasLocationAccess(req.user, transfer.toLocation._id.toString())) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You do not have permission to accept stock at this location.'
+      });
+    }
+
+    // Capture IP address and device info for audit trail
+    const options = {
+      ipAddress: req.ip || req.connection.remoteAddress,
+      deviceInfo: req.headers['user-agent']
+    };
+
+    const updatedTransfer = await stockTransferService.acceptStock(
+      transferId,
+      userId,
+      items,
+      companyId,
+      options
+    );
+
+    logger.info('Stock accepted with exceptions via API', {
+      transferId,
+      transferNumber: updatedTransfer.transferNumber,
+      exceptionsCount: updatedTransfer.exceptions?.length || 0,
+      companyId,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'Stock accepted successfully',
+      data: { transfer: updatedTransfer }
+    });
+  } catch (error) {
+    logger.error('Accept stock error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Invalid stage') ||
+        error.message.includes('Items array is required') ||
+        error.message.includes('does not have permission')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Get in-transit transfers
+ * GET /api/v2/stock-transfers/in-transit
+ */
+export const getInTransitTransfers = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const { page = 1, limit = 10 } = req.query;
+
+    // Validate pagination parameters
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const parsedLimit = Math.min(parseInt(limit) || 10, 100);
+
+    // Get accessible locations for the user
+    const { isUnrestricted, locationIds } = getAccessibleLocations(req.user);
+
+    const result = await stockTransferService.getInTransitTransfers(
+      companyId,
+      {
+        isUnrestricted,
+        locationIds
+      },
+      {
+        page: parsedPage,
+        limit: parsedLimit
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        transfers: result.transfers,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          pages: result.pages
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get in-transit transfers error', error);
+    next(error);
+  }
+};
+
+
+/**
+ * Get transfers with exceptions
+ * GET /api/v2/stock-transfers/exceptions
+ */
+export const getExceptions = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const { resolved, page = 1, limit = 10 } = req.query;
+
+    // Validate pagination parameters
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const parsedLimit = Math.min(parseInt(limit) || 10, 100);
+
+    // Get accessible locations for the user
+    const { isUnrestricted, locationIds } = getAccessibleLocations(req.user);
+
+    // Parse resolved filter
+    const resolvedFilter = resolved === 'true' ? true : resolved === 'false' ? false : undefined;
+
+    const result = await stockTransferService.getExceptions(
+      companyId,
+      {
+        isUnrestricted,
+        locationIds,
+        resolved: resolvedFilter
+      },
+      {
+        page: parsedPage,
+        limit: parsedLimit
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        transfers: result.transfers,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          pages: result.pages
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get transfers with exceptions error', error);
+    next(error);
+  }
+};

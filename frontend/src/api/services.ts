@@ -556,6 +556,31 @@ export const inventoryServices = {
   cancelStockRequest: (id: string, data: { cancellationReason: string }) =>
     apiClient.post(`/api/v2/stock-requests/${id}/cancel`, data),
 
+  // Role-specific stock request endpoints
+  getMyRequests: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    priority?: string;
+    requestDateStart?: string;
+    requestDateEnd?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }) => apiClient.get("/api/v2/stock-requests/my-requests", { params }),
+
+  getRequestsToMe: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    priority?: string;
+    requestDateStart?: string;
+    requestDateEnd?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }) => apiClient.get("/api/v2/stock-requests/requests-to-me", { params }),
+
   // Backorder endpoints
   getBackorders: (params?: { 
     page?: number; 

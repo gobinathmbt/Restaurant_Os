@@ -593,3 +593,316 @@ export const cancelRequest = async (req, res, next) => {
     next(error);
   }
 };
+
+
+/**
+ * Get requests created by the current user
+ * GET /api/v2/stock-requests/my-requests
+ */
+export const getMyRequests = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+    const skip = (page - 1) * limit;
+
+    // Extract filter parameters
+    const filters = {
+      status: req.query.status,
+      priority: req.query.priority,
+      requestDateStart: req.query.requestDateStart,
+      requestDateEnd: req.query.requestDateEnd,
+      search: req.query.search,
+      sortBy: req.query.sortBy || 'requestDate',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    const StockRequest = req.companyDB.model('StockRequest');
+
+    // Build query - filter by requestedBy
+    const query = { 
+      isArchived: false,
+      requestedBy: userId
+    };
+
+    // Apply filters
+    if (filters.status) {
+      query.status = filters.status;
+    }
+
+    if (filters.priority) {
+      query.priority = filters.priority;
+    }
+
+    if (filters.requestDateStart || filters.requestDateEnd) {
+      query.requestDate = {};
+      if (filters.requestDateStart) {
+        query.requestDate.$gte = new Date(filters.requestDateStart);
+      }
+      if (filters.requestDateEnd) {
+        query.requestDate.$lte = new Date(filters.requestDateEnd);
+      }
+    }
+
+    if (filters.search) {
+      query.requestNumber = { $regex: filters.search, $options: 'i' };
+    }
+
+    // Determine sort order
+    const sortField = filters.sortBy === 'priority' ? 'priority' : 
+                      filters.sortBy === 'expectedDeliveryDate' ? 'expectedDeliveryDate' :
+                      filters.sortBy === 'status' ? 'status' : 'requestDate';
+    const sortDirection = filters.sortOrder === 'asc' ? 1 : -1;
+
+    // Get total count
+    const total = await StockRequest.countDocuments(query);
+    const pages = Math.ceil(total / limit);
+
+    // Execute query with pagination
+    const requests = await StockRequest.find(query)
+      .sort({ [sortField]: sortDirection, requestNumber: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('fromLocation', 'name type')
+      .populate('toLocation', 'name type')
+      .populate('items.inventoryItem', 'name code')
+      .lean();
+
+    logger.info('My requests listed via API', {
+      companyId,
+      userId,
+      count: requests.length,
+      page,
+      total
+    });
+
+    res.json({
+      success: true,
+      data: {
+        requests,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get my requests error', error);
+    next(error);
+  }
+};
+
+
+/**
+ * Get requests to the current user's locations
+ * GET /api/v2/stock-requests/requests-to-me
+ */
+export const getRequestsToMe = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const user = req.user;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+    const skip = (page - 1) * limit;
+
+    // Extract filter parameters
+    const filters = {
+      status: req.query.status,
+      priority: req.query.priority,
+      requestDateStart: req.query.requestDateStart,
+      requestDateEnd: req.query.requestDateEnd,
+      search: req.query.search,
+      sortBy: req.query.sortBy || 'requestDate',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    // Get accessible locations for the user
+    const { locationIds } = getAccessibleLocations(user);
+
+    const StockRequest = req.companyDB.model('StockRequest');
+
+    // Build query - filter by toLocation in user's accessible locations
+    const query = { 
+      isArchived: false,
+      toLocation: { $in: locationIds }
+    };
+
+    // Apply filters
+    if (filters.status) {
+      query.status = filters.status;
+    }
+
+    if (filters.priority) {
+      query.priority = filters.priority;
+    }
+
+    if (filters.requestDateStart || filters.requestDateEnd) {
+      query.requestDate = {};
+      if (filters.requestDateStart) {
+        query.requestDate.$gte = new Date(filters.requestDateStart);
+      }
+      if (filters.requestDateEnd) {
+        query.requestDate.$lte = new Date(filters.requestDateEnd);
+      }
+    }
+
+    if (filters.search) {
+      query.requestNumber = { $regex: filters.search, $options: 'i' };
+    }
+
+    // Determine sort order
+    const sortField = filters.sortBy === 'priority' ? 'priority' : 
+                      filters.sortBy === 'expectedDeliveryDate' ? 'expectedDeliveryDate' :
+                      filters.sortBy === 'status' ? 'status' : 'requestDate';
+    const sortDirection = filters.sortOrder === 'asc' ? 1 : -1;
+
+    // Get total count
+    const total = await StockRequest.countDocuments(query);
+    const pages = Math.ceil(total / limit);
+
+    // Execute query with pagination
+    const requests = await StockRequest.find(query)
+      .sort({ [sortField]: sortDirection, requestNumber: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('fromLocation', 'name type')
+      .populate('toLocation', 'name type')
+      .populate('requestedBy', 'name email')
+      .populate('items.inventoryItem', 'name code')
+      .lean();
+
+    logger.info('Requests to me listed via API', {
+      companyId,
+      userId: user.userId,
+      count: requests.length,
+      page,
+      total
+    });
+
+    res.json({
+      success: true,
+      data: {
+        requests,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get requests to me error', error);
+    next(error);
+  }
+};
+
+
+/**
+ * Get pending approval requests (super admin only)
+ * GET /api/v2/stock-requests/pending-approvals
+ */
+export const getPendingApprovals = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const user = req.user;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+    const skip = (page - 1) * limit;
+
+    // Validate user is super admin
+    const isSuperAdmin = user.role === 'company_super_admin_primary' || 
+                         user.role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only super admins can view pending approvals.'
+      });
+    }
+
+    // Extract filter parameters
+    const filters = {
+      priority: req.query.priority,
+      requestDateStart: req.query.requestDateStart,
+      requestDateEnd: req.query.requestDateEnd,
+      search: req.query.search,
+      sortBy: req.query.sortBy || 'requestDate',
+      sortOrder: req.query.sortOrder || 'desc'
+    };
+
+    const StockRequest = req.companyDB.model('StockRequest');
+
+    // Build query - filter by pending status
+    const query = { 
+      isArchived: false,
+      status: 'pending'
+    };
+
+    // Apply filters
+    if (filters.priority) {
+      query.priority = filters.priority;
+    }
+
+    if (filters.requestDateStart || filters.requestDateEnd) {
+      query.requestDate = {};
+      if (filters.requestDateStart) {
+        query.requestDate.$gte = new Date(filters.requestDateStart);
+      }
+      if (filters.requestDateEnd) {
+        query.requestDate.$lte = new Date(filters.requestDateEnd);
+      }
+    }
+
+    if (filters.search) {
+      query.requestNumber = { $regex: filters.search, $options: 'i' };
+    }
+
+    // Determine sort order
+    const sortField = filters.sortBy === 'priority' ? 'priority' : 
+                      filters.sortBy === 'expectedDeliveryDate' ? 'expectedDeliveryDate' :
+                      'requestDate';
+    const sortDirection = filters.sortOrder === 'asc' ? 1 : -1;
+
+    // Get total count
+    const total = await StockRequest.countDocuments(query);
+    const pages = Math.ceil(total / limit);
+
+    // Execute query with pagination
+    const requests = await StockRequest.find(query)
+      .sort({ [sortField]: sortDirection, requestNumber: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('fromLocation', 'name type')
+      .populate('toLocation', 'name type')
+      .populate('requestedBy', 'name email')
+      .populate('items.inventoryItem', 'name code')
+      .lean();
+
+    logger.info('Pending approvals listed via API', {
+      companyId,
+      userId: user.userId,
+      count: requests.length,
+      page,
+      total
+    });
+
+    res.json({
+      success: true,
+      data: {
+        requests,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get pending approvals error', error);
+    next(error);
+  }
+};

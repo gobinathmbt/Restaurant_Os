@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Eye, X, Package } from 'lucide-react';
+import { Eye, Package, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -12,7 +12,6 @@ import {
 import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
-import StockRequestFormModal from '../StockRequestFormModal';
 import StockRequestViewModal from '../StockRequestViewModal';
 import DataTableLayout from '@/components/common/DataTableLayout';
 
@@ -52,41 +51,34 @@ interface StockRequest {
   }>;
 }
 
-interface MyRequestsTabProps {
+interface IncomingRequestsTabProps {
   selectedBranch: string;
   branches: Branch[];
   onBranchChange: (branchId: string) => void;
   isSuperAdmin: boolean;
   isMultiBranchAdmin: boolean;
   onItemsUpdate?: () => void;
-  user?: {
-    role: string;
-    branchIds: string[];
-    warehouseIds: string[];
-  };
 }
 
-export default function MyRequestsTab({
+export default function IncomingRequestsTab({
   selectedBranch,
   branches,
   onBranchChange,
   isSuperAdmin,
   isMultiBranchAdmin,
   onItemsUpdate,
-  user,
-}: MyRequestsTabProps) {
+}: IncomingRequestsTabProps) {
   const { toast } = useToast();
 
   const [requests, setRequests] = useState<StockRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('approved');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<StockRequest | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
 
@@ -107,6 +99,7 @@ export default function MyRequestsTab({
         search: search || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
+        toLocation: selectedBranch, // Filter by destination location
       });
 
       setRequests(response.data.data.requests || []);
@@ -115,30 +108,11 @@ export default function MyRequestsTab({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.response?.data?.message || 'Failed to fetch stock requests',
+        description: error.response?.data?.message || 'Failed to fetch incoming requests',
         variant: "destructive",
       });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCancelRequest = async (requestId: string) => {
-    try {
-      await inventoryServices.cancelStockRequest(requestId, {
-        cancellationReason: 'Cancelled by requester'
-      });
-      toast({
-        title: "Success",
-        description: "Request cancelled successfully",
-      });
-      fetchRequests();
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.response?.data?.message || 'Failed to cancel request',
-        variant: "destructive",
-      });
     }
   };
 
@@ -155,7 +129,8 @@ export default function MyRequestsTab({
       pending: { className: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
       approved: { className: 'bg-green-100 text-green-800', label: 'Approved' },
       rejected: { className: 'bg-red-100 text-red-800', label: 'Rejected' },
-      cancelled: { className: 'bg-gray-100 text-gray-800', label: 'Cancelled' }
+      cancelled: { className: 'bg-gray-100 text-gray-800', label: 'Cancelled' },
+      completed: { className: 'bg-blue-100 text-blue-800', label: 'Completed' }
     };
 
     const config = statusConfig[status] || { className: 'bg-gray-100 text-gray-800', label: status };
@@ -179,9 +154,9 @@ export default function MyRequestsTab({
       <TableHead className="w-16">S.No</TableHead>
       <TableHead>Request Number</TableHead>
       <TableHead>From Location</TableHead>
-      <TableHead>To Location</TableHead>
-      <TableHead>Status</TableHead>
+      <TableHead>Items Count</TableHead>
       <TableHead>Priority</TableHead>
+      <TableHead>Status</TableHead>
       <TableHead>Expected Delivery</TableHead>
       <TableHead>Date</TableHead>
       <TableHead className="text-right">Actions</TableHead>
@@ -196,10 +171,17 @@ export default function MyRequestsTab({
       <TableCell>
         <p className="font-medium">{request.requestNumber}</p>
       </TableCell>
-      <TableCell>{request.fromLocation?.name || '-'}</TableCell>
-      <TableCell>{request.toLocation?.name || '-'}</TableCell>
-      <TableCell>{getStatusBadge(request.status)}</TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <span>{request.fromLocation?.name || '-'}</span>
+          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline">{request.items?.length || 0} items</Badge>
+      </TableCell>
       <TableCell>{getPriorityBadge(request.priority)}</TableCell>
+      <TableCell>{getStatusBadge(request.status)}</TableCell>
       <TableCell>{formatDate(request.expectedDeliveryDate)}</TableCell>
       <TableCell>{formatDate(request.requestDate)}</TableCell>
       <TableCell className="text-right">
@@ -214,16 +196,6 @@ export default function MyRequestsTab({
           >
             <Eye className="h-4 w-4" />
           </Button>
-          {request.status === 'pending' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleCancelRequest(request._id)}
-              className="text-red-600 hover:text-red-700"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
         </div>
       </TableCell>
     </TableRow>
@@ -234,11 +206,11 @@ export default function MyRequestsTab({
       {(isSuperAdmin || isMultiBranchAdmin) && (
         <Select value={selectedBranch} onValueChange={onBranchChange}>
           <SelectTrigger className="w-48 h-9">
-            <SelectValue placeholder="Select branch" />
+            <SelectValue placeholder="Select location" />
           </SelectTrigger>
           <SelectContent>
             {isSuperAdmin && (
-              <SelectItem value="all">All Branches</SelectItem>
+              <SelectItem value="all">All Locations</SelectItem>
             )}
             {branches.map((branch) => (
               <SelectItem key={branch._id} value={branch._id}>
@@ -254,9 +226,8 @@ export default function MyRequestsTab({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All statuses</SelectItem>
-          <SelectItem value="pending">Pending</SelectItem>
           <SelectItem value="approved">Approved</SelectItem>
-          <SelectItem value="rejected">Rejected</SelectItem>
+          <SelectItem value="completed">Completed</SelectItem>
           <SelectItem value="cancelled">Cancelled</SelectItem>
         </SelectContent>
       </Select>
@@ -279,10 +250,10 @@ export default function MyRequestsTab({
     <>
       <DataTableLayout
         statChips={[
-          { label: 'Total Requests', value: totalCount }
+          { label: 'Incoming Requests', value: totalCount }
         ]}
         searchValue={search}
-        searchPlaceholder="Search requests..."
+        searchPlaceholder="Search incoming requests..."
         onSearchChange={setSearch}
         filterConfig={{ component: filterComponent }}
         tableHeaders={tableHeaders}
@@ -292,16 +263,10 @@ export default function MyRequestsTab({
           requests.length === 0 && !loading
             ? {
                 icon: <Package className="h-16 w-16" />,
-                title: 'No requests found',
+                title: 'No incoming requests',
                 description: search || statusFilter || priorityFilter
                   ? 'Try adjusting your filters'
-                  : 'Get started by creating your first stock request',
-                action: !search && !statusFilter && !priorityFilter ? (
-                  <Button onClick={() => setIsFormOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Request
-                  </Button>
-                ) : undefined
+                  : 'No approved requests are currently incoming to this location',
               }
             : undefined
         }
@@ -315,26 +280,7 @@ export default function MyRequestsTab({
           setPage(1);
         }}
         onRefresh={fetchRequests}
-        actionButtons={[
-          {
-            icon: <Plus className="h-4 w-4" />,
-            tooltip: 'Create Request',
-            onClick: () => setIsFormOpen(true),
-            variant: 'default'
-          }
-        ]}
-        storagePrefix="my-requests"
-      />
-
-      <StockRequestFormModal
-        open={isFormOpen}
-        onClose={() => setIsFormOpen(false)}
-        currentBranchId={selectedBranch}
-        onSuccess={() => {
-          setIsFormOpen(false);
-          fetchRequests();
-        }}
-        user={user || { role: '', branchIds: [], warehouseIds: [] }}
+        storagePrefix="incoming-requests"
       />
 
       <StockRequestViewModal

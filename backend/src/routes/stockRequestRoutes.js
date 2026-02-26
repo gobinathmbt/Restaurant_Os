@@ -11,7 +11,10 @@ import {
   getRequestById,
   approveRequest,
   rejectRequest,
-  cancelRequest
+  cancelRequest,
+  getMyRequests,
+  getRequestsToMe,
+  getPendingApprovals
 } from '../controllers/stockRequestController.js';
 import { authenticate, requireCompanyDB } from '../middlewares/auth.js';
 import { validateLocationAccess, validateMultipleLocationsAccess } from '../middlewares/locationAccess.js';
@@ -44,6 +47,56 @@ router.post(
   validateMultipleLocationsAccess({ locationFields: ['toLocation'], source: 'body' }),
   createRequest
 );
+
+/**
+ * Get requests created by the current user
+ * GET /api/v2/stock-requests/my-requests
+ * 
+ * Query params: page, limit, status, priority, requestDateStart, requestDateEnd, search, sortBy, sortOrder
+ * 
+ * Response: {
+ *   success: true,
+ *   data: {
+ *     requests: [...],
+ *     pagination: { total, page, limit, pages }
+ *   }
+ * }
+ */
+router.get('/my-requests', getMyRequests);
+
+/**
+ * Get requests to the current user's locations
+ * GET /api/v2/stock-requests/requests-to-me
+ * 
+ * Query params: page, limit, status, priority, requestDateStart, requestDateEnd, search, sortBy, sortOrder
+ * 
+ * Response: {
+ *   success: true,
+ *   data: {
+ *     requests: [...],
+ *     pagination: { total, page, limit, pages }
+ *   }
+ * }
+ */
+router.get('/requests-to-me', getRequestsToMe);
+
+/**
+ * Get pending approval requests (super admin only)
+ * GET /api/v2/stock-requests/pending-approvals
+ * 
+ * Query params: page, limit, priority, requestDateStart, requestDateEnd, search, sortBy, sortOrder
+ * 
+ * Response: {
+ *   success: true,
+ *   data: {
+ *     requests: [...],
+ *     pagination: { total, page, limit, pages }
+ *   }
+ * }
+ * 
+ * Authorization: Super admin only
+ */
+router.get('/pending-approvals', getPendingApprovals);
 
 /**
  * List stock requests with offset-based pagination and filtering

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Eye, X, Package } from 'lucide-react';
+import { Eye, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -12,7 +12,6 @@ import {
 import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
-import StockRequestFormModal from '../StockRequestFormModal';
 import StockRequestViewModal from '../StockRequestViewModal';
 import DataTableLayout from '@/components/common/DataTableLayout';
 
@@ -52,29 +51,23 @@ interface StockRequest {
   }>;
 }
 
-interface MyRequestsTabProps {
+interface RequestsToMeTabProps {
   selectedBranch: string;
   branches: Branch[];
   onBranchChange: (branchId: string) => void;
   isSuperAdmin: boolean;
   isMultiBranchAdmin: boolean;
   onItemsUpdate?: () => void;
-  user?: {
-    role: string;
-    branchIds: string[];
-    warehouseIds: string[];
-  };
 }
 
-export default function MyRequestsTab({
+export default function RequestsToMeTab({
   selectedBranch,
   branches,
   onBranchChange,
   isSuperAdmin,
   isMultiBranchAdmin,
   onItemsUpdate,
-  user,
-}: MyRequestsTabProps) {
+}: RequestsToMeTabProps) {
   const { toast } = useToast();
 
   const [requests, setRequests] = useState<StockRequest[]>([]);
@@ -86,22 +79,17 @@ export default function MyRequestsTab({
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<StockRequest | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
 
   useEffect(() => {
-    if (selectedBranch) {
-      fetchRequests();
-    }
-  }, [selectedBranch, page, rowsPerPage, search, statusFilter, priorityFilter]);
+    fetchRequests();
+  }, [page, rowsPerPage, search, statusFilter, priorityFilter]);
 
   const fetchRequests = async () => {
-    if (!selectedBranch) return;
-    
     try {
       setLoading(true);
-      const response = await inventoryServices.getStockRequests(selectedBranch, {
+      const response = await inventoryServices.getRequestsToMe({
         page,
         limit: rowsPerPage,
         search: search || undefined,
@@ -115,30 +103,11 @@ export default function MyRequestsTab({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.response?.data?.message || 'Failed to fetch stock requests',
+        description: error.response?.data?.message || 'Failed to fetch requests',
         variant: "destructive",
       });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCancelRequest = async (requestId: string) => {
-    try {
-      await inventoryServices.cancelStockRequest(requestId, {
-        cancellationReason: 'Cancelled by requester'
-      });
-      toast({
-        title: "Success",
-        description: "Request cancelled successfully",
-      });
-      fetchRequests();
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.response?.data?.message || 'Failed to cancel request',
-        variant: "destructive",
-      });
     }
   };
 
@@ -179,10 +148,9 @@ export default function MyRequestsTab({
       <TableHead className="w-16">S.No</TableHead>
       <TableHead>Request Number</TableHead>
       <TableHead>From Location</TableHead>
-      <TableHead>To Location</TableHead>
-      <TableHead>Status</TableHead>
+      <TableHead>Items Count</TableHead>
       <TableHead>Priority</TableHead>
-      <TableHead>Expected Delivery</TableHead>
+      <TableHead>Status</TableHead>
       <TableHead>Date</TableHead>
       <TableHead className="text-right">Actions</TableHead>
     </>
@@ -197,57 +165,27 @@ export default function MyRequestsTab({
         <p className="font-medium">{request.requestNumber}</p>
       </TableCell>
       <TableCell>{request.fromLocation?.name || '-'}</TableCell>
-      <TableCell>{request.toLocation?.name || '-'}</TableCell>
-      <TableCell>{getStatusBadge(request.status)}</TableCell>
+      <TableCell>{request.items?.length || 0}</TableCell>
       <TableCell>{getPriorityBadge(request.priority)}</TableCell>
-      <TableCell>{formatDate(request.expectedDeliveryDate)}</TableCell>
+      <TableCell>{getStatusBadge(request.status)}</TableCell>
       <TableCell>{formatDate(request.requestDate)}</TableCell>
       <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSelectedRequest(request);
-              setIsViewOpen(true);
-            }}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          {request.status === 'pending' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleCancelRequest(request._id)}
-              className="text-red-600 hover:text-red-700"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setSelectedRequest(request);
+            setIsViewOpen(true);
+          }}
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
       </TableCell>
     </TableRow>
   ));
 
   const filterComponent = (
     <div className="flex items-center gap-2">
-      {(isSuperAdmin || isMultiBranchAdmin) && (
-        <Select value={selectedBranch} onValueChange={onBranchChange}>
-          <SelectTrigger className="w-48 h-9">
-            <SelectValue placeholder="Select branch" />
-          </SelectTrigger>
-          <SelectContent>
-            {isSuperAdmin && (
-              <SelectItem value="all">All Branches</SelectItem>
-            )}
-            {branches.map((branch) => (
-              <SelectItem key={branch._id} value={branch._id}>
-                {branch.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
       <Select value={statusFilter || "all"} onValueChange={(value) => setStatusFilter(value === "all" ? "" : value)}>
         <SelectTrigger className="w-40 h-9">
           <SelectValue placeholder="All statuses" />
@@ -295,13 +233,7 @@ export default function MyRequestsTab({
                 title: 'No requests found',
                 description: search || statusFilter || priorityFilter
                   ? 'Try adjusting your filters'
-                  : 'Get started by creating your first stock request',
-                action: !search && !statusFilter && !priorityFilter ? (
-                  <Button onClick={() => setIsFormOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Request
-                  </Button>
-                ) : undefined
+                  : 'No stock requests have been sent to your locations yet'
               }
             : undefined
         }
@@ -315,26 +247,7 @@ export default function MyRequestsTab({
           setPage(1);
         }}
         onRefresh={fetchRequests}
-        actionButtons={[
-          {
-            icon: <Plus className="h-4 w-4" />,
-            tooltip: 'Create Request',
-            onClick: () => setIsFormOpen(true),
-            variant: 'default'
-          }
-        ]}
-        storagePrefix="my-requests"
-      />
-
-      <StockRequestFormModal
-        open={isFormOpen}
-        onClose={() => setIsFormOpen(false)}
-        currentBranchId={selectedBranch}
-        onSuccess={() => {
-          setIsFormOpen(false);
-          fetchRequests();
-        }}
-        user={user || { role: '', branchIds: [], warehouseIds: [] }}
+        storagePrefix="requests-to-me"
       />
 
       <StockRequestViewModal

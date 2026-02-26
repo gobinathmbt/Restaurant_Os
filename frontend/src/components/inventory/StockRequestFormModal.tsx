@@ -21,6 +21,11 @@ interface StockRequestFormModalProps {
   onClose: () => void;
   currentBranchId: string;
   onSuccess: () => void;
+  user: {
+    role: string;
+    branchIds: string[];
+    warehouseIds: string[];
+  };
 }
 
 interface Location {
@@ -48,12 +53,14 @@ export default function StockRequestFormModal({
   open, 
   onClose, 
   currentBranchId,
-  onSuccess 
+  onSuccess,
+  user
 }: StockRequestFormModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [toLocationType, setToLocationType] = useState<'branch' | 'warehouse' | ''>('');
   const [formData, setFormData] = useState({
     fromLocation: '',
     toLocation: currentBranchId,
@@ -71,10 +78,28 @@ export default function StockRequestFormModal({
 
   useEffect(() => {
     if (open) {
+      // Block warehouse admins from creating requests
+      if (user?.role === 'warehouse_admin') {
+        toast({
+          title: "Access Denied",
+          description: "Warehouse admins cannot create stock requests. You can only receive and fulfill incoming requests.",
+          variant: "destructive",
+        });
+        onClose();
+        return;
+      }
+      
       fetchLocations();
       resetForm();
     }
-  }, [open, currentBranchId]);
+  }, [open, currentBranchId, user]);
+
+  // Auto-select single branch for non-super-admin users
+  useEffect(() => {
+    if (open && user?.branchIds?.length === 1 && !user?.role?.includes('super_admin')) {
+      setFormData(prev => ({ ...prev, fromLocation: user.branchIds[0] }));
+    }
+  }, [open, user]);
 
   useEffect(() => {
     if (formData.fromLocation) {
@@ -89,6 +114,7 @@ export default function StockRequestFormModal({
       priority: 'normal',
       notes: ''
     });
+    setToLocationType('');
     setLineItems([
       {
         inventoryItem: '',
@@ -287,11 +313,28 @@ export default function StockRequestFormModal({
   };
 
   const getAvailableToLocations = () => {
-    return locations.filter(location => location._id !== formData.fromLocation);
+    let filtered = locations.filter(location => location._id !== formData.fromLocation);
+    
+    // Filter by location type if selected
+    if (toLocationType === 'branch') {
+      filtered = filtered.filter(loc => loc.type === 'branch');
+    } else if (toLocationType === 'warehouse') {
+      filtered = filtered.filter(loc => loc.type === 'warehouse');
+    }
+    
+    return filtered;
   };
 
   const getAvailableFromLocations = () => {
-    return locations.filter(location => location._id !== formData.toLocation);
+    const filtered = locations.filter(location => location._id !== formData.toLocation);
+    
+    // Super admins see all locations
+    if (user?.role?.includes('super_admin')) {
+      return filtered;
+    }
+    
+    // Branch admins see only their branches
+    return filtered.filter(location => user?.branchIds?.includes(location._id));
   };
 
   return (
@@ -334,23 +377,44 @@ export default function StockRequestFormModal({
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label htmlFor="toLocation">To Location *</Label>
-                  <Select
-                    value={formData.toLocation}
-                    onValueChange={(value) => setFormData({ ...formData, toLocation: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select to location" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getAvailableToLocations().map((location) => (
-                        <SelectItem key={location._id} value={location._id}>
-                          {location.name} ({location.type})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-2">
+                  <div>
+                    <Label htmlFor="toLocationType">To Location Type *</Label>
+                    <Select
+                      value={toLocationType}
+                      onValueChange={(value) => {
+                        setToLocationType(value as 'branch' | 'warehouse');
+                        setFormData({ ...formData, toLocation: '' }); // Reset to-location when type changes
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select location type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="branch">Branch</SelectItem>
+                        <SelectItem value="warehouse">Warehouse</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="toLocation">To Location *</Label>
+                    <Select
+                      value={formData.toLocation}
+                      onValueChange={(value) => setFormData({ ...formData, toLocation: value })}
+                      disabled={!toLocationType}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={toLocationType ? "Select to location" : "Select type first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getAvailableToLocations().map((location) => (
+                          <SelectItem key={location._id} value={location._id}>
+                            {location.name} ({location.type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
             </div>

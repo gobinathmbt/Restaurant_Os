@@ -1,3 +1,8 @@
 export { default as MyRequestsTab } from './MyRequestsTab';
+export { default as RequestsToMeTab } from './RequestsToMeTab';
 export { default as PendingApprovalsTab } from './PendingApprovalsTab';
 export { default as TransfersToExecuteTab } from './TransfersToExecuteTab';
+export { default as InTransitTab } from './InTransitTab';
+export { default as IncomingRequestsTab } from './IncomingRequestsTab';
+export { default as AllTransactionsTab } from './AllTransactionsTab';
+export { default as ExceptionsTab } from './ExceptionsTab';

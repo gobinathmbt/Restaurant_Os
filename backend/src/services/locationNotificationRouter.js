@@ -181,6 +181,35 @@ class LocationNotificationRouter {
       throw error;
     }
   }
+
+  /**
+   * Get all users with access to a specific location
+   * 
+   * @param {string} companyId - Company ID
+   * @param {string} locationId - Location ID
+   * @returns {Promise<Array>} All active users with access to the location
+   */
+  async getUsersByLocation(companyId, locationId) {
+    try {
+      const users = await CompanyUser.find({
+        companyId,
+        isActive: true,
+        $or: [
+          { branchIds: locationId },
+          { warehouseIds: locationId }
+        ]
+      }).lean();
+
+      logger.info(
+        `Found ${users.length} users with access to location ${locationId}`
+      );
+
+      return users;
+    } catch (error) {
+      logger.error('Error getting users by location:', error);
+      throw error;
+    }
+  }
 }
 
 export default new LocationNotificationRouter();

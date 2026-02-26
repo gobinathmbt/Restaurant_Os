@@ -182,6 +182,11 @@ export const createRequest = async (
       throw new Error('User must have Branch Admin role to create stock requests');
     }
 
+    // Block warehouse admins from creating requests
+    if (user.role === 'warehouse_admin') {
+      throw new Error('Warehouse admins cannot create stock requests. You can only receive and fulfill incoming requests.');
+    }
+
     // Validate user has access to toLocation
     if (!hasLocationAccess(user, requestData.toLocation)) {
       throw new Error('User does not have access to the destination location');
@@ -220,12 +225,13 @@ export const createRequest = async (
 
     logger.info(`Stock request created: ${requestNumber} by user ${userId} for company ${companyId}`);
 
-    // Send notifications to Super Admins + users with toLocation access
+    // Send notifications to Super Admins ONLY at creation
     try {
-      const recipients = await locationNotificationRouter.getNotificationRecipients(
-        companyId,
-        requestData.toLocation.toString(),
-        'request_created'
+      const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+
+      // Deduplicate recipients by userId
+      const uniqueAdmins = Array.from(
+        new Map(superAdmins.map(admin => [admin._id.toString(), admin])).values()
       );
 
       // Populate request for notification
@@ -239,8 +245,8 @@ export const createRequest = async (
       const requesterName = populatedRequest.requestedBy?.name || 'Unknown user';
       const itemCount = populatedRequest.items?.length || 0;
 
-      // Notify Super Admins
-      for (const admin of recipients.superAdmins) {
+      // Notify Super Admins ONLY
+      for (const admin of uniqueAdmins) {
         await notificationService.sendToCompanyUser(companyId, admin._id, {
           category: 'inventory',
           event: 'stock_request_created',
@@ -272,40 +278,7 @@ export const createRequest = async (
         }
       }
 
-      // Notify users with toLocation access
-      for (const user of recipients.locationUsers) {
-        await notificationService.sendToCompanyUser(companyId, user._id, {
-          category: 'inventory',
-          event: 'stock_request_created',
-          title: 'New Stock Request',
-          message: `Stock request ${requestNumber} created by ${requesterName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}, Priority: ${priority}`,
-          data: {
-            requestId: stockRequest._id,
-            requestNumber: requestNumber,
-            fromLocationName,
-            toLocationName,
-            itemCount,
-            priority,
-            requesterName
-          },
-          priority: priority === 'urgent' ? 'high' : 'medium',
-          actionUrl: `/inventory/stock-requests/${stockRequest._id}`
-        }).catch(error => {
-          logger.error(`Failed to send notification to user ${user._id}:`, error);
-        });
-
-        // Send email notification
-        if (user.email) {
-          await stockRequestEmailService.sendStockRequestCreationNotification(user.email, {
-            request: populatedRequest,
-            recipientName: user.name
-          }).catch(error => {
-            logger.error(`Failed to send email to user ${user.email}:`, error);
-          });
-        }
-      }
-
-      logger.info(`Notifications sent for stock request ${requestNumber}: ${recipients.superAdmins.length} super admins, ${recipients.locationUsers.length} location users`);
+      logger.info(`Notifications sent for stock request ${requestNumber}: ${uniqueAdmins.length} super admins`);
     } catch (notificationError) {
       // Log but don't fail the request creation
       logger.error('Error sending request creation notifications:', notificationError);
@@ -702,6 +675,15 @@ export const approveRequest = async (
         approvedBy: userId,
         approvedDate: new Date(),
         notes: `Transfer created from approved request ${request.requestNumber}`,
+        executionStages: [{
+          stage: 'PROCESS_STARTED',
+          timestamp: new Date(),
+          updatedBy: userId,
+          updatedByName: user.name,
+          ipAddress: ipAddress,
+          deviceInfo: deviceInfo,
+          notes: 'Transfer process initiated upon approval'
+        }],
         version: 0
       });
       
@@ -742,9 +724,17 @@ export const approveRequest = async (
       `Transfer: ${transfer ? transfer.transferNumber : 'none'}, Backorders: ${backorders.length}`
     );
 
-    // Send notifications: requestedBy user + Super Admins
+    // Send notifications: Super Admins + Sender location users + Destination location users
     try {
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+      const senderUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.fromLocation.toString());
+      const destinationUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.toLocation.toString());
+      
+      // Combine and deduplicate by userId
+      const allRecipients = [...superAdmins, ...senderUsers, ...destinationUsers];
+      const uniqueRecipients = Array.from(
+        new Map(allRecipients.map(user => [user._id.toString(), user])).values()
+      );
       
       const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
       const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
@@ -752,50 +742,18 @@ export const approveRequest = async (
       const itemCount = updatedRequest.items?.length || 0;
       const hasBackorders = backorders.length > 0;
 
-      // Notify the requester
-      await notificationService.sendToCompanyUser(companyId, updatedRequest.requestedBy._id, {
-        category: 'inventory',
-        event: 'stock_request_approved',
-        title: 'Stock Request Approved',
-        message: `Your stock request ${request.requestNumber} has been approved by ${approverName}. ${hasBackorders ? `${backorders.length} item(s) backordered.` : 'All items approved.'}`,
-        data: {
-          requestId: updatedRequest._id,
-          requestNumber: request.requestNumber,
-          fromLocationName,
-          toLocationName,
-          itemCount,
-          approverName,
-          transferNumber: transfer?.transferNumber,
-          backorderCount: backorders.length
-        },
-        priority: 'medium',
-        actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
-      }).catch(error => {
-        logger.error(`Failed to send approval notification to requester ${updatedRequest.requestedBy._id}:`, error);
-      });
-
-      // Send email notification to requester
-      if (updatedRequest.requestedBy.email) {
-        await stockRequestEmailService.sendStockRequestApprovalNotification(updatedRequest.requestedBy.email, {
-          request: updatedRequest,
-          recipientName: updatedRequest.requestedBy.name,
-          transfer: transfer,
-          backorders: backorders
-        }).catch(error => {
-          logger.error(`Failed to send approval email to requester ${updatedRequest.requestedBy.email}:`, error);
-        });
-      }
-
-      // Notify Super Admins
-      for (const admin of superAdmins) {
-        // Skip if admin is the approver
-        if (admin._id.toString() === userId.toString()) continue;
-
-        await notificationService.sendToCompanyUser(companyId, admin._id, {
+      // Send notifications to all unique recipients
+      for (const recipient of uniqueRecipients) {
+        // Determine if this is the requester
+        const isRequester = recipient._id.toString() === updatedRequest.requestedBy._id.toString();
+        
+        await notificationService.sendToCompanyUser(companyId, recipient._id, {
           category: 'inventory',
           event: 'stock_request_approved',
           title: 'Stock Request Approved',
-          message: `Stock request ${request.requestNumber} approved by ${approverName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}${hasBackorders ? `, Backorders: ${backorders.length}` : ''}`,
+          message: isRequester 
+            ? `Your stock request ${request.requestNumber} has been approved by ${approverName}. ${hasBackorders ? `${backorders.length} item(s) backordered.` : 'All items approved.'}`
+            : `Stock request ${request.requestNumber} approved by ${approverName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}${hasBackorders ? `, Backorders: ${backorders.length}` : ''}`,
           data: {
             requestId: updatedRequest._id,
             requestNumber: request.requestNumber,
@@ -806,21 +764,21 @@ export const approveRequest = async (
             transferNumber: transfer?.transferNumber,
             backorderCount: backorders.length
           },
-          priority: 'low',
+          priority: isRequester ? 'medium' : 'low',
           actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
         }).catch(error => {
-          logger.error(`Failed to send approval notification to super admin ${admin._id}:`, error);
+          logger.error(`Failed to send approval notification to user ${recipient._id}:`, error);
         });
 
-        // Send email notification to super admin
-        if (admin.email) {
-          await stockRequestEmailService.sendStockRequestApprovalNotification(admin.email, {
+        // Send email notification
+        if (recipient.email) {
+          await stockRequestEmailService.sendStockRequestApprovalNotification(recipient.email, {
             request: updatedRequest,
-            recipientName: admin.name,
+            recipientName: recipient.name,
             transfer: transfer,
             backorders: backorders
           }).catch(error => {
-            logger.error(`Failed to send approval email to super admin ${admin.email}:`, error);
+            logger.error(`Failed to send approval email to user ${recipient.email}:`, error);
           });
         }
       }

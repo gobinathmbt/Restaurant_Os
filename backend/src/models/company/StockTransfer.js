@@ -285,6 +285,90 @@ const stockTransferSchema = new mongoose.Schema({
     type: String
   },
   
+  // Execution stage tracking for 9-stage workflow
+  executionStages: [{
+    stage: {
+      type: String,
+      enum: [
+        'PROCESS_STARTED',
+        'PREPARING_STOCK',
+        'LOADING_INTO_VEHICLE',
+        'DISPATCHED',
+        'IN_TRANSIT',
+        'ARRIVED_AT_DESTINATION',
+        'UNLOADING',
+        'GOODS_RECEIVED_CONFIRMED',
+        'PROCESS_COMPLETED'
+      ],
+      required: true
+    },
+    timestamp: {
+      type: Date,
+      required: true,
+      default: Date.now
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CompanyUser',
+      required: true
+    },
+    updatedByName: {
+      type: String
+    },
+    ipAddress: {
+      type: String
+    },
+    deviceInfo: {
+      type: String
+    },
+    notes: {
+      type: String,
+      trim: true
+    }
+  }],
+  
+  // Exception tracking for damage/missing/excess items
+  exceptions: [{
+    type: {
+      type: String,
+      enum: ['damage', 'missing', 'excess'],
+      required: true
+    },
+    inventoryItem: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'InventoryItem',
+      required: true
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 0.000001
+    },
+    unit: {
+      type: String
+    },
+    description: {
+      type: String,
+      trim: true
+    },
+    reportedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CompanyUser'
+    },
+    reportedAt: {
+      type: Date,
+      default: Date.now
+    },
+    resolved: {
+      type: Boolean,
+      default: false
+    },
+    resolutionNotes: {
+      type: String,
+      trim: true
+    }
+  }],
+  
   // Soft delete support for compliance
   isArchived: {
     type: Boolean,
@@ -338,6 +422,9 @@ stockTransferSchema.index({ status: 1, approvedBy: 1 });
 
 // Archive queries
 stockTransferSchema.index({ isArchived: 1, archivedAt: -1 });
+
+// Execution stage queries for in-transit tracking
+stockTransferSchema.index({ 'executionStages.stage': 1, status: 1 });
 
 // Legacy indexes for backward compatibility
 stockTransferSchema.index({ fromBranch: 1, status: 1 });

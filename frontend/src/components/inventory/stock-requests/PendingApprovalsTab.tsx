@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, Package } from 'lucide-react';
+import { Eye, Package, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
@@ -74,6 +75,8 @@ export default function PendingApprovalsTab({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
@@ -85,7 +88,7 @@ export default function PendingApprovalsTab({
     if (selectedBranch) {
       fetchRequests();
     }
-  }, [selectedBranch, page, rowsPerPage, search, priorityFilter]);
+  }, [selectedBranch, page, rowsPerPage, search, priorityFilter, dateFrom, dateTo]);
 
   const fetchRequests = async () => {
     if (!selectedBranch) return;
@@ -98,6 +101,8 @@ export default function PendingApprovalsTab({
         search: search || undefined,
         status: 'pending', // Only show pending requests for approval
         priority: priorityFilter || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
       });
 
       setRequests(response.data.data.requests || []);
@@ -111,6 +116,48 @@ export default function PendingApprovalsTab({
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApprove = async (requestId: string) => {
+    try {
+      await inventoryServices.approveStockRequest(requestId);
+      toast({
+        title: "Success",
+        description: "Request approved successfully",
+      });
+      fetchRequests();
+      if (onItemsUpdate) {
+        onItemsUpdate();
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to approve request',
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleReject = async (requestId: string) => {
+    try {
+      await inventoryServices.rejectStockRequest(requestId, {
+        rejectionReason: 'Rejected by super admin'
+      });
+      toast({
+        title: "Success",
+        description: "Request rejected successfully",
+      });
+      fetchRequests();
+      if (onItemsUpdate) {
+        onItemsUpdate();
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || 'Failed to reject request',
+        variant: "destructive",
+      });
     }
   };
 
@@ -140,10 +187,9 @@ export default function PendingApprovalsTab({
       <TableHead>Request Number</TableHead>
       <TableHead>From Location</TableHead>
       <TableHead>To Location</TableHead>
-      <TableHead>Requested By</TableHead>
+      <TableHead>Items Count</TableHead>
       <TableHead>Priority</TableHead>
-      <TableHead>Expected Delivery</TableHead>
-      <TableHead>Request Date</TableHead>
+      <TableHead>Requested Date</TableHead>
       <TableHead className="text-right">Actions</TableHead>
     </>
   );
@@ -158,9 +204,12 @@ export default function PendingApprovalsTab({
       </TableCell>
       <TableCell>{request.fromLocation?.name || '-'}</TableCell>
       <TableCell>{request.toLocation?.name || '-'}</TableCell>
-      <TableCell>{request.requestedBy?.name || '-'}</TableCell>
+      <TableCell>
+        <span className="text-sm text-muted-foreground">
+          {request.items.length} item{request.items.length !== 1 ? 's' : ''}
+        </span>
+      </TableCell>
       <TableCell>{getPriorityBadge(request.priority)}</TableCell>
-      <TableCell>{formatDate(request.expectedDeliveryDate)}</TableCell>
       <TableCell>{formatDate(request.requestDate)}</TableCell>
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-2">
@@ -171,8 +220,27 @@ export default function PendingApprovalsTab({
               setSelectedRequest(request);
               setIsViewOpen(true);
             }}
+            title="View Details"
           >
             <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleApprove(request._id)}
+            className="text-green-600 hover:text-green-700"
+            title="Approve"
+          >
+            <Check className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleReject(request._id)}
+            className="text-red-600 hover:text-red-700"
+            title="Reject"
+          >
+            <X className="h-4 w-4" />
           </Button>
         </div>
       </TableCell>
@@ -210,6 +278,20 @@ export default function PendingApprovalsTab({
           <SelectItem value="low">Low</SelectItem>
         </SelectContent>
       </Select>
+      <Input
+        type="date"
+        value={dateFrom}
+        onChange={(e) => setDateFrom(e.target.value)}
+        placeholder="From date"
+        className="w-40 h-9"
+      />
+      <Input
+        type="date"
+        value={dateTo}
+        onChange={(e) => setDateTo(e.target.value)}
+        placeholder="To date"
+        className="w-40 h-9"
+      />
     </div>
   );
 
@@ -231,7 +313,7 @@ export default function PendingApprovalsTab({
             ? {
                 icon: <Package className="h-16 w-16" />,
                 title: 'No pending approvals',
-                description: search || priorityFilter
+                description: search || priorityFilter || dateFrom || dateTo
                   ? 'Try adjusting your filters'
                   : 'All requests have been processed',
               }
