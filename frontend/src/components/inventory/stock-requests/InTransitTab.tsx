@@ -301,16 +301,6 @@ export default function InTransitTab({
             >
               <Eye className="h-4 w-4" />
             </Button>
-            {canUpdateStage(transfer) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleUpdateStage(transfer)}
-                title="Update Stage"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-            )}
           </div>
         </TableCell>
       </TableRow>
