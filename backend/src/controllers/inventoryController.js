@@ -1327,33 +1327,74 @@ export const createStockTransfer = async (req, res, next) => {
  */
 export const getStockTransfers = async (req, res, next) => {
   try {
-    const { companyId, userId, role } = req.user;
+    const { companyId, userId, role, branchIds: userBranchIds, warehouseIds: userWarehouseIds } = req.user;
     const { branchId, ...filters } = req.query;
 
-    // If branchId is provided, verify access (skip verification for "all" if user is super admin)
-    if (branchId) {
-      if (branchId !== 'all') {
-        const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
-        if (!hasAccess) {
-          return res.status(403).json({
-            success: false,
-            message: 'You do not have access to this branch'
-          });
-        }
-      } else {
-        // Only super admins can use "all"
-        const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
-        if (!isSuperAdmin) {
-          return res.status(403).json({
-            success: false,
-            message: 'Only super admins can view all branches'
-          });
-        }
-      }
+    // Validate branchId is provided
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch ID is required'
+      });
     }
 
-    // Get stock transfers
-    const result = await inventoryService.getStockTransfers(companyId, branchId, filters);
+    // Determine effective branchId based on role and request
+    let effectiveBranchId = branchId;
+
+    // Check if user is Super Admin
+    const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(role);
+
+    if (branchId === 'all') {
+      if (isSuperAdmin) {
+        // Super Admin can view all branches - pass "all" to service
+        effectiveBranchId = 'all';
+      } else {
+        // Non-super admin requesting "all" - get their assigned branches and warehouses
+        let effectiveBranchIds = [];
+        
+        // Combine branchIds and warehouseIds
+        if (userBranchIds && userBranchIds.length > 0) {
+          effectiveBranchIds = [...userBranchIds];
+        }
+        if (userWarehouseIds && userWarehouseIds.length > 0) {
+          effectiveBranchIds = [...effectiveBranchIds, ...userWarehouseIds];
+        }
+        
+        // If not in req.user, fetch from database
+        if (effectiveBranchIds.length === 0) {
+          const user = await CompanyUser.findById(userId).select('branchIds warehouseIds');
+          if (user?.branchIds && user.branchIds.length > 0) {
+            effectiveBranchIds = [...user.branchIds];
+          }
+          if (user?.warehouseIds && user.warehouseIds.length > 0) {
+            effectiveBranchIds = [...effectiveBranchIds, ...user.warehouseIds];
+          }
+        }
+        
+        if (effectiveBranchIds.length === 0) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to any branches'
+          });
+        }
+        
+        // Pass array of branch IDs to service
+        effectiveBranchId = effectiveBranchIds;
+      }
+    } else {
+      // Specific branch requested - verify access
+      const hasAccess = await verifyBranchAccess(userId, branchId, role, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this branch'
+        });
+      }
+      effectiveBranchId = branchId;
+    }
+
+    // Get stock transfers with effective branch filter
+    const result = await inventoryService.getStockTransfers(companyId, effectiveBranchId, filters);
 
     res.json({
       success: true,

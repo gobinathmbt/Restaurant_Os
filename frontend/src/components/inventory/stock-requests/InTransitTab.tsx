@@ -318,7 +318,7 @@ export default function InTransitTab({
             <SelectValue placeholder="Select branch" />
           </SelectTrigger>
           <SelectContent>
-            {isSuperAdmin && (
+            {(isSuperAdmin || isMultiBranchAdmin) && (
               <SelectItem value="all">All Locations</SelectItem>
             )}
             {branches.map((branch) => (
