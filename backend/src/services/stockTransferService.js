@@ -308,30 +308,29 @@ export const validateStageTransition = (transfer, newStage, user) => {
  * Update execution stage with audit trail and notifications
  * Validates transition, adds stage to executionStages array, sends notifications
  * 
- * @param {string} companyId - Company ID
  * @param {string} transferId - Stock transfer ID
- * @param {string} userId - User ID performing the update
  * @param {string} newStage - New stage to transition to
- * @param {string} notes - Optional notes for the stage transition
- * @param {string} ipAddress - IP address of user
- * @param {string} deviceInfo - Device information
+ * @param {string} userId - User ID performing the update
+ * @param {string} companyId - Company ID
+ * @param {Object} options - Additional options
+ * @param {string} options.notes - Optional notes for the stage transition
+ * @param {string} options.ipAddress - IP address of user
+ * @param {string} options.deviceInfo - Device information
  * @returns {Promise<Object>} Updated stock transfer
  */
 export const updateExecutionStage = async (
-  companyId,
   transferId,
-  userId,
   newStage,
-  notes,
-  ipAddress,
-  deviceInfo
+  userId,
+  companyId,
+  options = {}
 ) => {
-  const mongoose = (await import('mongoose')).default;
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const { notes, ipAddress, deviceInfo } = options;
+  
+  logger.debug('updateExecutionStage called', { transferId, newStage, userId, companyId });
   
   try {
-    // Get user details
+    // Get user details first (no session needed for platform DB)
     const user = await CompanyUser.findOne({
       _id: userId,
       companyId: companyId,
@@ -339,6 +338,7 @@ export const updateExecutionStage = async (
     });
     
     if (!user) {
+      logger.error('User not found in updateExecutionStage', { userId, companyId });
       throw new Error('User not found or inactive');
     }
     
@@ -352,8 +352,7 @@ export const updateExecutionStage = async (
       companyId: companyId
     })
     .populate('destinationLocation')
-    .populate('sourceLocation')
-    .session(session);
+    .populate('sourceLocation');
     
     if (!transfer) {
       throw new Error('Stock transfer not found');
@@ -382,16 +381,12 @@ export const updateExecutionStage = async (
       {
         $push: { executionStages: newStageEntry },
         $inc: { version: 1 }
-      },
-      { session }
+      }
     );
     
     if (updateResult.modifiedCount === 0) {
       throw new Error('Transfer was modified by another user. Please refresh and try again.');
     }
-    
-    // Commit transaction
-    await session.commitTransaction();
     
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
@@ -456,11 +451,8 @@ export const updateExecutionStage = async (
     return updatedTransfer;
     
   } catch (error) {
-    await session.abortTransaction();
     logger.error('Error updating execution stage:', error);
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 
@@ -480,10 +472,6 @@ export const recordException = async (
   userId,
   exceptionData
 ) => {
-  const mongoose = (await import('mongoose')).default;
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  
   try {
     // Validate exception data
     if (!exceptionData.type || !['damage', 'missing', 'excess'].includes(exceptionData.type)) {
@@ -519,8 +507,7 @@ export const recordException = async (
       companyId: companyId
     })
     .populate('destinationLocation')
-    .populate('sourceLocation')
-    .session(session);
+    .populate('sourceLocation');
     
     if (!transfer) {
       throw new Error('Stock transfer not found');
@@ -555,16 +542,12 @@ export const recordException = async (
       {
         $push: { exceptions: exceptionEntry },
         $inc: { version: 1 }
-      },
-      { session }
+      }
     );
     
     if (updateResult.modifiedCount === 0) {
       throw new Error('Transfer was modified by another user. Please refresh and try again.');
     }
-    
-    // Commit transaction
-    await session.commitTransaction();
     
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
@@ -632,11 +615,8 @@ export const recordException = async (
     return updatedTransfer;
     
   } catch (error) {
-    await session.abortTransaction();
     logger.error('Error recording exception:', error);
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 
@@ -660,10 +640,6 @@ export const acceptStock = async (
   ipAddress,
   deviceInfo
 ) => {
-  const mongoose = (await import('mongoose')).default;
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  
   try {
     // Validate acceptance data
     if (!acceptanceData.items || !Array.isArray(acceptanceData.items) || acceptanceData.items.length === 0) {
@@ -691,8 +667,7 @@ export const acceptStock = async (
       companyId: companyId
     })
     .populate('destinationLocation')
-    .populate('sourceLocation')
-    .session(session);
+    .populate('sourceLocation');
     
     if (!transfer) {
       throw new Error('Stock transfer not found');
@@ -829,16 +804,12 @@ export const acceptStock = async (
           completedDeviceInfo: deviceInfo
         },
         $inc: { version: 1 }
-      },
-      { session }
+      }
     );
     
     if (updateResult.modifiedCount === 0) {
       throw new Error('Transfer was modified by another user. Please refresh and try again.');
     }
-    
-    // Commit transaction
-    await session.commitTransaction();
     
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
@@ -907,10 +878,7 @@ export const acceptStock = async (
     return updatedTransfer;
     
   } catch (error) {
-    await session.abortTransaction();
     logger.error('Error accepting stock:', error);
     throw error;
-  } finally {
-    session.endSession();
   }
 };

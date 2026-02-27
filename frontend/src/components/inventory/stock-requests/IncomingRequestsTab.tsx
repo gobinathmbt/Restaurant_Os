@@ -321,18 +321,6 @@ export default function IncomingRequestsTab({
           >
             <Eye className="h-4 w-4" />
           </Button>
-          {canAccept && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleAcceptRequest(request)}
-              className="text-green-600 hover:text-green-700"
-              title="Accept & Start Processing"
-              disabled={loading}
-            >
-              <CheckCircle className="h-4 w-4" />
-            </Button>
-          )}
         </div>
       </TableCell>
     </TableRow>
