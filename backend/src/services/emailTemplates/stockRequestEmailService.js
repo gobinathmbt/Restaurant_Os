@@ -3,7 +3,8 @@ import { logger } from '../../utils/logger.js';
 import { ENV } from '../../config/env.js';
 import {
   generateRequestApprovalEmailTemplate,
-  generateRequestRejectionEmailTemplate
+  generateRequestRejectionEmailTemplate,
+  generateRequestCancellationEmailTemplate
 } from './stockRequestEmailTemplates.js';
 import {
   generateTransferShippedEmailTemplate,
@@ -116,6 +117,42 @@ class StockRequestEmailService {
       return info;
     } catch (error) {
       logger.error('Error sending stock request rejection email:', error);
+      // Don't throw - gracefully handle email failures
+    }
+  }
+
+  /**
+   * Send stock request cancellation notification email
+   * @param {string} recipientEmail - Recipient email address
+   * @param {Object} data - Stock request cancellation details
+   */
+  async sendStockRequestCancellationNotification(recipientEmail, data) {
+    try {
+      const { request, recipientName } = data;
+
+      const html = this.generateRequestCancellationEmailTemplate(request, recipientName);
+
+      // Reinitialize if transporter doesn't exist
+      if (!emailService.transporter) {
+        emailService.initialize();
+      }
+
+      const mailOptions = {
+        from: `"${ENV.SMTP_FROM_NAME}" <${ENV.SMTP_FROM_EMAIL || ENV.SMTP_USER}>`,
+        to: recipientEmail,
+        subject: `Stock Request Cancelled: ${request.requestNumber}`,
+        html
+      };
+
+      const info = await emailService.transporter.sendMail(mailOptions);
+      logger.info(`Stock request cancellation email sent to ${recipientEmail}`, {
+        messageId: info.messageId,
+        requestNumber: request.requestNumber
+      });
+
+      return info;
+    } catch (error) {
+      logger.error('Error sending stock request cancellation email:', error);
       // Don't throw - gracefully handle email failures
     }
   }
@@ -385,6 +422,13 @@ class StockRequestEmailService {
    */
   generateRequestRejectionEmailTemplate(request, recipientName) {
     return generateRequestRejectionEmailTemplate(request, recipientName);
+  }
+
+  /**
+   * Generate HTML email template for stock request cancellation
+   */
+  generateRequestCancellationEmailTemplate(request, recipientName) {
+    return generateRequestCancellationEmailTemplate(request, recipientName);
   }
 
   /**

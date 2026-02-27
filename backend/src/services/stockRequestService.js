@@ -229,65 +229,78 @@ export const createRequest = async (
 
     logger.info(`Stock request created: ${requestNumber} by user ${userId} for company ${companyId}`);
 
-    // Send notifications to Super Admins ONLY at creation
-    try {
-      const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+    // Populate request for notification (populate inventoryItem and requestedBy)
+    const populatedRequest = await StockRequest.findById(stockRequest._id)
+      .populate('fromLocation')
+      .populate('toLocation')
+      .populate('items.inventoryItem')
+      .populate('requestedBy', 'name email role');
 
-      // Deduplicate recipients by userId
-      const uniqueAdmins = Array.from(
-        new Map(superAdmins.map(admin => [admin._id.toString(), admin])).values()
-      );
+    // Send notifications to Super Admins independently (non-blocking)
+    setImmediate(async () => {
+      try {
+        const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
 
-      // Populate request for notification
-      const populatedRequest = await StockRequest.findById(stockRequest._id)
-        .populate('fromLocation')
-        .populate('toLocation');
+        // Deduplicate recipients by userId
+        const uniqueAdmins = Array.from(
+          new Map(superAdmins.map(admin => [admin._id.toString(), admin])).values()
+        );
 
-      const fromLocationName = populatedRequest.fromLocation?.name || 'Unknown location';
-      const toLocationName = populatedRequest.toLocation?.name || 'Unknown location';
-      const requesterName = populatedRequest.requestedBy?.name || 'Unknown user';
-      const itemCount = populatedRequest.items?.length || 0;
+        const fromLocationName = populatedRequest.fromLocation?.name || 'Unknown location';
+        const toLocationName = populatedRequest.toLocation?.name || 'Unknown location';
+        const requesterName = populatedRequest.requestedBy?.name || 'Unknown user';
+        const itemCount = populatedRequest.items?.length || 0;
 
-      // Notify Super Admins ONLY
-      for (const admin of uniqueAdmins) {
-        await notificationService.sendToCompanyUser(companyId, admin._id, {
-          category: 'inventory',
-          event: 'stock_request_created',
-          title: 'New Stock Request',
-          message: `Stock request ${requestNumber} created by ${requesterName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}, Priority: ${priority}`,
-          data: {
-            requestId: stockRequest._id,
-            requestNumber: requestNumber,
-            fromLocationName,
-            toLocationName,
-            itemCount,
-            priority,
-            requesterName
-          },
-          priority: priority === 'urgent' ? 'high' : 'medium',
-          actionUrl: `/inventory/stock-requests/${stockRequest._id}`
-        }).catch(error => {
-          logger.error(`Failed to send notification to super admin ${admin._id}:`, error);
-        });
-
-        // Send email notification
-        if (admin.email) {
-          await stockRequestEmailService.sendStockRequestCreationNotification(admin.email, {
-            request: populatedRequest,
-            recipientName: admin.name
+        // Send in-app notifications
+        const inAppPromises = uniqueAdmins.map(admin =>
+          notificationService.sendToCompanyUser(companyId, admin._id, {
+            category: 'inventory',
+            event: 'stock_request_created',
+            title: 'New Stock Request',
+            message: `Stock request ${requestNumber} created by ${requesterName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}, Priority: ${priority}`,
+            data: {
+              requestId: stockRequest._id,
+              requestNumber: requestNumber,
+              fromLocationName,
+              toLocationName,
+              itemCount,
+              priority,
+              requesterName
+            },
+            priority: priority === 'urgent' ? 'high' : 'medium',
+            actionUrl: `/inventory/stock-requests/${stockRequest._id}`
           }).catch(error => {
-            logger.error(`Failed to send email to super admin ${admin.email}:`, error);
-          });
-        }
+            logger.error(`Failed to send notification to super admin ${admin._id}:`, error);
+            return null;
+          })
+        );
+
+        await Promise.allSettled(inAppPromises);
+        logger.info(`In-app notifications sent to ${uniqueAdmins.length} super admin(s)`);
+
+        // Send email notifications
+        const emailPromises = uniqueAdmins
+          .filter(admin => admin.email)
+          .map(admin =>
+            stockRequestEmailService.sendStockRequestCreationNotification(admin.email, {
+              request: populatedRequest,
+              recipientName: admin.name
+            }).catch(error => {
+              logger.error(`Failed to send email to super admin ${admin.email}:`, error);
+              return null;
+            })
+          );
+
+        await Promise.allSettled(emailPromises);
+        logger.info(`Email notifications sent to ${emailPromises.length} super admin(s)`);
+
+        logger.info(`Notifications completed for stock request ${requestNumber}`);
+      } catch (notificationError) {
+        logger.error('Error sending request creation notifications:', notificationError);
       }
+    });
 
-      logger.info(`Notifications sent for stock request ${requestNumber}: ${uniqueAdmins.length} super admins`);
-    } catch (notificationError) {
-      // Log but don't fail the request creation
-      logger.error('Error sending request creation notifications:', notificationError);
-    }
-
-    return stockRequest;
+    return populatedRequest;
   } catch (error) {
     logger.error('Error creating stock request:', error);
     throw error;
@@ -1177,6 +1190,68 @@ export const cancelRequest = async (
       `Stock request ${request.requestNumber} cancelled by user ${userId} for company ${companyId}. ` +
       `Reason: ${cancellationReason}`
     );
+
+    // Send notifications to Super Admins independently (non-blocking)
+    setImmediate(async () => {
+      try {
+        const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+
+        // Deduplicate recipients by userId
+        const uniqueAdmins = Array.from(
+          new Map(superAdmins.map(admin => [admin._id.toString(), admin])).values()
+        );
+
+        const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
+        const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
+        const cancellerName = user.name || 'Unknown user';
+
+        // Send in-app notifications to super admins
+        const inAppPromises = uniqueAdmins.map(admin =>
+          notificationService.sendToCompanyUser(companyId, admin._id, {
+            category: 'inventory',
+            event: 'stock_request_cancelled',
+            title: 'Stock Request Cancelled',
+            message: `Stock request ${request.requestNumber} has been cancelled by ${cancellerName}. Reason: ${cancellationReason}`,
+            data: {
+              requestId: updatedRequest._id,
+              requestNumber: request.requestNumber,
+              fromLocationName,
+              toLocationName,
+              cancellerName,
+              cancellationReason
+            },
+            priority: 'medium',
+            actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
+          }).catch(error => {
+            logger.error(`Failed to send cancellation notification to super admin ${admin._id}:`, error);
+            return null;
+          })
+        );
+
+        await Promise.allSettled(inAppPromises);
+        logger.info(`Cancellation in-app notifications sent to ${uniqueAdmins.length} super admin(s)`);
+
+        // Send email notifications to super admins
+        const emailPromises = uniqueAdmins
+          .filter(admin => admin.email)
+          .map(admin =>
+            stockRequestEmailService.sendStockRequestCancellationNotification(admin.email, {
+              request: updatedRequest,
+              recipientName: admin.name
+            }).catch(error => {
+              logger.error(`Failed to send cancellation email to super admin ${admin.email}:`, error);
+              return null;
+            })
+          );
+
+        await Promise.allSettled(emailPromises);
+        logger.info(`Cancellation email notifications sent to ${emailPromises.length} super admin(s)`);
+
+        logger.info(`Cancellation notifications completed for stock request ${request.requestNumber}`);
+      } catch (notificationError) {
+        logger.error('Error sending cancellation notifications:', notificationError);
+      }
+    });
     
     return updatedRequest;
     
