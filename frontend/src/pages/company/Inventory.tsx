@@ -38,8 +38,11 @@ export default function Inventory() {
 
   // Determine user's branch access
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
-  const isMultiBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1;
-  const isSingleBranchAdmin = user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1;
+  const isWarehouseAdmin = user?.role === 'warehouse_admin';
+  const isMultiBranchAdmin = (user?.role === 'company_admin' && (user?.branchIds?.length || 0) > 1) || 
+                             (isWarehouseAdmin && (user?.warehouseIds?.length || 0) > 1);
+  const isSingleBranchAdmin = (user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1) ||
+                              (isWarehouseAdmin && (user?.warehouseIds?.length || 0) === 1);
 
   // Fetch branches on mount
   useEffect(() => {
@@ -50,14 +53,16 @@ export default function Inventory() {
   useEffect(() => {
     if (isSingleBranchAdmin && user?.branchIds && user.branchIds.length === 1) {
       setSelectedBranch(user.branchIds[0]);
-    } else if (isMultiBranchAdmin && user?.branchIds && user.branchIds.length > 1 && !selectedBranch) {
-      // For multi-branch company admins, default to "all" branches
+    } else if (isSingleBranchAdmin && isWarehouseAdmin && user?.warehouseIds && user.warehouseIds.length === 1) {
+      setSelectedBranch(user.warehouseIds[0]);
+    } else if (isMultiBranchAdmin && !selectedBranch) {
+      // For multi-branch admins (company_admin or warehouse_admin), default to "all"
       setSelectedBranch('all');
     } else if (isSuperAdmin && !selectedBranch && branches.length > 0) {
       // For super admins, default to "all" branches
       setSelectedBranch('all');
     }
-  }, [isSingleBranchAdmin, isMultiBranchAdmin, isSuperAdmin, user?.branchIds, selectedBranch, branches]);
+  }, [isSingleBranchAdmin, isMultiBranchAdmin, isSuperAdmin, isWarehouseAdmin, user?.branchIds, user?.warehouseIds, selectedBranch, branches]);
 
   const fetchBranches = async () => {
     try {
@@ -66,9 +71,13 @@ export default function Inventory() {
       
       // Filter branches based on user role
       let availableBranches = allBranches;
-      if (isMultiBranchAdmin || isSingleBranchAdmin) {
+      if (user?.role === 'company_admin') {
         availableBranches = allBranches.filter((branch: Branch) => 
           user?.branchIds?.includes(branch._id)
+        );
+      } else if (isWarehouseAdmin) {
+        availableBranches = allBranches.filter((branch: Branch) => 
+          user?.warehouseIds?.includes(branch._id)
         );
       }
       

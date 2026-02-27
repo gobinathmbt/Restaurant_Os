@@ -87,13 +87,13 @@ const menuItems: MenuItem[] = [
   {
     title: 'Inventory',
     icon: Package,
-    roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+    roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'warehouse_admin'],
     subItems: [
       {
         title: 'Inventory',
         href: '/inventory',
         icon: PackageOpen,
-        roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+        roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'warehouse_admin'],
       },
       {
         title: 'Recipes',
@@ -190,6 +190,7 @@ export default function CompanyLayout() {
       company_super_admin_primary: 'Super Admin',
       company_super_admin_secondary: 'Super Admin',
       company_admin: 'Admin',
+      warehouse_admin: 'Warehouse Admin',
       employee: 'Employee',
     };
     return roleMap[role] || role;
