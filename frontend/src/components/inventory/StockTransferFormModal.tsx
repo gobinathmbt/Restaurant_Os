@@ -53,8 +53,8 @@ export default function StockTransferFormModal({
   const [branches, setBranches] = useState<Branch[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [formData, setFormData] = useState({
-    fromBranch: currentBranchId,
-    toBranch: '',
+    destinationLocation: currentBranchId,
+    sourceLocation: '',
     notes: ''
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -74,15 +74,15 @@ export default function StockTransferFormModal({
   }, [open, currentBranchId]);
 
   useEffect(() => {
-    if (formData.fromBranch) {
-      fetchInventoryItems(formData.fromBranch);
+    if (formData.destinationLocation) {
+      fetchInventoryItems(formData.destinationLocation);
     }
-  }, [formData.fromBranch]);
+  }, [formData.destinationLocation]);
 
   const resetForm = () => {
     setFormData({
-      fromBranch: currentBranchId,
-      toBranch: '',
+      destinationLocation: currentBranchId,
+      sourceLocation: '',
       notes: ''
     });
     setLineItems([
@@ -156,7 +156,7 @@ export default function StockTransferFormModal({
   };
 
   const validateForm = () => {
-    if (!formData.fromBranch) {
+    if (!formData.destinationLocation) {
       toast({
         title: "Validation Error",
         description: "From branch is required",
@@ -165,7 +165,7 @@ export default function StockTransferFormModal({
       return false;
     }
 
-    if (!formData.toBranch) {
+    if (!formData.sourceLocation) {
       toast({
         title: "Validation Error",
         description: "To branch is required",
@@ -174,7 +174,7 @@ export default function StockTransferFormModal({
       return false;
     }
 
-    if (formData.fromBranch === formData.toBranch) {
+    if (formData.destinationLocation === formData.sourceLocation) {
       toast({
         title: "Validation Error",
         description: "From branch and to branch cannot be the same",
@@ -228,8 +228,8 @@ export default function StockTransferFormModal({
       setLoading(true);
       
       const submitData = {
-        fromBranch: formData.fromBranch,
-        toBranch: formData.toBranch,
+        destinationLocation: formData.destinationLocation,
+        sourceLocation: formData.sourceLocation,
         notes: formData.notes.trim() || undefined,
         items: lineItems
           .filter(item => item.inventoryItem)
@@ -260,7 +260,7 @@ export default function StockTransferFormModal({
   };
 
   const getAvailableToBranches = () => {
-    return branches.filter(branch => branch._id !== formData.fromBranch);
+    return branches.filter(branch => branch._id !== formData.destinationLocation);
   };
 
   return (
@@ -277,11 +277,11 @@ export default function StockTransferFormModal({
               <h3 className="font-semibold">Branch Selection</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="fromBranch">From Branch *</Label>
+                  <Label htmlFor="destinationLocation">From Branch *</Label>
                   <Select
-                    value={formData.fromBranch}
+                    value={formData.destinationLocation}
                     onValueChange={(value) => {
-                      setFormData({ ...formData, fromBranch: value });
+                      setFormData({ ...formData, destinationLocation: value });
                       // Reset line items when from branch changes
                       setLineItems([{
                         inventoryItem: '',
@@ -304,10 +304,10 @@ export default function StockTransferFormModal({
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="toBranch">To Branch *</Label>
+                  <Label htmlFor="sourceLocation">To Branch *</Label>
                   <Select
-                    value={formData.toBranch}
-                    onValueChange={(value) => setFormData({ ...formData, toBranch: value })}
+                    value={formData.sourceLocation}
+                    onValueChange={(value) => setFormData({ ...formData, sourceLocation: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select to branch" />

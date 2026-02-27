@@ -1608,12 +1608,12 @@ export const createStockTransfer = async (transferData, companyId, userId) => {
     const StockTransfer = getStockTransferModel(companyDB);
 
     // Validate required fields
-    if (!transferData.fromBranch || !transferData.toBranch || !transferData.items || transferData.items.length === 0) {
-      throw new Error('Missing required fields: fromBranch, toBranch, and items are required');
+    if (!transferData.destinationLocation || !transferData.sourceLocation || !transferData.items || transferData.items.length === 0) {
+      throw new Error('Missing required fields: destinationLocation, sourceLocation, and items are required');
     }
 
     // Validate branches are different
-    if (transferData.fromBranch === transferData.toBranch) {
+    if (transferData.destinationLocation === transferData.sourceLocation) {
       throw new Error('From branch and to branch must be different');
     }
 
@@ -1633,8 +1633,8 @@ export const createStockTransfer = async (transferData, companyId, userId) => {
     // Create stock transfer
     const transfer = new StockTransfer({
       transferNumber,
-      fromBranch: transferData.fromBranch,
-      toBranch: transferData.toBranch,
+      destinationLocation: transferData.destinationLocation,
+      sourceLocation: transferData.sourceLocation,
       items: transferData.items,
       requestedBy: userId,
       requestDate: transferData.requestDate || new Date(),
@@ -1681,7 +1681,7 @@ export const approveStockTransfer = async (transferId, companyId, approverId) =>
     for (const item of transfer.items) {
       const inventoryItem = await InventoryItem.findOne({
         _id: item.inventoryItem,
-        branch: transfer.fromBranch
+        branch: transfer.destinationLocation
       });
 
       if (!inventoryItem) {
@@ -1698,7 +1698,7 @@ export const approveStockTransfer = async (transferId, companyId, approverId) =>
       // Decrease stock in from branch
       const fromItem = await InventoryItem.findOne({
         _id: item.inventoryItem,
-        branch: transfer.fromBranch
+        branch: transfer.destinationLocation
       });
 
       if (fromItem) {
@@ -1709,7 +1709,7 @@ export const approveStockTransfer = async (transferId, companyId, approverId) =>
       // Increase stock in to branch (or create if doesn't exist)
       let toItem = await InventoryItem.findOne({
         _id: item.inventoryItem,
-        branch: transfer.toBranch
+        branch: transfer.sourceLocation
       });
 
       if (toItem) {
@@ -1729,7 +1729,7 @@ export const approveStockTransfer = async (transferId, companyId, approverId) =>
             maximumStock: sourceItem.maximumStock,
             reorderPoint: sourceItem.reorderPoint,
             costPrice: sourceItem.costPrice,
-            branch: transfer.toBranch,
+            branch: transfer.sourceLocation,
             supplier: sourceItem.supplier,
             sku: null, // Don't copy unique fields
             barcode: null,
@@ -1826,8 +1826,8 @@ export const getStockTransfers = async (companyId, branchId, filters = {}) => {
     // Skip if branchId is "all"
     if (branchId && branchId !== 'all') {
       query.$or = [
-        { fromBranch: branchId },
-        { toBranch: branchId }
+        { destinationLocation: branchId },
+        { sourceLocation: branchId }
       ];
     }
 
@@ -1842,8 +1842,8 @@ export const getStockTransfers = async (companyId, branchId, filters = {}) => {
     // Execute query
     const [transfers, total] = await Promise.all([
       StockTransfer.find(query)
-        .populate('fromBranch', 'name address')
-        .populate('toBranch', 'name address')
+        .populate('destinationLocation', 'name address')
+        .populate('sourceLocation', 'name address')
         .populate('requestedBy', 'name email')
         .populate('approvedBy', 'name email')
         .populate('rejectedBy', 'name email')
@@ -1882,8 +1882,8 @@ export const getStockTransferById = async (transferId, companyId) => {
     const StockTransfer = getStockTransferModel(companyDB);
 
     const transfer = await StockTransfer.findById(transferId)
-      .populate('fromBranch', 'name address city state')
-      .populate('toBranch', 'name address city state')
+      .populate('destinationLocation', 'name address city state')
+      .populate('sourceLocation', 'name address city state')
       .populate('requestedBy', 'name email')
       .populate('approvedBy', 'name email')
       .populate('rejectedBy', 'name email')

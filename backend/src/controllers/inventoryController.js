@@ -26,15 +26,20 @@ const verifyBranchAccess = async (userId, branchId, role, companyId) => {
     return true;
   }
 
-  // For company_admin and employees, check their assigned branches
-  const user = await CompanyUser.findById(userId).select('branchIds');
+  // For other users, check their assigned branches and warehouses
+  const user = await CompanyUser.findById(userId).select('branchIds warehouseIds');
   
-  if (!user || !user.branchIds || !user.branchIds.includes(branchId)) {
+  if (!user) {
     return false;
   }
 
-  return true;
+  // Check if user has access via branchIds or warehouseIds
+  const hasBranchAccess = user.branchIds && user.branchIds.some(id => id.toString() === branchId.toString());
+  const hasWarehouseAccess = user.warehouseIds && user.warehouseIds.some(id => id.toString() === branchId.toString());
+
+  return hasBranchAccess || hasWarehouseAccess;
 };
+
 
 /**
  * Create inventory item
@@ -1271,7 +1276,7 @@ export const createStockTransfer = async (req, res, next) => {
     const transferData = req.body;
 
     // Validate required fields
-    if (!transferData.fromBranch || !transferData.toBranch) {
+    if (!transferData.destinationLocation || !transferData.sourceLocation) {
       return res.status(400).json({
         success: false,
         message: 'From branch and to branch are required'
@@ -1279,8 +1284,8 @@ export const createStockTransfer = async (req, res, next) => {
     }
 
     // Verify access to both branches
-    const hasFromAccess = await verifyBranchAccess(userId, transferData.fromBranch, role, companyId);
-    const hasToAccess = await verifyBranchAccess(userId, transferData.toBranch, role, companyId);
+    const hasFromAccess = await verifyBranchAccess(userId, transferData.destinationLocation, role, companyId);
+    const hasToAccess = await verifyBranchAccess(userId, transferData.sourceLocation, role, companyId);
 
     if (!hasFromAccess || !hasToAccess) {
       return res.status(403).json({
@@ -1419,8 +1424,8 @@ export const getStockTransferById = async (req, res, next) => {
     const transfer = await inventoryService.getStockTransferById(id, companyId);
 
     // Verify access to at least one of the branches
-    const hasFromAccess = await verifyBranchAccess(userId, transfer.fromBranch._id.toString(), role, companyId);
-    const hasToAccess = await verifyBranchAccess(userId, transfer.toBranch._id.toString(), role, companyId);
+    const hasFromAccess = await verifyBranchAccess(userId, transfer.destinationLocation._id.toString(), role, companyId);
+    const hasToAccess = await verifyBranchAccess(userId, transfer.sourceLocation._id.toString(), role, companyId);
 
     if (!hasFromAccess && !hasToAccess) {
       return res.status(403).json({
@@ -1460,8 +1465,8 @@ export const approveStockTransfer = async (req, res, next) => {
     const existingTransfer = await inventoryService.getStockTransferById(id, companyId);
 
     // Verify access to both branches
-    const hasFromAccess = await verifyBranchAccess(userId, existingTransfer.fromBranch._id.toString(), role, companyId);
-    const hasToAccess = await verifyBranchAccess(userId, existingTransfer.toBranch._id.toString(), role, companyId);
+    const hasFromAccess = await verifyBranchAccess(userId, existingTransfer.destinationLocation._id.toString(), role, companyId);
+    const hasToAccess = await verifyBranchAccess(userId, existingTransfer.sourceLocation._id.toString(), role, companyId);
 
     if (!hasFromAccess || !hasToAccess) {
       return res.status(403).json({
@@ -1528,8 +1533,8 @@ export const rejectStockTransfer = async (req, res, next) => {
     const existingTransfer = await inventoryService.getStockTransferById(id, companyId);
 
     // Verify access to at least one of the branches
-    const hasFromAccess = await verifyBranchAccess(userId, existingTransfer.fromBranch._id.toString(), role, companyId);
-    const hasToAccess = await verifyBranchAccess(userId, existingTransfer.toBranch._id.toString(), role, companyId);
+    const hasFromAccess = await verifyBranchAccess(userId, existingTransfer.destinationLocation._id.toString(), role, companyId);
+    const hasToAccess = await verifyBranchAccess(userId, existingTransfer.sourceLocation._id.toString(), role, companyId);
 
     if (!hasFromAccess && !hasToAccess) {
       return res.status(403).json({

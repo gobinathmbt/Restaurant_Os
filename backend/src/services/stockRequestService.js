@@ -765,15 +765,7 @@ export const approveRequest = async (
         approvedBy: userId,
         approvedDate: new Date(),
         notes: `Transfer created from approved request ${request.requestNumber}`,
-        executionStages: [{
-          stage: 'PROCESS_STARTED',
-          timestamp: new Date(),
-          updatedBy: userId,
-          updatedByName: user.name,
-          ipAddress: ipAddress,
-          deviceInfo: deviceInfo,
-          notes: 'Transfer process initiated upon approval'
-        }],
+        executionStages: [],
         version: 0
       });
       

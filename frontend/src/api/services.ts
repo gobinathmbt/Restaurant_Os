@@ -455,8 +455,6 @@ export const inventoryServices = {
   createStockTransfer: (data: {
     destinationLocation?: string;
     sourceLocation?: string;
-    fromBranch?: string; // Keep for backward compatibility
-    toBranch?: string; // Keep for backward compatibility
     transferType?: 'push' | 'request'; // NEW
     items: Array<{
       inventoryItem: string;
@@ -469,11 +467,11 @@ export const inventoryServices = {
     // Use location parameters if provided, otherwise fall back to branch parameters
     const requestData = { ...data };
     if (data.destinationLocation) {
-      requestData.fromBranch = data.destinationLocation;
+      requestData.destinationLocation = data.destinationLocation;
       delete requestData.destinationLocation;
     }
     if (data.sourceLocation) {
-      requestData.toBranch = data.sourceLocation;
+      requestData.sourceLocation = data.sourceLocation;
       delete requestData.sourceLocation;
     }
     return apiClient.post("/api/inventory/transfers", requestData);

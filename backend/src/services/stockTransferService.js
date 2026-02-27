@@ -228,7 +228,16 @@ export const validateStageTransition = (transfer, newStage, user) => {
       : null;
     
     if (!currentStage) {
-      throw new Error('Transfer has no execution stages. Cannot validate transition.');
+      if (newStage !== 'PREPARING_STOCK') {
+        throw new Error('Transfer must start with PREPARING_STOCK stage. Please start the process first.');
+      }
+      
+      // Validate user has access to source location (destination in transfer model)
+      if (!hasLocationAccess(user, transfer.destinationLocation) && !isSuperAdmin(user)) {
+        throw new Error('Only source location admins can start the transfer process');
+      }
+      
+      return true;
     }
     
     // Check if current stage is terminal

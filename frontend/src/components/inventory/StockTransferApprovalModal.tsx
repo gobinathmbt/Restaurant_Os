@@ -138,20 +138,20 @@ export default function StockTransferApprovalModal({
                 <div className="flex-1">
                   <span className="text-sm text-muted-foreground">From Branch</span>
                   <p className="text-lg font-semibold">
-                    {transfer.fromBranch?.name || 'Unknown'}
+                    {transfer.destinationLocation?.name || 'Unknown'}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {transfer.fromBranch?.code || ''}
+                    {transfer.destinationLocation?.code || ''}
                   </p>
                 </div>
                 <ArrowRight className="h-8 w-8 text-primary mx-4" />
                 <div className="flex-1 text-right">
                   <span className="text-sm text-muted-foreground">To Branch</span>
                   <p className="text-lg font-semibold">
-                    {transfer.toBranch?.name || 'Unknown'}
+                    {transfer.sourceLocation?.name || 'Unknown'}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {transfer.toBranch?.code || ''}
+                    {transfer.sourceLocation?.code || ''}
                   </p>
                 </div>
               </div>

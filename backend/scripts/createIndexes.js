@@ -87,8 +87,8 @@ const indexDefinitions = {
     { keys: { transferType: 1 }, options: { name: 'idx_transfer_type' } },
     { keys: { requestDate: -1 }, options: { name: 'idx_transfer_requestDate' } },
     // Legacy indexes for backward compatibility
-    { keys: { fromBranch: 1, status: 1 }, options: { name: 'idx_transfer_fromBranch_status' } },
-    { keys: { toBranch: 1, status: 1 }, options: { name: 'idx_transfer_toBranch_status' } }
+    { keys: { destinationLocation: 1, status: 1 }, options: { name: 'idx_transfer_fromBranch_status' } },
+    { keys: { sourceLocation: 1, status: 1 }, options: { name: 'idx_transfer_toBranch_status' } }
   ],
   
   // StockAdjustment indexes

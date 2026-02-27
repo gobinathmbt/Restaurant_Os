@@ -109,15 +109,6 @@ const stockTransferSchema = new mongoose.Schema({
     required: true
   },
   
-  // Legacy branch references (for backward compatibility during migration)
-  fromBranch: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Location'
-  },
-  toBranch: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Location'
-  },
   
   // Transfer type: push (source-initiated) or request (destination-initiated)
   transferType: {
@@ -434,8 +425,8 @@ stockTransferSchema.index({ isArchived: 1, archivedAt: -1 });
 stockTransferSchema.index({ 'executionStages.stage': 1, status: 1 });
 
 // Legacy indexes for backward compatibility
-stockTransferSchema.index({ fromBranch: 1, status: 1 });
-stockTransferSchema.index({ toBranch: 1, status: 1 });
+stockTransferSchema.index({ destinationLocation: 1, status: 1 });
+stockTransferSchema.index({ sourceLocation: 1, status: 1 });
 stockTransferSchema.index({ requestDate: -1 });
 
 export const getStockTransferModel = (companyDB) => {
