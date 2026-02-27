@@ -207,6 +207,7 @@ export const listRequests = async (req, res, next) => {
       priority: req.query.priority,
       destinationLocation: req.query.destinationLocation,
       sourceLocation: req.query.sourceLocation,
+      branchId: req.query.branchId, // Support branchId parameter
       inventoryItem: req.query.inventoryItem,
       requestDateStart: req.query.requestDateStart,
       requestDateEnd: req.query.requestDateEnd,
@@ -214,7 +215,8 @@ export const listRequests = async (req, res, next) => {
       expectedDeliveryDateEnd: req.query.expectedDeliveryDateEnd,
       search: req.query.search, // For requestNumber search
       sortBy: req.query.sortBy || 'requestDate',
-      sortOrder: req.query.sortOrder || 'desc'
+      sortOrder: req.query.sortOrder || 'desc',
+      executionStatus: req.query.executionStatus // 'not_started', 'in_progress', 'all'
     };
 
     // Apply location-based filtering
@@ -232,6 +234,26 @@ export const listRequests = async (req, res, next) => {
       ];
     }
 
+    // Handle branchId parameter (used by frontend tabs)
+    if (filters.branchId && filters.branchId !== 'all') {
+      // Determine context based on status filter
+      if (filters.status === 'approved') {
+        // Incoming Requests tab: show requests where this branch is the SOURCE
+        query.sourceLocation = filters.branchId;
+        // Auto-apply execution status filter: only show not started
+        if (!filters.executionStatus) {
+          filters.executionStatus = 'not_started';
+        }
+      } else {
+        // My Requests tab: show requests where this branch is the DESTINATION
+        query.destinationLocation = filters.branchId;
+        // Auto-apply execution status filter: only show not started
+        if (!filters.executionStatus) {
+          filters.executionStatus = 'not_started';
+        }
+      }
+    }
+
     // Apply filters
     if (filters.status) {
       query.status = filters.status;
@@ -241,11 +263,11 @@ export const listRequests = async (req, res, next) => {
       query.priority = filters.priority;
     }
 
-    if (filters.destinationLocation) {
+    if (filters.destinationLocation && !filters.branchId) {
       query.destinationLocation = filters.destinationLocation;
     }
 
-    if (filters.sourceLocation) {
+    if (filters.sourceLocation && !filters.branchId) {
       query.sourceLocation = filters.sourceLocation;
     }
 
@@ -302,14 +324,59 @@ export const listRequests = async (req, res, next) => {
       .lean();
 
     // Manually populate CompanyUser fields (platform model)
-    const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy', 'approvedBy']);
+    let populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy', 'approvedBy']);
+
+    // Filter by execution status if specified
+    if (filters.executionStatus && filters.executionStatus !== 'all') {
+      const StockTransfer = req.companyDB.model('StockTransfer');
+      
+      // Get transfer IDs for approved requests
+      const approvedRequestIds = populatedRequests
+        .filter(r => r.status === 'approved' && r.createdTransferId)
+        .map(r => r.createdTransferId);
+      
+      if (approvedRequestIds.length > 0) {
+        // Fetch transfers to check execution stages
+        const transfers = await StockTransfer.find({
+          _id: { $in: approvedRequestIds }
+        }).select('_id executionStages').lean();
+        
+        const transferExecutionMap = new Map(
+          transfers.map(t => [
+            t._id.toString(),
+            (t.executionStages && t.executionStages.length > 0)
+          ])
+        );
+        
+        // Filter based on execution status
+        populatedRequests = populatedRequests.filter(request => {
+          if (request.status !== 'approved' || !request.createdTransferId) {
+            // Non-approved requests: include based on filter
+            return filters.executionStatus === 'not_started';
+          }
+          
+          const hasExecutionStages = transferExecutionMap.get(request.createdTransferId.toString()) || false;
+          
+          if (filters.executionStatus === 'not_started') {
+            return !hasExecutionStages; // Show only if execution NOT started
+          } else if (filters.executionStatus === 'in_progress') {
+            return hasExecutionStages; // Show only if execution started
+          }
+          
+          return true;
+        });
+      } else if (filters.executionStatus === 'in_progress') {
+        // If filtering for in_progress but no approved requests, return empty
+        populatedRequests = [];
+      }
+    }
 
     logger.info('Stock requests listed via API', {
       companyId,
       userId: user.userId,
       count: populatedRequests.length,
-      page,
-      total
+      branchId: filters.branchId,
+      executionStatus: filters.executionStatus
     });
 
     res.json({
@@ -317,10 +384,10 @@ export const listRequests = async (req, res, next) => {
       data: {
         requests: populatedRequests,
         pagination: {
-          total,
+          total: populatedRequests.length,
           page: parseInt(page),
           limit: parseInt(limit),
-          pages
+          pages: Math.ceil(populatedRequests.length / limit)
         }
       }
     });

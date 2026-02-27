@@ -521,6 +521,7 @@ export const inventoryServices = {
     priority?: string;
     dateFrom?: string;
     dateTo?: string;
+    executionStatus?: string; // NEW: Filter by execution status
   }) => {
     const queryParams = { ...params, branchId };
     return apiClient.get("/api/v2/stock-requests", { params: queryParams });

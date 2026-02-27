@@ -107,6 +107,7 @@ export default function MyRequestsTab({
         search: search || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
+        executionStatus: 'not_started', // Only show requests that haven't started execution
       });
 
       setRequests(response.data.data.requests || []);
