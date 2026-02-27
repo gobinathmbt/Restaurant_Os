@@ -396,9 +396,25 @@ const reserveInventoryFIFO = async (
       const totalAvailable = batches.reduce((sum, batch) => sum + batch.availableQuantity, 0);
       
       if (totalAvailable < quantityToReserve) {
-        throw new Error(
-          `Insufficient inventory: requested ${quantityToReserve}, available ${totalAvailable}`
-        );
+        // Get location details for better error message
+        const Location = companyDB.model('Location');
+        const location = await Location.findById(fromLocationId).select('name type capabilities');
+        
+        const locationName = location?.name || 'Unknown location';
+        const locationType = location?.type || 'location';
+        
+        let errorMessage = `Insufficient inventory at ${locationName}: requested ${quantityToReserve}, available ${totalAvailable}`;
+        
+        // Add helpful suggestion based on location type
+        if (locationType === 'warehouse' && location?.capabilities?.canProcureDirectly) {
+          errorMessage += `. Create a GRN to add inventory to this warehouse first, or approve with partial quantity (${totalAvailable}) and create a backorder for the remaining items.`;
+        } else if (totalAvailable > 0) {
+          errorMessage += `. You can approve with partial quantity (${totalAvailable}) and create a backorder for the remaining items.`;
+        } else {
+          errorMessage += `. Add inventory to this location first or approve with 0 quantity to create a full backorder.`;
+        }
+        
+        throw new Error(errorMessage);
       }
       
       // Reserve inventory from batches using FIFO
@@ -631,9 +647,10 @@ export const approveRequest = async (
       
       // Reserve inventory if approved quantity > 0
       if (approvedQuantity > 0) {
+        // Reserve inventory from toLocation (the source/warehouse)
         const reservations = await reserveInventoryFIFO(
           companyDB,
-          request.fromLocation,
+          request.toLocation, // Source location (warehouse)
           requestItem.inventoryItem,
           approvedQuantity,
           null
@@ -663,8 +680,8 @@ export const approveRequest = async (
           companyId: companyId,
           originalRequestId: request._id,
           originalTransferId: null, // Will be set after transfer creation
-          fromLocation: request.fromLocation,
-          toLocation: request.toLocation,
+          fromLocation: request.toLocation, // Source location (warehouse)
+          toLocation: request.fromLocation, // Destination location (requesting branch)
           inventoryItem: requestItem.inventoryItem,
           backorderedQuantity: backorderedQuantity,
           unit: requestItem.unit,
@@ -708,8 +725,8 @@ export const approveRequest = async (
       transfer = new StockTransfer({
         transferNumber,
         companyId: companyId,
-        fromLocation: request.fromLocation,
-        toLocation: request.toLocation,
+        fromLocation: request.toLocation, // Source location (warehouse)
+        toLocation: request.fromLocation, // Destination location (requesting branch)
         transferType: 'request',
         originalRequestId: request._id,
         priority: request.priority,
