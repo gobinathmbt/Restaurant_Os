@@ -67,6 +67,13 @@ const stockTransferItemSchema = new mongoose.Schema({
   averageUnitCostAtApproval: {
     type: Number,
     min: 0
+  },
+  // Flag to indicate if this item is from a warehouse without inventory tracking
+  // Warehouses use separate WMS - this flag helps identify transfers that need
+  // reconciliation when WMS integration is built in the future
+  isWarehouseSource: {
+    type: Boolean,
+    default: false
   }
 }, { _id: false });
 

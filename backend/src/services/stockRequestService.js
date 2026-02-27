@@ -632,6 +632,11 @@ export const approveRequest = async (
       approvalMap.set(approvalItem.inventoryItem.toString(), approvalItem.approvedQuantity);
     }
     
+    // Check if source location is a warehouse type
+    const Location = companyDB.model('Location');
+    const sourceLocation = await Location.findById(request.sourceLocation).select('type name');
+    const isWarehouseSource = sourceLocation?.type === 'warehouse';
+    
     // Reserve inventory for each approved item
     const transferItems = [];
     const backorderItems = [];
@@ -647,14 +652,33 @@ export const approveRequest = async (
       
       // Reserve inventory if approved quantity > 0
       if (approvedQuantity > 0) {
-        // Reserve inventory from sourceLocation (the source/warehouse)
-        const reservations = await reserveInventoryFIFO(
-          companyDB,
-          request.sourceLocation, // Source location (warehouse)
-          requestItem.inventoryItem,
-          approvedQuantity,
-          null
-        );
+        let reservations = [];
+        let totalCost = 0;
+        
+        // Skip inventory reservation for warehouse-type locations
+        // Warehouses have separate WMS and don't track inventory in this system
+        if (!isWarehouseSource) {
+          // Reserve inventory from sourceLocation (the source/warehouse)
+          reservations = await reserveInventoryFIFO(
+            companyDB,
+            request.sourceLocation, // Source location (warehouse)
+            requestItem.inventoryItem,
+            approvedQuantity,
+            null
+          );
+          totalCost = reservations.reduce((sum, r) => sum + (r.quantityReserved * r.unitCost), 0);
+        } else {
+          // For warehouse sources, create a placeholder reservation
+          // This will be reconciled when WMS integration is built
+          logger.info(
+            `Skipping inventory reservation for warehouse ${sourceLocation.name}. ` +
+            `Request ${request.requestNumber} approved without inventory validation. ` +
+            `Future WMS integration will handle actual inventory tracking.`
+          );
+          
+          // Use zero cost for warehouse items since we don't track their inventory
+          totalCost = 0;
+        }
         
         // Create transfer item
         transferItems.push({
@@ -670,7 +694,9 @@ export const approveRequest = async (
             unitCost: r.unitCost,
             totalCost: r.quantityReserved * r.unitCost
           })),
-          totalCost: reservations.reduce((sum, r) => sum + (r.quantityReserved * r.unitCost), 0)
+          totalCost: totalCost,
+          // Add flag to indicate this is from a warehouse without inventory tracking
+          isWarehouseSource: isWarehouseSource
         });
       }
       
@@ -1170,57 +1196,69 @@ export const cancelRequest = async (
         const transfer = await StockTransfer.findById(request.createdTransferId);
         
         if (transfer && transfer.status === 'approved') {
-          // Release inventory reservations
-          const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
+          // Check if source is a warehouse (skip inventory release for warehouses)
+          const Location = companyDB.model('Location');
+          const sourceLocation = await Location.findById(request.sourceLocation).select('type name');
+          const isWarehouseSource = sourceLocation?.type === 'warehouse';
           
-          for (const item of transfer.items) {
-            if (item.batchCosts && item.batchCosts.length > 0) {
-              for (const batchCost of item.batchCosts) {
-                // Decrement reservedQuantity with optimistic locking and retry
-                let retries = 3;
-                let success = false;
-                
-                while (retries > 0 && !success) {
-                  try {
-                    const batch = await InventoryBatchLocation.findById(batchCost.sourceBatchId);
-                    
-                    if (batch) {
-                      const updateResult = await InventoryBatchLocation.updateOne(
-                        {
-                          _id: batch._id,
-                          version: batch.version
-                        },
-                        {
-                          $inc: { 
-                            reservedQuantity: -batchCost.quantity,
-                            version: 1
+          // Release inventory reservations only for non-warehouse sources
+          if (!isWarehouseSource) {
+            const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
+            
+            for (const item of transfer.items) {
+              if (item.batchCosts && item.batchCosts.length > 0) {
+                for (const batchCost of item.batchCosts) {
+                  // Decrement reservedQuantity with optimistic locking and retry
+                  let retries = 3;
+                  let success = false;
+                  
+                  while (retries > 0 && !success) {
+                    try {
+                      const batch = await InventoryBatchLocation.findById(batchCost.sourceBatchId);
+                      
+                      if (batch) {
+                        const updateResult = await InventoryBatchLocation.updateOne(
+                          {
+                            _id: batch._id,
+                            version: batch.version
+                          },
+                          {
+                            $inc: { 
+                              reservedQuantity: -batchCost.quantity,
+                              version: 1
+                            }
+                          }
+                        );
+                        
+                        if (updateResult.modifiedCount > 0) {
+                          success = true;
+                        } else {
+                          retries--;
+                          if (retries > 0) {
+                            // Exponential backoff
+                            await new Promise(resolve => setTimeout(resolve, 100 * (4 - retries)));
                           }
                         }
-                      );
-                      
-                      if (updateResult.modifiedCount > 0) {
-                        success = true;
                       } else {
-                        retries--;
-                        if (retries > 0) {
-                          // Exponential backoff
-                          await new Promise(resolve => setTimeout(resolve, 100 * (4 - retries)));
-                        }
+                        success = true; // Batch doesn't exist, skip
                       }
-                    } else {
-                      success = true; // Batch doesn't exist, skip
+                    } catch (err) {
+                      retries--;
+                      if (retries === 0) {
+                        throw new Error(`Failed to release inventory reservation for batch ${batchCost.sourceBatchId}: ${err.message}`);
+                      }
+                      // Exponential backoff
+                      await new Promise(resolve => setTimeout(resolve, 100 * (4 - retries)));
                     }
-                  } catch (err) {
-                    retries--;
-                    if (retries === 0) {
-                      throw new Error(`Failed to release inventory reservation for batch ${batchCost.sourceBatchId}: ${err.message}`);
-                    }
-                    // Exponential backoff
-                    await new Promise(resolve => setTimeout(resolve, 100 * (4 - retries)));
                   }
                 }
               }
             }
+          } else {
+            logger.info(
+              `Skipping inventory release for warehouse ${sourceLocation.name}. ` +
+              `Request ${request.requestNumber} cancelled without inventory release.`
+            );
           }
           
           // Cancel the transfer
