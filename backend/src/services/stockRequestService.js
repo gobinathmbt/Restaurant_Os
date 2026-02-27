@@ -733,7 +733,8 @@ export const approveRequest = async (
           approvedDate: new Date(),
           approvedIpAddress: ipAddress,
           approvedDeviceInfo: deviceInfo,
-          approvalNotes: approvalData.notes || ''
+          approvalNotes: approvalData.notes || '',
+          items: request.items  // Save updated items with approvedQuantity and backorderedQuantity
         },
         $inc: { version: 1 }
       }
@@ -834,113 +835,186 @@ export const approveRequest = async (
       `Transfer: ${transfer ? transfer.transferNumber : 'none'}, Backorders: ${backorders.length}`
     );
 
-    // Send notifications: Super Admins + Sender location users + Destination location users
-    try {
-      const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
-      const senderUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.destinationLocation.toString());
-      const destinationUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.sourceLocation.toString());
-      
-      // Combine and deduplicate by userId
-      const allRecipients = [...superAdmins, ...senderUsers, ...destinationUsers];
-      const uniqueRecipients = Array.from(
-        new Map(allRecipients.map(user => [user._id.toString(), user])).values()
-      );
-      
-      const fromLocationName = updatedRequest.destinationLocation?.name || 'Unknown location';
-      const toLocationName = updatedRequest.sourceLocation?.name || 'Unknown location';
-      const approverName = updatedRequest.approvedBy?.name || 'Unknown user';
-      const itemCount = updatedRequest.items?.length || 0;
-      const hasBackorders = backorders.length > 0;
-
-      // Send notifications to all unique recipients
-      for (const recipient of uniqueRecipients) {
-        // Determine if this is the requester
-        const isRequester = recipient._id.toString() === updatedRequest.requestedBy._id.toString();
+    // Send notifications asynchronously (fire-and-forget) - don't block the API response
+    // This runs independently in the background
+    setImmediate(async () => {
+      try {
+        const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+        const sourceLocationUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.sourceLocation.toString());
+        const destinationLocationUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.destinationLocation.toString());
         
-        await notificationService.sendToCompanyUser(companyId, recipient._id, {
-          category: 'inventory',
-          event: 'stock_request_approved',
-          title: 'Stock Request Approved',
-          message: isRequester 
-            ? `Your stock request ${request.requestNumber} has been approved by ${approverName}. ${hasBackorders ? `${backorders.length} item(s) backordered.` : 'All items approved.'}`
-            : `Stock request ${request.requestNumber} approved by ${approverName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}${hasBackorders ? `, Backorders: ${backorders.length}` : ''}`,
-          data: {
-            requestId: updatedRequest._id,
-            requestNumber: request.requestNumber,
-            fromLocationName,
-            toLocationName,
-            itemCount,
-            approverName,
-            transferNumber: transfer?.transferNumber,
-            backorderCount: backorders.length
-          },
-          priority: isRequester ? 'medium' : 'low',
-          actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
-        }).catch(error => {
-          logger.error(`Failed to send approval notification to user ${recipient._id}:`, error);
-        });
+        const fromLocationName = updatedRequest.destinationLocation?.name || 'Unknown location';
+        const toLocationName = updatedRequest.sourceLocation?.name || 'Unknown location';
+        const approverName = updatedRequest.approvedBy?.name || 'Unknown user';
+        const itemCount = updatedRequest.items?.length || 0;
+        const hasBackorders = backorders.length > 0;
 
-        // Send email notification
-        if (recipient.email) {
-          await stockRequestEmailService.sendStockRequestApprovalNotification(recipient.email, {
-            request: updatedRequest,
-            recipientName: recipient.name,
-            transfer: transfer,
-            backorders: backorders
-          }).catch(error => {
-            logger.error(`Failed to send approval email to user ${recipient.email}:`, error);
-          });
-        }
-      }
-
-      // If backorders were created, notify the requester separately
-      if (hasBackorders) {
-        await notificationService.sendToCompanyUser(companyId, updatedRequest.requestedBy._id, {
-          category: 'inventory',
-          event: 'backorder_created',
-          title: 'Backorder Created',
-          message: `${backorders.length} item(s) from request ${request.requestNumber} have been backordered due to insufficient inventory.`,
-          data: {
-            requestId: updatedRequest._id,
-            requestNumber: request.requestNumber,
-            backorderCount: backorders.length,
-            backorderIds: backorders.map(b => b._id)
-          },
-          priority: 'medium',
-          actionUrl: `/inventory/backorders`
-        }).catch(error => {
-          logger.error(`Failed to send backorder notification to requester ${updatedRequest.requestedBy._id}:`, error);
-        });
-
-        // Send email notification for each backorder
-        for (const backorder of backorders) {
-          if (updatedRequest.requestedBy.email) {
-            // Populate backorder with location and item details
-            const populatedBackorder = {
-              ...backorder.toObject(),
-              originalRequestId: updatedRequest,
-              destinationLocation: updatedRequest.destinationLocation,
-              sourceLocation: updatedRequest.sourceLocation,
-              inventoryItem: updatedRequest.items.find(item => 
-                item.inventoryItem._id.toString() === backorder.inventoryItem.toString()
-              )?.inventoryItem
-            };
-
-            await stockRequestEmailService.sendBackorderCreationNotification(updatedRequest.requestedBy.email, {
-              backorder: populatedBackorder,
-              recipientName: updatedRequest.requestedBy.name
-            }).catch(error => {
-              logger.error(`Failed to send backorder email to requester ${updatedRequest.requestedBy.email}:`, error);
+        // 1. Send to Super Admins
+        for (const admin of superAdmins) {
+          try {
+            await notificationService.sendToCompanyUser(companyId, admin._id, {
+              category: 'inventory',
+              event: 'stock_request_approved',
+              title: 'Stock Request Approved',
+              message: `Stock request ${request.requestNumber} approved by ${approverName}. From: ${fromLocationName}, To: ${toLocationName}, Items: ${itemCount}${hasBackorders ? `, Backorders: ${backorders.length}` : ''}`,
+              data: {
+                requestId: updatedRequest._id,
+                requestNumber: request.requestNumber,
+                fromLocationName,
+                toLocationName,
+                itemCount,
+                approverName,
+                transferNumber: transfer?.transferNumber,
+                backorderCount: backorders.length
+              },
+              priority: 'low',
+              actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
             });
+
+            if (admin.email) {
+              await stockRequestEmailService.sendStockRequestApprovalNotification(admin.email, {
+                request: updatedRequest,
+                recipientName: admin.name,
+                transfer: transfer,
+                backorders: backorders
+              });
+            }
+          } catch (error) {
+            logger.error(`Failed to send notification to super admin ${admin._id}:`, error);
           }
         }
-      }
 
-      logger.info(`Approval notifications sent for stock request ${request.requestNumber}`);
-    } catch (notificationError) {
-      // Log but don't fail the approval
-      logger.error('Error sending approval notifications:', notificationError);
-    }
+        // 2. Send to Source Location Users (Warehouse - receiving the request)
+        // Message: "You have received an item request from..."
+        for (const user of sourceLocationUsers) {
+          try {
+            const isApprover = user._id.toString() === userId.toString();
+            
+            await notificationService.sendToCompanyUser(companyId, user._id, {
+              category: 'inventory',
+              event: 'stock_request_approved',
+              title: isApprover ? 'Stock Request Approved' : 'Item Request Received',
+              message: isApprover
+                ? `You approved stock request ${request.requestNumber} from ${fromLocationName}. Items: ${itemCount}${hasBackorders ? `, Backorders: ${backorders.length}` : ''}`
+                : `You have received an item request ${request.requestNumber} from ${fromLocationName}. Items: ${itemCount}. Approved by ${approverName}.${hasBackorders ? ` ${backorders.length} item(s) backordered.` : ''}`,
+              data: {
+                requestId: updatedRequest._id,
+                requestNumber: request.requestNumber,
+                fromLocationName,
+                toLocationName,
+                itemCount,
+                approverName,
+                transferNumber: transfer?.transferNumber,
+                backorderCount: backorders.length
+              },
+              priority: isApprover ? 'medium' : 'low',
+              actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
+            });
+
+            if (user.email) {
+              await stockRequestEmailService.sendStockRequestApprovalNotification(user.email, {
+                request: updatedRequest,
+                recipientName: user.name,
+                transfer: transfer,
+                backorders: backorders,
+                isSourceLocation: true,  // Flag to customize email template
+                isApprover: isApprover
+              });
+            }
+          } catch (error) {
+            logger.error(`Failed to send notification to source location user ${user._id}:`, error);
+          }
+        }
+
+        // 3. Send to Destination Location Users (Requesting branch)
+        // Message: "Your request has been approved" or "Incoming stock approved"
+        for (const user of destinationLocationUsers) {
+          try {
+            const isRequester = user._id.toString() === updatedRequest.requestedBy._id.toString();
+            
+            await notificationService.sendToCompanyUser(companyId, user._id, {
+              category: 'inventory',
+              event: 'stock_request_approved',
+              title: isRequester ? 'Your Stock Request Approved' : 'Incoming Stock Approved',
+              message: isRequester
+                ? `Your stock request ${request.requestNumber} has been approved by ${approverName} at ${toLocationName}. ${hasBackorders ? `${backorders.length} item(s) backordered.` : 'All items approved.'}`
+                : `Stock request ${request.requestNumber} approved. Your location (${fromLocationName}) will receive ${itemCount} item(s) from ${toLocationName}.${hasBackorders ? ` ${backorders.length} item(s) backordered.` : ''}`,
+              data: {
+                requestId: updatedRequest._id,
+                requestNumber: request.requestNumber,
+                fromLocationName,
+                toLocationName,
+                itemCount,
+                approverName,
+                transferNumber: transfer?.transferNumber,
+                backorderCount: backorders.length
+              },
+              priority: isRequester ? 'medium' : 'low',
+              actionUrl: `/inventory/stock-requests/${updatedRequest._id}`
+            });
+
+            if (user.email) {
+              await stockRequestEmailService.sendStockRequestApprovalNotification(user.email, {
+                request: updatedRequest,
+                recipientName: user.name,
+                transfer: transfer,
+                backorders: backorders,
+                isSourceLocation: false,  // Flag to customize email template
+                isRequester: isRequester
+              });
+            }
+          } catch (error) {
+            logger.error(`Failed to send notification to destination location user ${user._id}:`, error);
+          }
+        }
+
+        // 4. If backorders were created, notify the requester separately
+        if (hasBackorders) {
+          try {
+            await notificationService.sendToCompanyUser(companyId, updatedRequest.requestedBy._id, {
+              category: 'inventory',
+              event: 'backorder_created',
+              title: 'Backorder Created',
+              message: `${backorders.length} item(s) from request ${request.requestNumber} have been backordered due to insufficient inventory.`,
+              data: {
+                requestId: updatedRequest._id,
+                requestNumber: request.requestNumber,
+                backorderCount: backorders.length,
+                backorderIds: backorders.map(b => b._id)
+              },
+              priority: 'medium',
+              actionUrl: `/inventory/backorders`
+            });
+
+            if (updatedRequest.requestedBy.email) {
+              for (const backorder of backorders) {
+                const populatedBackorder = {
+                  ...backorder.toObject(),
+                  originalRequestId: updatedRequest,
+                  destinationLocation: updatedRequest.destinationLocation,
+                  sourceLocation: updatedRequest.sourceLocation,
+                  inventoryItem: updatedRequest.items.find(item => 
+                    item.inventoryItem._id.toString() === backorder.inventoryItem.toString()
+                  )?.inventoryItem
+                };
+
+                await stockRequestEmailService.sendBackorderCreationNotification(updatedRequest.requestedBy.email, {
+                  backorder: populatedBackorder,
+                  recipientName: updatedRequest.requestedBy.name
+                });
+              }
+            }
+          } catch (error) {
+            logger.error(`Failed to send backorder notifications:`, error);
+          }
+        }
+
+        logger.info(`Approval notifications sent asynchronously for stock request ${request.requestNumber}`);
+      } catch (error) {
+        logger.error('Error in async notification sending:', error);
+      }
+    });
+
     
     return {
       request: updatedRequest,

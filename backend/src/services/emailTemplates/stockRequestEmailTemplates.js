@@ -3,7 +3,7 @@ import { ENV } from '../../config/env.js';
 /**
  * Generate HTML email template for stock request approval
  */
-export function generateRequestApprovalEmailTemplate(request, recipientName, transfer, backorders) {
+export function generateRequestApprovalEmailTemplate(request, recipientName, transfer, backorders, isSourceLocation = false, isApprover = false, isRequester = false) {
   const {
     requestNumber,
     destinationLocation,
@@ -22,6 +22,30 @@ export function generateRequestApprovalEmailTemplate(request, recipientName, tra
   });
 
   const hasBackorders = backorders && backorders.length > 0;
+  
+  // Determine email title and message based on user type
+  let emailTitle = 'Request Approved ✅';
+  let emailMessage = '';
+  
+  if (isSourceLocation) {
+    // Warehouse/Source location users
+    if (isApprover) {
+      emailTitle = 'Stock Request Approved ✅';
+      emailMessage = `You have approved stock request ${requestNumber} from ${destinationLocation?.name || 'Unknown Location'}.`;
+    } else {
+      emailTitle = 'Item Request Received 📦';
+      emailMessage = `You have received an item request ${requestNumber} from ${destinationLocation?.name || 'Unknown Location'}. The request has been approved by ${approvedBy?.name || 'Unknown User'}.`;
+    }
+  } else {
+    // Branch/Destination location users
+    if (isRequester) {
+      emailTitle = 'Your Request Approved ✅';
+      emailMessage = `Your stock request ${requestNumber} has been approved by ${approvedBy?.name || 'Unknown User'} at ${sourceLocation?.name || 'Unknown Location'}.${hasBackorders ? ` ${backorders.length} item(s) have been backordered.` : ' All items have been approved.'}`;
+    } else {
+      emailTitle = 'Incoming Stock Approved 📦';
+      emailMessage = `Stock request ${requestNumber} has been approved. Your location (${destinationLocation?.name || 'Unknown Location'}) will receive ${items.length} item(s) from ${sourceLocation?.name || 'Unknown Location'}.${hasBackorders ? ` ${backorders.length} item(s) have been backordered.` : ''}`;
+    }
+  }
 
   return `
 <!DOCTYPE html>
@@ -29,7 +53,7 @@ export function generateRequestApprovalEmailTemplate(request, recipientName, tra
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Stock Request Approved</title>
+  <title>${emailTitle}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1f2937; background-color: #f9fafb;">
   <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
@@ -38,18 +62,27 @@ export function generateRequestApprovalEmailTemplate(request, recipientName, tra
         <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 12px; font-size: 28px;">🍽️</div>
         <div style="font-size: 28px; font-weight: 700; color: #ffffff;">RestaurantOS</div>
       </div>
-      <h1 style="font-size: 32px; font-weight: 700; color: #ffffff; margin-bottom: 10px;">Request Approved ✅</h1>
+      <h1 style="font-size: 32px; font-weight: 700; color: #ffffff; margin-bottom: 10px;">${emailTitle}</h1>
       <p style="font-size: 16px; color: #10b981; font-weight: 500;">Inventory Management</p>
     </div>
 
     <div style="padding: 40px 30px;">
       <p style="font-size: 15px; color: #4b5563; margin-bottom: 20px;">Hello ${recipientName || 'Admin'},</p>
+      <p style="font-size: 15px; color: #4b5563; margin-bottom: 20px; line-height: 1.8;">
+        ${emailMessage}
+      </p>
       
       <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; padding: 25px; border-radius: 12px; margin: 30px 0; text-align: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
-        <div style="font-size: 48px; margin-bottom: 10px;">✅</div>
-        <div style="font-size: 24px; font-weight: 700; margin-bottom: 10px;">Request Approved!</div>
+        <div style="font-size: 48px; margin-bottom: 10px;">${isSourceLocation && !isApprover ? '📦' : '✅'}</div>
+        <div style="font-size: 24px; font-weight: 700; margin-bottom: 10px;">
+          ${isSourceLocation && !isApprover ? 'Request Received' : 'Request Approved'}
+        </div>
         <div style="font-size: 14px; opacity: 0.9;">
-          Your stock request has been approved${hasBackorders ? ' with some items backordered' : ''}.
+          ${isSourceLocation && !isApprover 
+            ? 'Please prepare the items for dispatch' 
+            : hasBackorders 
+              ? 'Some items have been backordered' 
+              : 'All items have been approved'}
         </div>
       </div>
 
@@ -108,6 +141,14 @@ export function generateRequestApprovalEmailTemplate(request, recipientName, tra
       <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 8px; margin: 20px 0;">
         <div style="font-size: 13px; color: #92400e; line-height: 1.6;">
           ⚠️ <strong>Backorders Created:</strong> ${backorders.length} item(s) have been backordered due to insufficient inventory. You will be notified when they are fulfilled.
+        </div>
+      </div>
+      ` : ''}
+
+      ${isSourceLocation && !isApprover ? `
+      <div style="background: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <div style="font-size: 13px; color: #1e40af; line-height: 1.6;">
+          📋 <strong>Next Steps:</strong> Please prepare the approved items for dispatch to ${destinationLocation?.name || 'the requesting location'}. Update the transfer status once items are ready for shipment.
         </div>
       </div>
       ` : ''}
