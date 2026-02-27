@@ -67,7 +67,7 @@ const isSuperAdmin = (user) => {
 /**
  * Check if user has access to location
  * @param {Object} user - User object
- * @param {string} locationId - Location ID to check
+ * @param {string|Object} locationId - Location ID (string or ObjectId) or populated Location object
  * @returns {boolean} True if user has access
  */
 const hasLocationAccess = (user, locationId) => {
@@ -76,7 +76,8 @@ const hasLocationAccess = (user, locationId) => {
     return true;
   }
   
-  const locationIdStr = locationId.toString();
+  // Handle populated location object (has _id property)
+  const locationIdStr = (locationId?._id || locationId).toString();
   
   const hasBranchAccess = user.branchIds && user.branchIds.some(
     id => id.toString() === locationIdStr
@@ -232,9 +233,26 @@ export const validateStageTransition = (transfer, newStage, user) => {
         throw new Error('Transfer must start with PREPARING_STOCK stage. Please start the process first.');
       }
       
-      // Validate user has access to source location (destination in transfer model)
-      if (!hasLocationAccess(user, transfer.destinationLocation) && !isSuperAdmin(user)) {
-        throw new Error('Only source location admins can start the transfer process');
+      // Debug logging
+      logger.debug('Validating source location access', {
+        userId: user._id,
+        userRole: user.role,
+        userBranchIds: user.branchIds,
+        userWarehouseIds: user.warehouseIds,
+        sourceLocationId: transfer.sourceLocation?._id || transfer.sourceLocation,
+        destinationLocationId: transfer.destinationLocation?._id || transfer.destinationLocation,
+        isSuperAdmin: isSuperAdmin(user),
+        hasSourceAccess: hasLocationAccess(user, transfer.sourceLocation),
+        hasDestinationAccess: hasLocationAccess(user, transfer.destinationLocation)
+      });
+      
+      // Allow either source or destination location admins to start the transfer
+      // This provides flexibility for both push and pull workflows
+      const hasSourceAccess = hasLocationAccess(user, transfer.sourceLocation);
+      const hasDestinationAccess = hasLocationAccess(user, transfer.destinationLocation);
+      
+      if (!hasSourceAccess && !hasDestinationAccess && !isSuperAdmin(user)) {
+        throw new Error('Only source or destination location admins can start the transfer process');
       }
       
       return true;
@@ -278,16 +296,16 @@ export const validateStageTransition = (transfer, newStage, user) => {
       return true;
     }
     
-    // Check sender role permission
+    // Check sender role permission (source location - where stock comes FROM)
     if (requiredRoles.includes('sender')) {
-      if (hasLocationAccess(user, transfer.destinationLocation)) {
+      if (hasLocationAccess(user, transfer.sourceLocation)) {
         return true;
       }
     }
     
-    // Check destination role permission
+    // Check destination role permission (destination location - where stock goes TO)
     if (requiredRoles.includes('destination')) {
-      if (hasLocationAccess(user, transfer.sourceLocation)) {
+      if (hasLocationAccess(user, transfer.destinationLocation)) {
         return true;
       }
     }
@@ -402,11 +420,11 @@ export const updateExecutionStage = async (
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
       const senderUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.destinationLocation._id.toString()
+        transfer.sourceLocation._id.toString()
       );
       const destinationUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.sourceLocation._id.toString()
+        transfer.destinationLocation._id.toString()
       );
       
       // Combine and deduplicate by userId
@@ -415,8 +433,8 @@ export const updateExecutionStage = async (
         new Map(allRecipients.map(user => [user._id.toString(), user])).values()
       );
       
-      const fromLocationName = transfer.destinationLocation?.name || 'Unknown location';
-      const toLocationName = transfer.sourceLocation?.name || 'Unknown location';
+      const fromLocationName = transfer.sourceLocation?.name || 'Unknown location';
+      const toLocationName = transfer.destinationLocation?.name || 'Unknown location';
       const updaterName = user.name || 'Unknown user';
       
       // Send notifications to all unique recipients
@@ -565,11 +583,11 @@ export const recordException = async (
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
       const senderUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.destinationLocation._id.toString()
+        transfer.sourceLocation._id.toString()
       );
       const destinationUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.sourceLocation._id.toString()
+        transfer.destinationLocation._id.toString()
       );
       
       // Combine and deduplicate by userId
@@ -578,8 +596,8 @@ export const recordException = async (
         new Map(allRecipients.map(user => [user._id.toString(), user])).values()
       );
       
-      const fromLocationName = transfer.destinationLocation?.name || 'Unknown location';
-      const toLocationName = transfer.sourceLocation?.name || 'Unknown location';
+      const fromLocationName = transfer.sourceLocation?.name || 'Unknown location';
+      const toLocationName = transfer.destinationLocation?.name || 'Unknown location';
       const reporterName = user.name || 'Unknown user';
       
       // Send notifications to all unique recipients
@@ -673,8 +691,8 @@ export const acceptStock = async (
       throw new Error('Stock transfer not found');
     }
     
-    // Validate user is destination admin
-    if (!hasLocationAccess(user, transfer.sourceLocation._id) && !isSuperAdmin(user)) {
+    // Validate user is destination admin (where stock is going TO)
+    if (!hasLocationAccess(user, transfer.destinationLocation._id) && !isSuperAdmin(user)) {
       throw new Error('User must be destination admin to accept stock');
     }
     
@@ -827,11 +845,11 @@ export const acceptStock = async (
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
       const senderUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.destinationLocation._id.toString()
+        transfer.sourceLocation._id.toString()
       );
       const destinationUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.sourceLocation._id.toString()
+        transfer.destinationLocation._id.toString()
       );
       
       // Combine and deduplicate by userId
@@ -840,8 +858,8 @@ export const acceptStock = async (
         new Map(allRecipients.map(user => [user._id.toString(), user])).values()
       );
       
-      const fromLocationName = transfer.destinationLocation?.name || 'Unknown location';
-      const toLocationName = transfer.sourceLocation?.name || 'Unknown location';
+      const fromLocationName = transfer.sourceLocation?.name || 'Unknown location';
+      const toLocationName = transfer.destinationLocation?.name || 'Unknown location';
       const acceptorName = user.name || 'Unknown user';
       
       // Send notifications to all unique recipients
