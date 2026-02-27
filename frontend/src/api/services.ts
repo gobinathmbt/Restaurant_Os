@@ -602,6 +602,25 @@ export const inventoryServices = {
   // Ship transfer (mark as in_transit)
   shipTransfer: (transferId: string) =>
     apiClient.post(`/api/inventory/transfers/${transferId}/ship`),
+
+  // V2 Stock Transfer Execution Stage Management
+  updateTransferStage: (transferId: string, data: {
+    stage: string;
+    notes?: string;
+  }) => apiClient.patch(`/api/transfers/v2/${transferId}/stage`, data),
+
+  acceptStock: (transferId: string, data: {
+    exceptions?: Array<{
+      inventoryItem: string;
+      exceptionType: 'damaged' | 'missing' | 'excess';
+      quantity: number;
+      notes?: string;
+    }>;
+    notes?: string;
+  }) => apiClient.post(`/api/transfers/v2/${transferId}/accept`, data),
+
+  getTransferById: (transferId: string) =>
+    apiClient.get(`/api/transfers/v2/${transferId}`),
 };
 
 // Inventory Item Location Services

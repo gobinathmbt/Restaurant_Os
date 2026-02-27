@@ -148,14 +148,15 @@ export const createTransfer = async (req, res, next) => {
 
 /**
  * Get a single transfer by ID
- * GET /api/transfers/:id
+ * GET /api/transfers/:id or /api/transfers/v2/:transferId
  */
 export const getTransferById = async (req, res, next) => {
   try {
     const { companyId } = req.user;
-    const { id } = req.params;
+    // Support both :id (legacy) and :transferId (v2) route parameters
+    const transferId = req.params.transferId || req.params.id;
 
-    const transfer = await stockTransferService.getTransfer(id, companyId);
+    const transfer = await stockTransferService.getTransfer(transferId, companyId);
 
     res.json({
       success: true,

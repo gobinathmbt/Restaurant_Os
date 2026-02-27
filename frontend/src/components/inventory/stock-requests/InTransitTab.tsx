@@ -13,6 +13,7 @@ import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import DataTableLayout from '@/components/common/DataTableLayout';
+import StockTransferDetailModal from '../StockTransferDetailModal';
 
 interface Branch {
   _id: string;
@@ -89,6 +90,7 @@ export default function InTransitTab({
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
   // Active execution stages (excluding PROCESS_STARTED and PROCESS_COMPLETED)
   const activeStages = [
@@ -207,20 +209,27 @@ export default function InTransitTab({
     const currentStage = getCurrentStage(transfer);
     if (!currentStage) return false;
 
-    // Sender stages: PREPARING_STOCK to IN_TRANSIT
+    // Sender stages: PREPARING_STOCK to ARRIVED_AT_DESTINATION
+    // Done by SOURCE location (warehouse/branch that has stock)
     const senderStages = ['PREPARING_STOCK', 'LOADING_INTO_VEHICLE', 'DISPATCHED', 'IN_TRANSIT', 'ARRIVED_AT_DESTINATION'];
+    
     // Destination stages: UNLOADING, GOODS_RECEIVED_CONFIRMED
+    // Done by DESTINATION location (branch receiving stock)
     const destinationStages = ['UNLOADING', 'GOODS_RECEIVED_CONFIRMED'];
 
     const userLocationIds = [...userBranchIds, ...userWarehouseIds];
-    const isSender = userLocationIds.includes(transfer.destinationLocation._id);
-    const isDestination = userLocationIds.includes(transfer.sourceLocation._id);
+    
+    // Check if user has access to SOURCE location (for sender stages)
+    const isSourceUser = userLocationIds.includes(transfer.sourceLocation._id);
+    
+    // Check if user has access to DESTINATION location (for destination stages)
+    const isDestinationUser = userLocationIds.includes(transfer.destinationLocation._id);
 
-    if (senderStages.includes(currentStage.stage) && isSender) {
+    if (senderStages.includes(currentStage.stage) && isSourceUser) {
       return true;
     }
 
-    if (destinationStages.includes(currentStage.stage) && isDestination) {
+    if (destinationStages.includes(currentStage.stage) && isDestinationUser) {
       return true;
     }
 
@@ -229,20 +238,12 @@ export default function InTransitTab({
 
   const handleViewDetails = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
-    // TODO: Open transfer view modal with execution stage timeline
-    toast({
-      title: "View Details",
-      description: `Opening details for ${transfer.transferNumber}`,
-    });
+    setIsDetailModalOpen(true);
   };
 
   const handleUpdateStage = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
-    // TODO: Open stage update modal
-    toast({
-      title: "Update Stage",
-      description: `Opening stage update for ${transfer.transferNumber}`,
-    });
+    setIsDetailModalOpen(true);
   };
 
   const tableHeaders = (
@@ -270,8 +271,14 @@ export default function InTransitTab({
         <TableCell>
           <p className="font-medium">{transfer.transferNumber}</p>
         </TableCell>
-        <TableCell>{transfer.destinationLocation?.name || '-'}</TableCell>
-        <TableCell>{transfer.sourceLocation?.name || '-'}</TableCell>
+        <TableCell>
+          <span className="text-sm">{transfer.destinationLocation?.name || '-'}</span>
+          <span className="text-xs text-muted-foreground ml-1">(Requester)</span>
+        </TableCell>
+        <TableCell>
+          <span className="text-sm">{transfer.sourceLocation?.name || '-'}</span>
+          <span className="text-xs text-muted-foreground ml-1">(Source)</span>
+        </TableCell>
         <TableCell>
           {currentStage ? getStageBadge(currentStage.stage) : '-'}
         </TableCell>
@@ -382,6 +389,20 @@ export default function InTransitTab({
         }}
         onRefresh={fetchInTransitTransfers}
         storagePrefix="in-transit-transfers"
+      />
+
+      <StockTransferDetailModal
+        open={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedTransfer(null);
+        }}
+        transfer={selectedTransfer}
+        onSuccess={() => {
+          setIsDetailModalOpen(false);
+          setSelectedTransfer(null);
+          fetchInTransitTransfers();
+        }}
       />
     </>
   );

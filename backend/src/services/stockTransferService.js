@@ -5,6 +5,7 @@
  */
 
 import { getCompanyDB } from '../config/database.js';
+import { getStockTransferModel } from '../models/company/StockTransfer.js';
 import { logger } from '../utils/logger.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import notificationService from './notificationService.js';
@@ -85,6 +86,128 @@ const hasLocationAccess = (user, locationId) => {
   );
   
   return hasBranchAccess || hasWarehouseAccess;
+};
+
+/**
+ * Get a stock transfer by ID
+ * 
+ * @param {string} transferId - Stock transfer ID
+ * @param {string} companyId - Company ID
+ * @returns {Promise<Object>} Stock transfer object
+ * @throws {Error} If transfer not found
+ */
+export const getTransfer = async (transferId, companyId) => {
+  try {
+    const mongoose = (await import('mongoose')).default;
+    
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(transferId)) {
+      logger.error(`Invalid transfer ID format: ${transferId}`);
+      throw new Error('Invalid transfer ID format');
+    }
+    
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    logger.debug(`Fetching transfer ${transferId} for company ${companyId}`);
+    
+    // Populate company-specific references only
+    const transfer = await StockTransfer.findById(transferId)
+      .populate('sourceLocation')
+      .populate('destinationLocation')
+      .populate('items.inventoryItem')
+      .populate('exceptions.inventoryItem');
+    
+    if (!transfer) {
+      logger.error(`Stock transfer not found: ${transferId} in company ${companyId}`);
+      throw new Error('Stock transfer not found');
+    }
+    
+    // Manually populate user fields from platform database
+    const userIds = new Set();
+    
+    // Collect user IDs
+    if (transfer.createdBy) userIds.add(transfer.createdBy.toString());
+    if (transfer.approvedBy) userIds.add(transfer.approvedBy.toString());
+    if (transfer.completedBy) userIds.add(transfer.completedBy.toString());
+    
+    // Collect user IDs from exceptions
+    if (transfer.exceptions && transfer.exceptions.length > 0) {
+      transfer.exceptions.forEach(exception => {
+        if (exception.reportedBy) userIds.add(exception.reportedBy.toString());
+        if (exception.resolvedBy) userIds.add(exception.resolvedBy.toString());
+      });
+    }
+    
+    // Collect user IDs from execution stages
+    if (transfer.executionStages && transfer.executionStages.length > 0) {
+      transfer.executionStages.forEach(stage => {
+        if (stage.updatedBy) userIds.add(stage.updatedBy.toString());
+      });
+    }
+    
+    // Fetch all users at once
+    if (userIds.size > 0) {
+      const users = await CompanyUser.find({
+        _id: { $in: Array.from(userIds) },
+        companyId: companyId
+      }).select('_id name email').lean();
+      
+      // Create a map for quick lookup
+      const userMap = new Map(users.map(user => [user._id.toString(), user]));
+      
+      // Convert to plain object for manipulation
+      const transferObj = transfer.toObject();
+      
+      // Populate user fields
+      if (transferObj.createdBy && userMap.has(transferObj.createdBy.toString())) {
+        transferObj.createdBy = userMap.get(transferObj.createdBy.toString());
+      }
+      if (transferObj.approvedBy && userMap.has(transferObj.approvedBy.toString())) {
+        transferObj.approvedBy = userMap.get(transferObj.approvedBy.toString());
+      }
+      if (transferObj.completedBy && userMap.has(transferObj.completedBy.toString())) {
+        transferObj.completedBy = userMap.get(transferObj.completedBy.toString());
+      }
+      
+      // Populate exception user fields
+      if (transferObj.exceptions && transferObj.exceptions.length > 0) {
+        transferObj.exceptions = transferObj.exceptions.map(exception => {
+          if (exception.reportedBy && userMap.has(exception.reportedBy.toString())) {
+            exception.reportedBy = userMap.get(exception.reportedBy.toString());
+          }
+          if (exception.resolvedBy && userMap.has(exception.resolvedBy.toString())) {
+            exception.resolvedBy = userMap.get(exception.resolvedBy.toString());
+          }
+          return exception;
+        });
+      }
+      
+      // Populate execution stage user fields
+      if (transferObj.executionStages && transferObj.executionStages.length > 0) {
+        transferObj.executionStages = transferObj.executionStages.map(stage => {
+          if (stage.updatedBy && userMap.has(stage.updatedBy.toString())) {
+            const user = userMap.get(stage.updatedBy.toString());
+            stage.updatedBy = user;
+            // Keep updatedByName for backward compatibility
+            if (!stage.updatedByName) {
+              stage.updatedByName = user.name;
+            }
+          }
+          return stage;
+        });
+      }
+      
+      logger.debug(`Successfully fetched transfer ${transferId} with ${userIds.size} users populated`);
+      return transferObj;
+    }
+    
+    logger.debug(`Successfully fetched transfer ${transferId}`);
+    return transfer;
+  } catch (error) {
+    logger.error('Error getting stock transfer:', error);
+    throw error;
+  }
 };
 
 /**
@@ -211,8 +334,8 @@ export const updateExecutionStage = async (
     }
     
     // Get company database
-    const companyDB = getCompanyDB(companyId);
-    const StockTransfer = companyDB.model('StockTransfer');
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
     
     // Get stock transfer with optimistic locking
     const transfer = await StockTransfer.findOne({
@@ -378,8 +501,8 @@ export const recordException = async (
     }
     
     // Get company database
-    const companyDB = getCompanyDB(companyId);
-    const StockTransfer = companyDB.model('StockTransfer');
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
     
     // Get stock transfer
     const transfer = await StockTransfer.findOne({
@@ -550,8 +673,8 @@ export const acceptStock = async (
     }
     
     // Get company database
-    const companyDB = getCompanyDB(companyId);
-    const StockTransfer = companyDB.model('StockTransfer');
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
     
     // Get stock transfer
     const transfer = await StockTransfer.findOne({

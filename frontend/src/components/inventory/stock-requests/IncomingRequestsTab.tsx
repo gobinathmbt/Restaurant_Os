@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, Package, ArrowRight } from 'lucide-react';
+import { Eye, Package, ArrowRight, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -13,12 +13,24 @@ import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import StockRequestViewModal from '../StockRequestViewModal';
+import StockTransferDetailModal from '../StockTransferDetailModal';
 import DataTableLayout from '@/components/common/DataTableLayout';
 
 interface Branch {
   _id: string;
   name: string;
   code: string;
+}
+
+interface ExecutionStage {
+  stage: string;
+  timestamp: string;
+  updatedBy?: {
+    _id: string;
+    name: string;
+  };
+  updatedByName?: string;
+  notes?: string;
 }
 
 interface StockRequest {
@@ -40,6 +52,9 @@ interface StockRequest {
   };
   requestDate: string;
   expectedDeliveryDate: string;
+  executionStages?: ExecutionStage[];
+  transferId?: string;
+  createdTransferId?: string | any; // Can be string ID or populated object
   items: Array<{
     inventoryItem: {
       _id: string;
@@ -81,6 +96,8 @@ export default function IncomingRequestsTab({
   const [totalPages, setTotalPages] = useState(0);
   const [selectedRequest, setSelectedRequest] = useState<StockRequest | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
+  const [isTransferDetailOpen, setIsTransferDetailOpen] = useState(false);
+  const [selectedTransfer, setSelectedTransfer] = useState<any>(null);
 
   useEffect(() => {
     if (selectedBranch) {
@@ -93,16 +110,59 @@ export default function IncomingRequestsTab({
     
     try {
       setLoading(true);
+      
+      // Use the original stock requests API
       const response = await inventoryServices.getStockRequests(selectedBranch, {
         page,
         limit: rowsPerPage,
         search: search || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
-        sourceLocation: selectedBranch, // Filter by destination location
       });
 
-      setRequests(response.data.data.requests || []);
+      // Get requests and enrich with transfer data if available
+      const requestsData = response.data.data.requests || [];
+      
+      // For approved requests, fetch transfer details to get execution stages
+      const enrichedRequests = await Promise.all(
+        requestsData.map(async (request: any) => {
+          // Check if request has a createdTransferId (populated from backend)
+          if (request.status === 'approved' && request.createdTransferId) {
+            try {
+              // If createdTransferId is populated as an object, use it directly
+              if (typeof request.createdTransferId === 'object' && request.createdTransferId._id) {
+                return {
+                  ...request,
+                  transferId: request.createdTransferId._id,
+                  executionStages: request.createdTransferId.executionStages || []
+                };
+              }
+              
+              // Otherwise, fetch the transfer details
+              const transferResponse = await inventoryServices.getTransferById(request.createdTransferId);
+              return {
+                ...request,
+                transferId: request.createdTransferId,
+                executionStages: transferResponse.data.data.transfer?.executionStages || []
+              };
+            } catch (error) {
+              console.error(`Failed to fetch transfer for request ${request._id}:`, error);
+              return {
+                ...request,
+                transferId: request.createdTransferId,
+                executionStages: []
+              };
+            }
+          }
+          
+          return {
+            ...request,
+            executionStages: []
+          };
+        })
+      );
+
+      setRequests(enrichedRequests);
       setTotalCount(response.data.data.pagination.total);
       setTotalPages(response.data.data.pagination.pages);
     } catch (error: any) {
@@ -149,11 +209,74 @@ export default function IncomingRequestsTab({
     return <Badge className={config.className}>{config.label}</Badge>;
   };
 
+  const canAcceptRequest = (request: StockRequest): boolean => {
+    // Can accept if status is approved and not yet started
+    return request.status === 'approved' && 
+           (!request.executionStages || request.executionStages.length === 0);
+  };
+
+  const handleAcceptRequest = async (request: StockRequest) => {
+    try {
+      setLoading(true);
+      
+      // Start the transfer by updating to PREPARING_STOCK stage
+      const transferId = request.transferId || request.createdTransferId;
+      
+      await inventoryServices.updateTransferStage(transferId, {
+        stage: 'PREPARING_STOCK',
+        notes: 'Transfer accepted and processing started'
+      });
+
+      toast({
+        title: "Success",
+        description: "Transfer accepted and moved to processing",
+        variant: "success",
+      });
+
+      fetchRequests();
+      if (onItemsUpdate) {
+        onItemsUpdate();
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to accept transfer",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleViewTransferDetails = (request: StockRequest) => {
+    const transfer = {
+      _id: request.transferId || request._id,
+      transferNumber: request.requestNumber,
+      destinationLocation: request.destinationLocation,
+      sourceLocation: request.sourceLocation,
+      status: request.status,
+      priority: request.priority,
+      executionStages: request.executionStages,
+      items: request.items.map(item => ({
+        inventoryItem: item.inventoryItem,
+        sentQuantity: item.approvedQuantity || item.requestedQuantity,
+        unit: item.unit,
+        notes: undefined
+      })),
+      requestDate: request.requestDate,
+      expectedDeliveryDate: request.expectedDeliveryDate,
+      notes: undefined
+    };
+    
+    setSelectedTransfer(transfer);
+    setIsTransferDetailOpen(true);
+  };
+
   const tableHeaders = (
     <>
       <TableHead className="w-16">S.No</TableHead>
       <TableHead>Request Number</TableHead>
-      <TableHead>From Location</TableHead>
+      <TableHead>Transfer Route</TableHead>
       <TableHead>Items Count</TableHead>
       <TableHead>Priority</TableHead>
       <TableHead>Status</TableHead>
@@ -163,7 +286,10 @@ export default function IncomingRequestsTab({
     </>
   );
 
-  const tableBody = requests.map((request, index) => (
+  const tableBody = requests.map((request, index) => {
+    const canAccept = canAcceptRequest(request);
+    
+    return (
     <TableRow key={request._id}>
       <TableCell className="font-medium text-muted-foreground">
         {(page - 1) * rowsPerPage + index + 1}
@@ -173,8 +299,9 @@ export default function IncomingRequestsTab({
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
-          <span>{request.destinationLocation?.name || '-'}</span>
+          <span className="text-sm">{request.sourceLocation?.name || '-'}</span>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm">{request.destinationLocation?.name || '-'}</span>
         </div>
       </TableCell>
       <TableCell>
@@ -189,17 +316,28 @@ export default function IncomingRequestsTab({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {
-              setSelectedRequest(request);
-              setIsViewOpen(true);
-            }}
+            onClick={() => handleViewTransferDetails(request)}
+            title="View Details"
           >
             <Eye className="h-4 w-4" />
           </Button>
+          {canAccept && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleAcceptRequest(request)}
+              className="text-green-600 hover:text-green-700"
+              title="Accept & Start Processing"
+              disabled={loading}
+            >
+              <CheckCircle className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </TableCell>
     </TableRow>
-  ));
+  );
+});
 
   const filterComponent = (
     <div className="flex items-center gap-2">
@@ -266,7 +404,7 @@ export default function IncomingRequestsTab({
                 title: 'No incoming requests',
                 description: search || statusFilter || priorityFilter
                   ? 'Try adjusting your filters'
-                  : 'No approved requests are currently incoming to this location',
+                  : 'No approved requests are waiting to be accepted',
               }
             : undefined
         }
@@ -293,6 +431,23 @@ export default function IncomingRequestsTab({
         onSuccess={() => {
           setIsViewOpen(false);
           setSelectedRequest(null);
+          fetchRequests();
+          if (onItemsUpdate) {
+            onItemsUpdate();
+          }
+        }}
+      />
+
+      <StockTransferDetailModal
+        open={isTransferDetailOpen}
+        onClose={() => {
+          setIsTransferDetailOpen(false);
+          setSelectedTransfer(null);
+        }}
+        transfer={selectedTransfer}
+        onSuccess={() => {
+          setIsTransferDetailOpen(false);
+          setSelectedTransfer(null);
           fetchRequests();
           if (onItemsUpdate) {
             onItemsUpdate();

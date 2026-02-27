@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, Truck, Package } from 'lucide-react';
+import { Eye, Truck, Package, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -13,11 +13,23 @@ import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import DataTableLayout from '@/components/common/DataTableLayout';
+import StockTransferDetailModal from '../StockTransferDetailModal';
 
 interface Branch {
   _id: string;
   name: string;
   code: string;
+}
+
+interface ExecutionStage {
+  stage: string;
+  timestamp: string;
+  updatedBy?: {
+    _id: string;
+    name: string;
+  };
+  updatedByName?: string;
+  notes?: string;
 }
 
 interface StockTransfer {
@@ -32,11 +44,14 @@ interface StockTransfer {
     name: string;
   };
   status: string;
+  priority: string;
+  executionStages?: ExecutionStage[];
   requestedBy: {
     _id: string;
     name: string;
   };
   requestDate: string;
+  expectedDeliveryDate?: string;
   items: Array<{
     inventoryItem: {
       _id: string;
@@ -44,7 +59,9 @@ interface StockTransfer {
     };
     sentQuantity: number;
     unit: string;
+    notes?: string;
   }>;
+  notes?: string;
 }
 
 interface TransfersToExecuteTabProps {
@@ -73,6 +90,8 @@ export default function TransfersToExecuteTab({
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
   useEffect(() => {
     if (selectedBranch) {
@@ -85,16 +104,37 @@ export default function TransfersToExecuteTab({
     
     try {
       setLoading(true);
+      
+      // Fetch transfers where selectedBranch is the SOURCE location (supplier)
+      // Warehouse admin should see transfers they need to fulfill
       const response = await inventoryServices.getStockTransfers(selectedBranch, {
         page,
         limit: rowsPerPage,
         search: search || undefined,
-        status: 'approved', // Only show approved transfers ready for shipment
+        status: 'approved', // Only show approved transfers ready for execution
       });
 
-      setTransfers(response.data.data.transfers || []);
-      setTotalCount(response.data.data.pagination.total);
-      setTotalPages(response.data.data.pagination.pages);
+      // Filter to show only transfers that haven't started execution yet
+      // or are in PROCESS_STARTED stage
+      // AND where selectedBranch is the sourceLocation (supplier)
+      const readyTransfers = (response.data.data.transfers || []).filter(
+        (transfer: StockTransfer) => {
+          // Check if this branch is the source (supplier)
+          const isSource = transfer.sourceLocation._id === selectedBranch;
+          if (!isSource) return false;
+          
+          if (!transfer.executionStages || transfer.executionStages.length === 0) {
+            return true; // No stages yet, ready to start
+          }
+          
+          const latestStage = transfer.executionStages[transfer.executionStages.length - 1];
+          return latestStage.stage === 'PROCESS_STARTED'; // Only show if in initial stage
+        }
+      );
+
+      setTransfers(readyTransfers);
+      setTotalCount(readyTransfers.length);
+      setTotalPages(Math.ceil(readyTransfers.length / rowsPerPage));
     } catch (error: any) {
       toast({
         title: "Error",
@@ -106,25 +146,14 @@ export default function TransfersToExecuteTab({
     }
   };
 
-  const handleShipTransfer = async (transferId: string) => {
-    try {
-      // Call the ship transfer API endpoint
-      await inventoryServices.shipTransfer(transferId);
-      toast({
-        title: "Success",
-        description: "Transfer marked as shipped successfully",
-      });
-      fetchTransfers();
-      if (onItemsUpdate) {
-        onItemsUpdate();
-      }
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.response?.data?.message || 'Failed to ship transfer',
-        variant: "destructive",
-      });
-    }
+  const handleStartExecution = (transfer: StockTransfer) => {
+    setSelectedTransfer(transfer);
+    setIsDetailModalOpen(true);
+  };
+
+  const handleViewDetails = (transfer: StockTransfer) => {
+    setSelectedTransfer(transfer);
+    setIsDetailModalOpen(true);
   };
 
   const formatDate = (date: string) => {
@@ -145,6 +174,10 @@ export default function TransfersToExecuteTab({
 
     const config = statusConfig[status] || { className: 'bg-gray-100 text-gray-800', label: status };
     return <Badge className={config.className}>{config.label}</Badge>;
+  };
+
+  const hasStartedExecution = (transfer: StockTransfer): boolean => {
+    return transfer.executionStages && transfer.executionStages.length > 0;
   };
 
   const tableHeaders = (
@@ -168,8 +201,18 @@ export default function TransfersToExecuteTab({
       <TableCell>
         <p className="font-medium">{transfer.transferNumber}</p>
       </TableCell>
-      <TableCell>{transfer.destinationLocation?.name || '-'}</TableCell>
-      <TableCell>{transfer.sourceLocation?.name || '-'}</TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          <span className="text-sm">{transfer.destinationLocation?.name || '-'}</span>
+          <span className="text-xs text-muted-foreground">(Requester)</span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          <span className="text-sm">{transfer.sourceLocation?.name || '-'}</span>
+          <span className="text-xs text-muted-foreground">(You)</span>
+        </div>
+      </TableCell>
       <TableCell>{transfer.items?.length || 0} items</TableCell>
       <TableCell>{getStatusBadge(transfer.status)}</TableCell>
       <TableCell>{formatDate(transfer.requestDate)}</TableCell>
@@ -178,11 +221,32 @@ export default function TransfersToExecuteTab({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => handleShipTransfer(transfer._id)}
-            className="text-blue-600 hover:text-blue-700"
+            onClick={() => handleViewDetails(transfer)}
+            title="View Details"
           >
-            <Truck className="h-4 w-4" />
+            <Eye className="h-4 w-4" />
           </Button>
+          {!hasStartedExecution(transfer) ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleStartExecution(transfer)}
+              className="text-green-600 hover:text-green-700"
+              title="Start Execution"
+            >
+              <Play className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleStartExecution(transfer)}
+              className="text-blue-600 hover:text-blue-700"
+              title="Continue Execution"
+            >
+              <Truck className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </TableCell>
     </TableRow>
@@ -211,39 +275,58 @@ export default function TransfersToExecuteTab({
   );
 
   return (
-    <DataTableLayout
-      statChips={[
-        { label: 'Ready to Ship', value: totalCount, bgColor: 'bg-blue-100', textColor: 'text-blue-800' }
-      ]}
-      searchValue={search}
-      searchPlaceholder="Search transfers..."
-      onSearchChange={setSearch}
-      filterConfig={{ component: filterComponent }}
-      tableHeaders={tableHeaders}
-      tableBody={tableBody}
-      isLoading={loading}
-      emptyState={
-        transfers.length === 0 && !loading
-          ? {
-              icon: <Package className="h-16 w-16" />,
-              title: 'No transfers to execute',
-              description: search
-                ? 'Try adjusting your search'
-                : 'All approved transfers have been shipped',
-            }
-          : undefined
-      }
-      currentPage={page}
-      totalPages={totalPages}
-      totalCount={totalCount}
-      rowsPerPage={rowsPerPage}
-      onPageChange={setPage}
-      onRowsPerPageChange={(rows) => {
-        setRowsPerPage(rows);
-        setPage(1);
-      }}
-      onRefresh={fetchTransfers}
-      storagePrefix="transfers-to-execute"
-    />
+    <>
+      <DataTableLayout
+        statChips={[
+          { label: 'Ready to Execute', value: totalCount, bgColor: 'bg-blue-100', textColor: 'text-blue-800' }
+        ]}
+        searchValue={search}
+        searchPlaceholder="Search transfers..."
+        onSearchChange={setSearch}
+        filterConfig={{ component: filterComponent }}
+        tableHeaders={tableHeaders}
+        tableBody={tableBody}
+        isLoading={loading}
+        emptyState={
+          transfers.length === 0 && !loading
+            ? {
+                icon: <Package className="h-16 w-16" />,
+                title: 'No transfers to execute',
+                description: search
+                  ? 'Try adjusting your search'
+                  : 'All approved transfers have been started or completed',
+              }
+            : undefined
+        }
+        currentPage={page}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        rowsPerPage={rowsPerPage}
+        onPageChange={setPage}
+        onRowsPerPageChange={(rows) => {
+          setRowsPerPage(rows);
+          setPage(1);
+        }}
+        onRefresh={fetchTransfers}
+        storagePrefix="transfers-to-execute"
+      />
+
+      <StockTransferDetailModal
+        open={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedTransfer(null);
+        }}
+        transfer={selectedTransfer}
+        onSuccess={() => {
+          setIsDetailModalOpen(false);
+          setSelectedTransfer(null);
+          fetchTransfers();
+          if (onItemsUpdate) {
+            onItemsUpdate();
+          }
+        }}
+      />
+    </>
   );
 }
