@@ -242,13 +242,13 @@ export const getStockRequestsDashboard = async (req, res, next) => {
 /**
  * GET /api/v2/reports/stock-requests/export
  * Export stock requests to CSV or PDF format
- * Query params: format (csv|pdf), status, fromLocation, toLocation, startDate, endDate
+ * Query params: format (csv|pdf), status, destinationLocation, sourceLocation, startDate, endDate
  * Requirements: 16.9
  */
 export const exportStockRequests = async (req, res, next) => {
   try {
     const companyDB = req.companyDB;
-    const { format = 'csv', status, fromLocation, toLocation, startDate, endDate } = req.query;
+    const { format = 'csv', status, destinationLocation, sourceLocation, startDate, endDate } = req.query;
 
     if (!companyDB) {
       return res.status(400).json({
@@ -259,8 +259,8 @@ export const exportStockRequests = async (req, res, next) => {
 
     const filters = {};
     if (status) filters.status = status;
-    if (fromLocation) filters.fromLocation = fromLocation;
-    if (toLocation) filters.toLocation = toLocation;
+    if (destinationLocation) filters.destinationLocation = destinationLocation;
+    if (sourceLocation) filters.sourceLocation = sourceLocation;
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
 
@@ -292,13 +292,13 @@ export const exportStockRequests = async (req, res, next) => {
 /**
  * GET /api/v2/reports/stock-transfers/export
  * Export stock transfers to CSV format
- * Query params: status, fromLocation, toLocation, startDate, endDate
+ * Query params: status, destinationLocation, sourceLocation, startDate, endDate
  * Requirements: 16.9
  */
 export const exportStockTransfers = async (req, res, next) => {
   try {
     const companyDB = req.companyDB;
-    const { status, fromLocation, toLocation, startDate, endDate } = req.query;
+    const { status, destinationLocation, sourceLocation, startDate, endDate } = req.query;
 
     if (!companyDB) {
       return res.status(400).json({
@@ -309,8 +309,8 @@ export const exportStockTransfers = async (req, res, next) => {
 
     const filters = {};
     if (status) filters.status = status;
-    if (fromLocation) filters.fromLocation = fromLocation;
-    if (toLocation) filters.toLocation = toLocation;
+    if (destinationLocation) filters.destinationLocation = destinationLocation;
+    if (sourceLocation) filters.sourceLocation = sourceLocation;
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
 
@@ -329,13 +329,13 @@ export const exportStockTransfers = async (req, res, next) => {
 /**
  * GET /api/v2/reports/stock-backorders/export
  * Export stock backorders to CSV format
- * Query params: status, fromLocation, toLocation
+ * Query params: status, destinationLocation, sourceLocation
  * Requirements: 16.9
  */
 export const exportStockBackorders = async (req, res, next) => {
   try {
     const companyDB = req.companyDB;
-    const { status, fromLocation, toLocation } = req.query;
+    const { status, destinationLocation, sourceLocation } = req.query;
 
     if (!companyDB) {
       return res.status(400).json({
@@ -346,8 +346,8 @@ export const exportStockBackorders = async (req, res, next) => {
 
     const filters = {};
     if (status) filters.status = status;
-    if (fromLocation) filters.fromLocation = fromLocation;
-    if (toLocation) filters.toLocation = toLocation;
+    if (destinationLocation) filters.destinationLocation = destinationLocation;
+    if (sourceLocation) filters.sourceLocation = sourceLocation;
 
     const csvContent = await reportingService.exportStockBackordersCSV(companyDB, filters);
     

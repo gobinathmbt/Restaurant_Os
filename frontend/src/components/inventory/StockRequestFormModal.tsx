@@ -66,8 +66,8 @@ export default function StockRequestFormModal({
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [toLocationType, setToLocationType] = useState<'branch' | 'warehouse' | ''>('');
   const [formData, setFormData] = useState({
-    fromLocation: '',
-    toLocation: currentBranchId,
+    destinationLocation: '',
+    sourceLocation: currentBranchId,
     priority: 'normal' as 'low' | 'normal' | 'high' | 'urgent',
     notes: ''
   });
@@ -101,20 +101,20 @@ export default function StockRequestFormModal({
   // Auto-select single branch for non-super-admin users
   useEffect(() => {
     if (open && user?.branchIds?.length === 1 && !user?.role?.includes('super_admin')) {
-      setFormData(prev => ({ ...prev, fromLocation: user.branchIds[0] }));
+      setFormData(prev => ({ ...prev, destinationLocation: user.branchIds[0] }));
     }
   }, [open, user]);
 
   useEffect(() => {
-    if (formData.fromLocation) {
-      fetchInventoryItems(formData.fromLocation);
+    if (formData.destinationLocation) {
+      fetchInventoryItems(formData.destinationLocation);
     }
-  }, [formData.fromLocation]);
+  }, [formData.destinationLocation]);
 
   const resetForm = () => {
     setFormData({
-      fromLocation: '',
-      toLocation: currentBranchId,
+      destinationLocation: '',
+      sourceLocation: currentBranchId,
       priority: 'normal',
       notes: ''
     });
@@ -221,7 +221,7 @@ export default function StockRequestFormModal({
   };
 
   const validateForm = () => {
-    if (!formData.fromLocation) {
+    if (!formData.destinationLocation) {
       toast({
         title: "Validation Error",
         description: "From location is required",
@@ -230,7 +230,7 @@ export default function StockRequestFormModal({
       return false;
     }
 
-    if (!formData.toLocation) {
+    if (!formData.sourceLocation) {
       toast({
         title: "Validation Error",
         description: "To location is required",
@@ -239,7 +239,7 @@ export default function StockRequestFormModal({
       return false;
     }
 
-    if (formData.fromLocation === formData.toLocation) {
+    if (formData.destinationLocation === formData.sourceLocation) {
       toast({
         title: "Validation Error",
         description: "From location and to location cannot be the same",
@@ -285,8 +285,8 @@ export default function StockRequestFormModal({
       setLoading(true);
       
       const submitData = {
-        fromLocation: formData.fromLocation,
-        toLocation: formData.toLocation,
+        destinationLocation: formData.destinationLocation,
+        sourceLocation: formData.sourceLocation,
         priority: formData.priority,
         notes: formData.notes.trim() || undefined,
         items: lineItems
@@ -318,7 +318,7 @@ export default function StockRequestFormModal({
   };
 
   const getAvailableToLocations = () => {
-    let filtered = locations.filter(location => location._id !== formData.fromLocation);
+    let filtered = locations.filter(location => location._id !== formData.destinationLocation);
     
     // Filter by location type if selected
     if (toLocationType === 'branch') {
@@ -331,7 +331,7 @@ export default function StockRequestFormModal({
   };
 
   const getAvailableFromLocations = () => {
-    const filtered = locations.filter(location => location._id !== formData.toLocation);
+    const filtered = locations.filter(location => location._id !== formData.sourceLocation);
     
     // Super admins see all locations
     if (user?.role?.includes('super_admin')) {
@@ -356,11 +356,11 @@ export default function StockRequestFormModal({
               <h3 className="font-semibold">Location Selection</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="fromLocation">From Location *</Label>
+                  <Label htmlFor="destinationLocation">From Location *</Label>
                   <Select
-                    value={formData.fromLocation}
+                    value={formData.destinationLocation}
                     onValueChange={(value) => {
-                      setFormData({ ...formData, fromLocation: value });
+                      setFormData({ ...formData, destinationLocation: value });
                       // Reset line items when from location changes
                       setLineItems([{
                         inventoryItem: '',
@@ -389,7 +389,7 @@ export default function StockRequestFormModal({
                       value={toLocationType}
                       onValueChange={(value) => {
                         setToLocationType(value as 'branch' | 'warehouse');
-                        setFormData({ ...formData, toLocation: '' }); // Reset to-location when type changes
+                        setFormData({ ...formData, sourceLocation: '' }); // Reset to-location when type changes
                       }}
                     >
                       <SelectTrigger>
@@ -402,10 +402,10 @@ export default function StockRequestFormModal({
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="toLocation">To Location *</Label>
+                    <Label htmlFor="sourceLocation">To Location *</Label>
                     <Select
-                      value={formData.toLocation}
-                      onValueChange={(value) => setFormData({ ...formData, toLocation: value })}
+                      value={formData.sourceLocation}
+                      onValueChange={(value) => setFormData({ ...formData, sourceLocation: value })}
                       disabled={!toLocationType}
                     >
                       <SelectTrigger>

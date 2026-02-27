@@ -25,11 +25,11 @@ interface Branch {
 interface StockRequest {
   _id: string;
   requestNumber: string;
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -196,8 +196,8 @@ export default function MyRequestsTab({
       <TableCell>
         <p className="font-medium">{request.requestNumber}</p>
       </TableCell>
-      <TableCell>{request.fromLocation?.name || '-'}</TableCell>
-      <TableCell>{request.toLocation?.name || '-'}</TableCell>
+      <TableCell>{request.destinationLocation?.name || '-'}</TableCell>
+      <TableCell>{request.sourceLocation?.name || '-'}</TableCell>
       <TableCell>{getStatusBadge(request.status)}</TableCell>
       <TableCell>{getPriorityBadge(request.priority)}</TableCell>
       <TableCell>{formatDate(request.expectedDeliveryDate)}</TableCell>

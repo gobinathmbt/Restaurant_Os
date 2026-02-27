@@ -39,7 +39,7 @@ router.get('/v2', listTransfers);
 router.get('/v2/:transferId', getTransferById);
 
 // Ship a stock transfer (Warehouse Admin marks as shipped)
-// Location-based access control is validated in the service layer (fromLocation)
+// Location-based access control is validated in the service layer (destinationLocation)
 router.post(
   '/v2/:transferId/ship',
   idempotencyMiddleware('TRANSFER_SHIP'),
@@ -47,7 +47,7 @@ router.post(
 );
 
 // Receive a stock transfer (Branch Admin marks as received)
-// Location-based access control is validated in the service layer (toLocation)
+// Location-based access control is validated in the service layer (sourceLocation)
 router.post(
   '/v2/:transferId/receive',
   idempotencyMiddleware('TRANSFER_RECEIVE'),

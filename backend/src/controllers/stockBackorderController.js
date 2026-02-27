@@ -42,8 +42,8 @@ const getDeviceInfo = (req) => {
  * - page: number (default 1)
  * - limit: number (max 100, default 10)
  * - status: 'pending' | 'fulfilled' | 'cancelled'
- * - fromLocation: ObjectId
- * - toLocation: ObjectId
+ * - destinationLocation: ObjectId
+ * - sourceLocation: ObjectId
  * - inventoryItem: ObjectId
  * - sortBy: 'createdAt' | 'ageInDays'
  * - sortOrder: 'asc' | 'desc'
@@ -74,8 +74,8 @@ export const listBackorders = async (req, res, next) => {
     // Extract filter parameters
     const filters = {
       status: req.query.status,
-      fromLocation: req.query.fromLocation,
-      toLocation: req.query.toLocation,
+      destinationLocation: req.query.destinationLocation,
+      sourceLocation: req.query.sourceLocation,
       inventoryItem: req.query.inventoryItem,
       sortBy: req.query.sortBy || 'createdAt',
       sortOrder: req.query.sortOrder || 'desc'
@@ -91,8 +91,8 @@ export const listBackorders = async (req, res, next) => {
     if (!isUnrestricted) {
       // Non-Super Admins can only see backorders for their locations
       query.$or = [
-        { fromLocation: { $in: locationIds } },
-        { toLocation: { $in: locationIds } }
+        { destinationLocation: { $in: locationIds } },
+        { sourceLocation: { $in: locationIds } }
       ];
     }
 
@@ -101,12 +101,12 @@ export const listBackorders = async (req, res, next) => {
       query.status = filters.status;
     }
 
-    if (filters.fromLocation) {
-      query.fromLocation = filters.fromLocation;
+    if (filters.destinationLocation) {
+      query.destinationLocation = filters.destinationLocation;
     }
 
-    if (filters.toLocation) {
-      query.toLocation = filters.toLocation;
+    if (filters.sourceLocation) {
+      query.sourceLocation = filters.sourceLocation;
     }
 
     if (filters.inventoryItem) {
@@ -129,8 +129,8 @@ export const listBackorders = async (req, res, next) => {
       .sort({ [sortField]: sortDirection, _id: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('fromLocation', 'name type')
-      .populate('toLocation', 'name type')
+      .populate('destinationLocation', 'name type')
+      .populate('sourceLocation', 'name type')
       .populate('inventoryItem', 'name code')
       .populate('createdBy', 'name email')
       .populate('fulfilledBy', 'name email')
@@ -195,16 +195,16 @@ export const getBackorderById = async (req, res, next) => {
     const { isUnrestricted, locationIds } = getAccessibleLocations(user);
     
     if (!isUnrestricted) {
-      // Check if user has access to either fromLocation or toLocation
-      const hasAccess = locationIds.includes(backorder.fromLocation._id?.toString() || backorder.fromLocation) ||
-                        locationIds.includes(backorder.toLocation._id?.toString() || backorder.toLocation);
+      // Check if user has access to either destinationLocation or sourceLocation
+      const hasAccess = locationIds.includes(backorder.destinationLocation._id?.toString() || backorder.destinationLocation) ||
+                        locationIds.includes(backorder.sourceLocation._id?.toString() || backorder.sourceLocation);
       
       if (!hasAccess) {
         logger.warn('Backorder access denied', {
           userId,
           backorderId,
-          fromLocation: backorder.fromLocation,
-          toLocation: backorder.toLocation
+          destinationLocation: backorder.destinationLocation,
+          sourceLocation: backorder.sourceLocation
         });
 
         return res.status(403).json({

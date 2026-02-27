@@ -34,11 +34,11 @@ interface ExecutionStage {
 interface StockTransfer {
   _id: string;
   transferNumber: string;
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -213,8 +213,8 @@ export default function InTransitTab({
     const destinationStages = ['UNLOADING', 'GOODS_RECEIVED_CONFIRMED'];
 
     const userLocationIds = [...userBranchIds, ...userWarehouseIds];
-    const isSender = userLocationIds.includes(transfer.fromLocation._id);
-    const isDestination = userLocationIds.includes(transfer.toLocation._id);
+    const isSender = userLocationIds.includes(transfer.destinationLocation._id);
+    const isDestination = userLocationIds.includes(transfer.sourceLocation._id);
 
     if (senderStages.includes(currentStage.stage) && isSender) {
       return true;
@@ -270,8 +270,8 @@ export default function InTransitTab({
         <TableCell>
           <p className="font-medium">{transfer.transferNumber}</p>
         </TableCell>
-        <TableCell>{transfer.fromLocation?.name || '-'}</TableCell>
-        <TableCell>{transfer.toLocation?.name || '-'}</TableCell>
+        <TableCell>{transfer.destinationLocation?.name || '-'}</TableCell>
+        <TableCell>{transfer.sourceLocation?.name || '-'}</TableCell>
         <TableCell>
           {currentStage ? getStageBadge(currentStage.stage) : '-'}
         </TableCell>

@@ -79,7 +79,7 @@ export const validatePeriodLockForTransferApproval = async (req, res, next) => {
     }
     
     const approvalDate = new Date();
-    const { isLocked, period } = await checkPeriodLock(transfer.fromLocation, approvalDate, req.companyDB);
+    const { isLocked, period } = await checkPeriodLock(transfer.destinationLocation, approvalDate, req.companyDB);
     
     if (isLocked) {
       return res.status(400).json({

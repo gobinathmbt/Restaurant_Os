@@ -91,12 +91,12 @@ const stockTransferSchema = new mongoose.Schema({
   },
   
   // Location references (replaces branch references)
-  fromLocation: {
+  destinationLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
     required: true
   },
-  toLocation: {
+  sourceLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
     required: true
@@ -388,10 +388,10 @@ const stockTransferSchema = new mongoose.Schema({
 // Indexes for performance
 stockTransferSchema.index({ transferNumber: 1 }, { unique: true });
 stockTransferSchema.index({ companyId: 1, status: 1 });
-stockTransferSchema.index({ fromLocation: 1, status: 1 });
-stockTransferSchema.index({ toLocation: 1, status: 1 });
+stockTransferSchema.index({ destinationLocation: 1, status: 1 });
+stockTransferSchema.index({ sourceLocation: 1, status: 1 });
 stockTransferSchema.index({ status: 1, requestDate: -1 });
-stockTransferSchema.index({ fromLocation: 1, toLocation: 1, status: 1 });
+stockTransferSchema.index({ destinationLocation: 1, sourceLocation: 1, status: 1 });
 stockTransferSchema.index({ transferType: 1 });
 stockTransferSchema.index({ originalRequestId: 1 }); // Link to stock request
 
@@ -402,11 +402,11 @@ stockTransferSchema.index(
   { partialFilterExpression: { isArchived: false } }
 );
 stockTransferSchema.index(
-  { companyId: 1, fromLocation: 1, status: 1 },
+  { companyId: 1, destinationLocation: 1, status: 1 },
   { partialFilterExpression: { isArchived: false } }
 );
 stockTransferSchema.index(
-  { companyId: 1, toLocation: 1, status: 1 },
+  { companyId: 1, sourceLocation: 1, status: 1 },
   { partialFilterExpression: { isArchived: false } }
 );
 stockTransferSchema.index(
@@ -415,8 +415,8 @@ stockTransferSchema.index(
 );
 
 // Dashboard and operational queries
-stockTransferSchema.index({ status: 1, fromLocation: 1, requestDate: -1 });
-stockTransferSchema.index({ status: 1, toLocation: 1, requestDate: -1 });
+stockTransferSchema.index({ status: 1, destinationLocation: 1, requestDate: -1 });
+stockTransferSchema.index({ status: 1, sourceLocation: 1, requestDate: -1 });
 stockTransferSchema.index({ status: 1, priority: 1, requestDate: -1 });
 stockTransferSchema.index({ status: 1, approvedBy: 1 });
 

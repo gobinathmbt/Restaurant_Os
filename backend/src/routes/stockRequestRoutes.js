@@ -31,8 +31,8 @@ router.use(requireCompanyDB);
  * POST /api/v2/stock-requests
  * 
  * Body: {
- *   fromLocation: ObjectId,
- *   toLocation: ObjectId,
+ *   destinationLocation: ObjectId,
+ *   sourceLocation: ObjectId,
  *   items: [{ inventoryItem, requestedQuantity, unit, notes }],
  *   priority: 'low' | 'normal' | 'high' | 'urgent',
  *   notes: string
@@ -106,8 +106,8 @@ router.get('/pending-approvals', getPendingApprovals);
  * - limit: number (max 100, default 10)
  * - status: 'pending' | 'approved' | 'rejected' | 'cancelled'
  * - priority: 'low' | 'normal' | 'high' | 'urgent'
- * - fromLocation: ObjectId
- * - toLocation: ObjectId
+ * - destinationLocation: ObjectId
+ * - sourceLocation: ObjectId
  * - inventoryItem: ObjectId
  * - requestDateStart: ISO date string
  * - requestDateEnd: ISO date string

@@ -131,7 +131,7 @@ export const validateLocationAccess = (options = {}) => {
 
 /**
  * Validate Multiple Locations Access Middleware
- * Checks if user has access to multiple locations (e.g., fromLocation and toLocation)
+ * Checks if user has access to multiple locations (e.g., destinationLocation and sourceLocation)
  * 
  * @param {Object} options - Configuration options
  * @param {string[]} options.locationFields - Array of field names containing locationIds
@@ -140,7 +140,7 @@ export const validateLocationAccess = (options = {}) => {
  */
 export const validateMultipleLocationsAccess = (options = {}) => {
   const {
-    locationFields = ['fromLocation', 'toLocation'],
+    locationFields = ['destinationLocation', 'sourceLocation'],
     source = 'any'
   } = options;
 

@@ -23,11 +23,11 @@ interface Branch {
 interface StockTransfer {
   _id: string;
   transferNumber: string;
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -168,8 +168,8 @@ export default function TransfersToExecuteTab({
       <TableCell>
         <p className="font-medium">{transfer.transferNumber}</p>
       </TableCell>
-      <TableCell>{transfer.fromLocation?.name || '-'}</TableCell>
-      <TableCell>{transfer.toLocation?.name || '-'}</TableCell>
+      <TableCell>{transfer.destinationLocation?.name || '-'}</TableCell>
+      <TableCell>{transfer.sourceLocation?.name || '-'}</TableCell>
       <TableCell>{transfer.items?.length || 0} items</TableCell>
       <TableCell>{getStatusBadge(transfer.status)}</TableCell>
       <TableCell>{formatDate(transfer.requestDate)}</TableCell>

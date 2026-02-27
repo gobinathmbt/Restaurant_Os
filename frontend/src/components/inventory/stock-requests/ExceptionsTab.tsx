@@ -42,11 +42,11 @@ interface Exception {
 interface StockTransfer {
   _id: string;
   transferNumber: string;
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -57,8 +57,8 @@ interface StockTransfer {
 interface ExceptionRow {
   transferId: string;
   transferNumber: string;
-  fromLocation: string;
-  toLocation: string;
+  destinationLocation: string;
+  sourceLocation: string;
   exception: Exception;
 }
 
@@ -126,8 +126,8 @@ export default function ExceptionsTab({
             rows.push({
               transferId: transfer._id,
               transferNumber: transfer.transferNumber,
-              fromLocation: transfer.fromLocation?.name || '-',
-              toLocation: transfer.toLocation?.name || '-',
+              destinationLocation: transfer.destinationLocation?.name || '-',
+              sourceLocation: transfer.sourceLocation?.name || '-',
               exception
             });
           });
@@ -232,7 +232,7 @@ export default function ExceptionsTab({
       <TableCell>
         <p className="font-medium">{row.transferNumber}</p>
         <p className="text-xs text-muted-foreground">
-          {row.fromLocation} → {row.toLocation}
+          {row.destinationLocation} → {row.sourceLocation}
         </p>
       </TableCell>
       <TableCell>{getExceptionTypeBadge(row.exception.type)}</TableCell>

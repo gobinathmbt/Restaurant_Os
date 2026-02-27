@@ -25,11 +25,11 @@ interface Branch {
 interface StockRequest {
   _id: string;
   requestNumber: string;
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -99,7 +99,7 @@ export default function PendingApprovalsTab({
         page,
         limit: rowsPerPage,
         search: search || undefined,
-        status: 'pending', // Only show pending requests for approval
+        status: 'pending',
         priority: priorityFilter || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
@@ -160,8 +160,8 @@ export default function PendingApprovalsTab({
       <TableCell>
         <p className="font-medium">{request.requestNumber}</p>
       </TableCell>
-      <TableCell>{request.fromLocation?.name || '-'}</TableCell>
-      <TableCell>{request.toLocation?.name || '-'}</TableCell>
+      <TableCell>{request.destinationLocation?.name || '-'}</TableCell>
+      <TableCell>{request.sourceLocation?.name || '-'}</TableCell>
       <TableCell>
         <span className="text-sm text-muted-foreground">
           {request.items.length} item{request.items.length !== 1 ? 's' : ''}

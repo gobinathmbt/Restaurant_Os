@@ -6,8 +6,8 @@ import { ENV } from '../../config/env.js';
 export function generateTransferShippedEmailTemplate(transfer, recipientName) {
   const {
     transferNumber,
-    fromLocation,
-    toLocation,
+    destinationLocation,
+    sourceLocation,
     items,
     shippedBy,
     shippedDate,
@@ -60,11 +60,11 @@ export function generateTransferShippedEmailTemplate(transfer, recipientName) {
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
           <span style="font-size: 14px; opacity: 0.9;">From Location:</span>
-          <span style="font-size: 14px; font-weight: 600;">${fromLocation?.name || 'N/A'}</span>
+          <span style="font-size: 14px; font-weight: 600;">${destinationLocation?.name || 'N/A'}</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
           <span style="font-size: 14px; opacity: 0.9;">To Location:</span>
-          <span style="font-size: 14px; font-weight: 600;">${toLocation?.name || 'N/A'}</span>
+          <span style="font-size: 14px; font-weight: 600;">${sourceLocation?.name || 'N/A'}</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
           <span style="font-size: 14px; opacity: 0.9;">Shipped By:</span>
@@ -130,8 +130,8 @@ export function generateTransferShippedEmailTemplate(transfer, recipientName) {
 export function generateTransferCompletedEmailTemplate(transfer, recipientName) {
   const {
     transferNumber,
-    fromLocation,
-    toLocation,
+    destinationLocation,
+    sourceLocation,
     items,
     receivedBy,
     receivedDate
@@ -188,11 +188,11 @@ export function generateTransferCompletedEmailTemplate(transfer, recipientName) 
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">From Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${fromLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${destinationLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">To Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${toLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${sourceLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">Received By:</div>
@@ -265,8 +265,8 @@ export function generateTransferCompletedEmailTemplate(transfer, recipientName) 
 export function generateBackorderCreationEmailTemplate(backorder, recipientName) {
   const {
     originalRequestId,
-    fromLocation,
-    toLocation,
+    destinationLocation,
+    sourceLocation,
     inventoryItem,
     backorderedQuantity,
     unit,
@@ -328,11 +328,11 @@ export function generateBackorderCreationEmailTemplate(backorder, recipientName)
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 160px;">From Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${fromLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${destinationLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 160px;">To Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${toLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${sourceLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 160px;">Item:</div>

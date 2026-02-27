@@ -27,11 +27,11 @@ interface Transaction {
   requestNumber?: string;
   transferNumber?: string;
   type: 'request' | 'transfer';
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -139,7 +139,7 @@ export default function AllTransactionsTab({
       // Apply location filter
       if (locationFilter) {
         allTransactions = allTransactions.filter(t => 
-          t.fromLocation._id === locationFilter || t.toLocation._id === locationFilter
+          t.destinationLocation._id === locationFilter || t.sourceLocation._id === locationFilter
         );
       }
 
@@ -238,8 +238,8 @@ export default function AllTransactionsTab({
         </p>
       </TableCell>
       <TableCell>{getTypeBadge(transaction.type)}</TableCell>
-      <TableCell>{transaction.fromLocation?.name || '-'}</TableCell>
-      <TableCell>{transaction.toLocation?.name || '-'}</TableCell>
+      <TableCell>{transaction.destinationLocation?.name || '-'}</TableCell>
+      <TableCell>{transaction.sourceLocation?.name || '-'}</TableCell>
       <TableCell>{getStatusBadge(transaction.status)}</TableCell>
       <TableCell>{getPriorityBadge(transaction.priority)}</TableCell>
       <TableCell>

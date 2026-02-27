@@ -80,10 +80,10 @@ const indexDefinitions = {
   // StockTransfer indexes
   stocktransfers: [
     { keys: { transferNumber: 1 }, options: { unique: true, name: 'idx_transfer_number_unique' } },
-    { keys: { fromLocation: 1, status: 1 }, options: { name: 'idx_transfer_fromLocation_status' } },
-    { keys: { toLocation: 1, status: 1 }, options: { name: 'idx_transfer_toLocation_status' } },
+    { keys: { destinationLocation: 1, status: 1 }, options: { name: 'idx_transfer_fromLocation_status' } },
+    { keys: { sourceLocation: 1, status: 1 }, options: { name: 'idx_transfer_toLocation_status' } },
     { keys: { status: 1, requestDate: -1 }, options: { name: 'idx_transfer_status_requestDate' } },
-    { keys: { fromLocation: 1, toLocation: 1, status: 1 }, options: { name: 'idx_transfer_fromTo_status' } },
+    { keys: { destinationLocation: 1, sourceLocation: 1, status: 1 }, options: { name: 'idx_transfer_fromTo_status' } },
     { keys: { transferType: 1 }, options: { name: 'idx_transfer_type' } },
     { keys: { requestDate: -1 }, options: { name: 'idx_transfer_requestDate' } },
     // Legacy indexes for backward compatibility
@@ -128,8 +128,8 @@ const indexDefinitions = {
   
   // StockBackorder indexes
   stockbackorders: [
-    { keys: { fromLocation: 1, status: 1 }, options: { name: 'idx_backorder_fromLocation_status' } },
-    { keys: { toLocation: 1, status: 1 }, options: { name: 'idx_backorder_toLocation_status' } },
+    { keys: { destinationLocation: 1, status: 1 }, options: { name: 'idx_backorder_fromLocation_status' } },
+    { keys: { sourceLocation: 1, status: 1 }, options: { name: 'idx_backorder_toLocation_status' } },
     { keys: { inventoryItem: 1, status: 1 }, options: { name: 'idx_backorder_item_status' } },
     { keys: { originalTransferId: 1 }, options: { name: 'idx_backorder_originalTransfer' } },
     { keys: { fulfilledTransferId: 1 }, options: { name: 'idx_backorder_fulfilledTransfer' } },
@@ -246,7 +246,7 @@ async function verifyIndexUsage(db) {
     },
     {
       collection: 'stocktransfers',
-      query: { fromLocation: new mongoose.Types.ObjectId(), status: 'approved' },
+      query: { destinationLocation: new mongoose.Types.ObjectId(), status: 'approved' },
       description: 'Transfers from location by status'
     },
     {

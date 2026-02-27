@@ -148,14 +148,14 @@ export const validateStageTransition = (transfer, newStage, user) => {
     
     // Check sender role permission
     if (requiredRoles.includes('sender')) {
-      if (hasLocationAccess(user, transfer.fromLocation)) {
+      if (hasLocationAccess(user, transfer.destinationLocation)) {
         return true;
       }
     }
     
     // Check destination role permission
     if (requiredRoles.includes('destination')) {
-      if (hasLocationAccess(user, transfer.toLocation)) {
+      if (hasLocationAccess(user, transfer.sourceLocation)) {
         return true;
       }
     }
@@ -219,8 +219,8 @@ export const updateExecutionStage = async (
       _id: transferId,
       companyId: companyId
     })
-    .populate('fromLocation')
-    .populate('toLocation')
+    .populate('destinationLocation')
+    .populate('sourceLocation')
     .session(session);
     
     if (!transfer) {
@@ -263,8 +263,8 @@ export const updateExecutionStage = async (
     
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
-      .populate('fromLocation')
-      .populate('toLocation');
+      .populate('destinationLocation')
+      .populate('sourceLocation');
     
     logger.info(
       `Stock transfer ${transfer.transferNumber} stage updated to ${newStage} by user ${userId} for company ${companyId}`
@@ -275,11 +275,11 @@ export const updateExecutionStage = async (
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
       const senderUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.fromLocation._id.toString()
+        transfer.destinationLocation._id.toString()
       );
       const destinationUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.toLocation._id.toString()
+        transfer.sourceLocation._id.toString()
       );
       
       // Combine and deduplicate by userId
@@ -288,8 +288,8 @@ export const updateExecutionStage = async (
         new Map(allRecipients.map(user => [user._id.toString(), user])).values()
       );
       
-      const fromLocationName = transfer.fromLocation?.name || 'Unknown location';
-      const toLocationName = transfer.toLocation?.name || 'Unknown location';
+      const fromLocationName = transfer.destinationLocation?.name || 'Unknown location';
+      const toLocationName = transfer.sourceLocation?.name || 'Unknown location';
       const updaterName = user.name || 'Unknown user';
       
       // Send notifications to all unique recipients
@@ -386,8 +386,8 @@ export const recordException = async (
       _id: transferId,
       companyId: companyId
     })
-    .populate('fromLocation')
-    .populate('toLocation')
+    .populate('destinationLocation')
+    .populate('sourceLocation')
     .session(session);
     
     if (!transfer) {
@@ -395,8 +395,8 @@ export const recordException = async (
     }
     
     // Validate user has access to either location
-    const hasAccess = hasLocationAccess(user, transfer.fromLocation._id) || 
-                      hasLocationAccess(user, transfer.toLocation._id);
+    const hasAccess = hasLocationAccess(user, transfer.destinationLocation._id) || 
+                      hasLocationAccess(user, transfer.sourceLocation._id);
     
     if (!hasAccess && !isSuperAdmin(user)) {
       throw new Error('User does not have access to this transfer');
@@ -436,8 +436,8 @@ export const recordException = async (
     
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
-      .populate('fromLocation')
-      .populate('toLocation')
+      .populate('destinationLocation')
+      .populate('sourceLocation')
       .populate('exceptions.inventoryItem');
     
     logger.info(
@@ -450,11 +450,11 @@ export const recordException = async (
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
       const senderUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.fromLocation._id.toString()
+        transfer.destinationLocation._id.toString()
       );
       const destinationUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.toLocation._id.toString()
+        transfer.sourceLocation._id.toString()
       );
       
       // Combine and deduplicate by userId
@@ -463,8 +463,8 @@ export const recordException = async (
         new Map(allRecipients.map(user => [user._id.toString(), user])).values()
       );
       
-      const fromLocationName = transfer.fromLocation?.name || 'Unknown location';
-      const toLocationName = transfer.toLocation?.name || 'Unknown location';
+      const fromLocationName = transfer.destinationLocation?.name || 'Unknown location';
+      const toLocationName = transfer.sourceLocation?.name || 'Unknown location';
       const reporterName = user.name || 'Unknown user';
       
       // Send notifications to all unique recipients
@@ -558,8 +558,8 @@ export const acceptStock = async (
       _id: transferId,
       companyId: companyId
     })
-    .populate('fromLocation')
-    .populate('toLocation')
+    .populate('destinationLocation')
+    .populate('sourceLocation')
     .session(session);
     
     if (!transfer) {
@@ -567,7 +567,7 @@ export const acceptStock = async (
     }
     
     // Validate user is destination admin
-    if (!hasLocationAccess(user, transfer.toLocation._id) && !isSuperAdmin(user)) {
+    if (!hasLocationAccess(user, transfer.sourceLocation._id) && !isSuperAdmin(user)) {
       throw new Error('User must be destination admin to accept stock');
     }
     
@@ -710,8 +710,8 @@ export const acceptStock = async (
     
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
-      .populate('fromLocation')
-      .populate('toLocation')
+      .populate('destinationLocation')
+      .populate('sourceLocation')
       .populate('exceptions.inventoryItem');
     
     logger.info(
@@ -724,11 +724,11 @@ export const acceptStock = async (
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
       const senderUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.fromLocation._id.toString()
+        transfer.destinationLocation._id.toString()
       );
       const destinationUsers = await locationNotificationRouter.getUsersByLocation(
         companyId, 
-        transfer.toLocation._id.toString()
+        transfer.sourceLocation._id.toString()
       );
       
       // Combine and deduplicate by userId
@@ -737,8 +737,8 @@ export const acceptStock = async (
         new Map(allRecipients.map(user => [user._id.toString(), user])).values()
       );
       
-      const fromLocationName = transfer.fromLocation?.name || 'Unknown location';
-      const toLocationName = transfer.toLocation?.name || 'Unknown location';
+      const fromLocationName = transfer.destinationLocation?.name || 'Unknown location';
+      const toLocationName = transfer.sourceLocation?.name || 'Unknown location';
       const acceptorName = user.name || 'Unknown user';
       
       // Send notifications to all unique recipients

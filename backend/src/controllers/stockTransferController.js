@@ -19,8 +19,8 @@ export const listTransfers = async (req, res, next) => {
       page = 1, 
       limit = 10, 
       transferType,
-      fromLocation,
-      toLocation,
+      destinationLocation,
+      sourceLocation,
       startDate,
       endDate
     } = req.query;
@@ -36,8 +36,8 @@ export const listTransfers = async (req, res, next) => {
     const filters = {
       status,
       transferType,
-      fromLocation,
-      toLocation,
+      destinationLocation,
+      sourceLocation,
       startDate,
       endDate
     };
@@ -45,7 +45,7 @@ export const listTransfers = async (req, res, next) => {
     // Apply location-based filtering
     if (!isUnrestricted) {
       // For non-Super Admins, filter by accessible locations
-      // Show transfers where user has access to fromLocation OR toLocation
+      // Show transfers where user has access to destinationLocation OR sourceLocation
       filters.accessibleLocations = locationIds;
     }
 
@@ -89,10 +89,10 @@ export const createTransfer = async (req, res, next) => {
     };
 
     // Validate required fields
-    if (!transferData.fromLocation || !transferData.toLocation) {
+    if (!transferData.destinationLocation || !transferData.sourceLocation) {
       return res.status(400).json({
         success: false,
-        message: 'fromLocation and toLocation are required'
+        message: 'destinationLocation and sourceLocation are required'
       });
     }
 
@@ -543,9 +543,9 @@ export const shipTransfer = async (req, res, next) => {
     // Get transfer to validate location access
     const transfer = await stockTransferService.getTransfer(transferId, companyId);
     
-    // Validate user has access to fromLocation (Warehouse Admin)
+    // Validate user has access to destinationLocation (Warehouse Admin)
     const { hasLocationAccess } = await import('../middlewares/locationAccess.js');
-    if (!hasLocationAccess(req.user, transfer.fromLocation._id.toString())) {
+    if (!hasLocationAccess(req.user, transfer.destinationLocation._id.toString())) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You do not have permission to ship transfers from this location.'
@@ -611,9 +611,9 @@ export const receiveTransfer = async (req, res, next) => {
     // Get transfer to validate location access
     const transfer = await stockTransferService.getTransfer(transferId, companyId);
     
-    // Validate user has access to toLocation (Branch Admin)
+    // Validate user has access to sourceLocation (Branch Admin)
     const { hasLocationAccess } = await import('../middlewares/locationAccess.js');
-    if (!hasLocationAccess(req.user, transfer.toLocation._id.toString())) {
+    if (!hasLocationAccess(req.user, transfer.sourceLocation._id.toString())) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You do not have permission to receive transfers at this location.'
@@ -771,9 +771,9 @@ export const acceptStock = async (req, res, next) => {
     // Get transfer to validate location access
     const transfer = await stockTransferService.getTransfer(transferId, companyId);
     
-    // Validate user has access to toLocation (destination admin)
+    // Validate user has access to sourceLocation (destination admin)
     const { hasLocationAccess } = await import('../middlewares/locationAccess.js');
-    if (!hasLocationAccess(req.user, transfer.toLocation._id.toString())) {
+    if (!hasLocationAccess(req.user, transfer.sourceLocation._id.toString())) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. You do not have permission to accept stock at this location.'

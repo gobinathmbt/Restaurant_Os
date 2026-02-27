@@ -28,12 +28,12 @@ const stockBackorderSchema = new mongoose.Schema({
   },
   
   // Location references
-  fromLocation: {
+  destinationLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
     required: true
   },
-  toLocation: {
+  sourceLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
     required: true
@@ -141,19 +141,19 @@ stockBackorderSchema.virtual('ageInDays').get(function() {
 
 // Indexes for performance
 stockBackorderSchema.index({ companyId: 1, status: 1 });
-stockBackorderSchema.index({ fromLocation: 1, status: 1 });
-stockBackorderSchema.index({ toLocation: 1, status: 1 });
+stockBackorderSchema.index({ destinationLocation: 1, status: 1 });
+stockBackorderSchema.index({ sourceLocation: 1, status: 1 });
 stockBackorderSchema.index({ inventoryItem: 1, status: 1 });
 stockBackorderSchema.index({ originalTransferId: 1 });
 stockBackorderSchema.index({ originalRequestId: 1 });
 stockBackorderSchema.index({ status: 1, createdAt: -1 });
-stockBackorderSchema.index({ fromLocation: 1, inventoryItem: 1, status: 1 });
-stockBackorderSchema.index({ toLocation: 1, inventoryItem: 1, status: 1 });
+stockBackorderSchema.index({ destinationLocation: 1, inventoryItem: 1, status: 1 });
+stockBackorderSchema.index({ sourceLocation: 1, inventoryItem: 1, status: 1 });
 
 // Compound indexes including companyId for future-proofing (DB merge scenarios)
 stockBackorderSchema.index({ companyId: 1, status: 1, createdAt: -1 });
-stockBackorderSchema.index({ companyId: 1, fromLocation: 1, status: 1 });
-stockBackorderSchema.index({ companyId: 1, toLocation: 1, status: 1 });
+stockBackorderSchema.index({ companyId: 1, destinationLocation: 1, status: 1 });
+stockBackorderSchema.index({ companyId: 1, sourceLocation: 1, status: 1 });
 stockBackorderSchema.index({ companyId: 1, inventoryItem: 1, status: 1 });
 
 // Unique constraint to prevent duplicate backorders for same item in same transfer
@@ -167,8 +167,8 @@ stockBackorderSchema.index({
 });
 
 // Pending backorder queries optimization
-stockBackorderSchema.index({ status: 1, fromLocation: 1, createdAt: -1 });
-stockBackorderSchema.index({ status: 1, toLocation: 1, createdAt: -1 });
+stockBackorderSchema.index({ status: 1, destinationLocation: 1, createdAt: -1 });
+stockBackorderSchema.index({ status: 1, sourceLocation: 1, createdAt: -1 });
 
 export const getStockBackorderModel = (companyDB) => {
   return companyDB.model('StockBackorder', stockBackorderSchema);

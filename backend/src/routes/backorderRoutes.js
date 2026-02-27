@@ -28,8 +28,8 @@ router.use(requireCompanyDB);
  * - page: number (default 1)
  * - limit: number (max 100, default 10)
  * - status: 'pending' | 'fulfilled' | 'cancelled'
- * - fromLocation: ObjectId
- * - toLocation: ObjectId
+ * - destinationLocation: ObjectId
+ * - sourceLocation: ObjectId
  * - inventoryItem: ObjectId
  * - sortBy: 'createdAt' | 'ageInDays'
  * - sortOrder: 'asc' | 'desc'

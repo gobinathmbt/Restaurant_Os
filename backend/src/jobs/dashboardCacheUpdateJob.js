@@ -189,7 +189,7 @@ class DashboardCacheUpdateJob {
   }
 
   /**
-   * Aggregate backorder counts by fromLocation
+   * Aggregate backorder counts by destinationLocation
    * @param {Model} StockBackorder - StockBackorder model
    * @param {string} companyId - Company ID
    * @returns {Promise<Object>} Backorder data
@@ -205,7 +205,7 @@ class DashboardCacheUpdateJob {
       },
       {
         $group: {
-          _id: '$fromLocation',
+          _id: '$destinationLocation',
           count: { $sum: 1 }
         }
       },
@@ -225,7 +225,7 @@ class DashboardCacheUpdateJob {
       },
       {
         $project: {
-          fromLocation: '$_id',
+          destinationLocation: '$_id',
           locationName: '$locationData.name',
           locationCode: '$locationData.code',
           pendingBackorderCount: '$count'
@@ -407,7 +407,7 @@ class DashboardCacheUpdateJob {
       },
       {
         $group: {
-          _id: '$toLocation',
+          _id: '$sourceLocation',
           pendingRequestCount: { $sum: 1 }
         }
       },

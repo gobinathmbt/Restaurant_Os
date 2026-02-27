@@ -24,11 +24,11 @@ interface Branch {
 interface StockRequest {
   _id: string;
   requestNumber: string;
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -99,7 +99,7 @@ export default function IncomingRequestsTab({
         search: search || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
-        toLocation: selectedBranch, // Filter by destination location
+        sourceLocation: selectedBranch, // Filter by destination location
       });
 
       setRequests(response.data.data.requests || []);
@@ -173,7 +173,7 @@ export default function IncomingRequestsTab({
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
-          <span>{request.fromLocation?.name || '-'}</span>
+          <span>{request.destinationLocation?.name || '-'}</span>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
         </div>
       </TableCell>

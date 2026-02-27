@@ -15,11 +15,11 @@ interface StockRequest {
   requestNumber: string;
   status: string;
   priority: string;
-  fromLocation: {
+  destinationLocation: {
     _id: string;
     name: string;
   };
-  toLocation: {
+  sourceLocation: {
     _id: string;
     name: string;
   };
@@ -228,11 +228,11 @@ export default function StockRequestViewModal({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-muted-foreground">From Location</Label>
-                <p className="font-medium">{request.fromLocation.name}</p>
+                <p className="font-medium">{request.destinationLocation.name}</p>
               </div>
               <div>
                 <Label className="text-muted-foreground">To Location</Label>
-                <p className="font-medium">{request.toLocation.name}</p>
+                <p className="font-medium">{request.sourceLocation.name}</p>
               </div>
             </div>
 

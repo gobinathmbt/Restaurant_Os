@@ -133,8 +133,8 @@ export const fulfillBackorder = async (backorderId, userId, companyId, options =
         const newTransfer = new StockTransfer({
           transferNumber,
           companyId,
-          fromLocation: currentBackorder.fromLocation,
-          toLocation: currentBackorder.toLocation,
+          destinationLocation: currentBackorder.destinationLocation,
+          sourceLocation: currentBackorder.sourceLocation,
           transferType: originalReference.transferType || 'request',
           priority: originalReference.priority || 'normal',
           systemGenerated: true, // Mark as system-generated for audit clarity
@@ -287,9 +287,9 @@ export const cancelBackorder = async (backorderId, userId, cancellationReason, c
 
 /**
  * Get pending backorders by location and optionally by item
- * Supports filtering by fromLocation or toLocation
+ * Supports filtering by destinationLocation or sourceLocation
  * 
- * @param {string} locationId - Location ID (can be fromLocation or toLocation)
+ * @param {string} locationId - Location ID (can be destinationLocation or sourceLocation)
  * @param {string} direction - 'from' or 'to' to specify location role
  * @param {string} companyId - Company ID
  * @param {Object} options - Query options (itemId, limit, skip)
@@ -309,14 +309,14 @@ export const getPendingBackorders = async (locationId, direction, companyId, opt
     };
 
     if (direction === 'from') {
-      query.fromLocation = locationId;
+      query.destinationLocation = locationId;
     } else if (direction === 'to') {
-      query.toLocation = locationId;
+      query.sourceLocation = locationId;
     } else {
       // Both directions
       query.$or = [
-        { fromLocation: locationId },
-        { toLocation: locationId }
+        { destinationLocation: locationId },
+        { sourceLocation: locationId }
       ];
     }
 
@@ -326,8 +326,8 @@ export const getPendingBackorders = async (locationId, direction, companyId, opt
 
     const backorders = await StockBackorder.find(query)
       .populate('inventoryItem', 'name code')
-      .populate('fromLocation', 'name code')
-      .populate('toLocation', 'name code')
+      .populate('destinationLocation', 'name code')
+      .populate('sourceLocation', 'name code')
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip(skip)
@@ -358,8 +358,8 @@ export const getBackorder = async (backorderId, companyId) => {
       companyId
     })
       .populate('inventoryItem', 'name code')
-      .populate('fromLocation', 'name code')
-      .populate('toLocation', 'name code')
+      .populate('destinationLocation', 'name code')
+      .populate('sourceLocation', 'name code')
       .populate('originalTransferId')
       .populate('originalRequestId')
       .populate('fulfilledTransferId')

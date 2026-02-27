@@ -139,7 +139,7 @@ export const createRequest = async (
 ) => {
   try {
     // Validate required fields
-    const requiredFields = ['fromLocation', 'toLocation', 'items'];
+    const requiredFields = ['destinationLocation', 'sourceLocation', 'items'];
     const missingFields = requiredFields.filter(field => !requestData[field]);
     
     if (missingFields.length > 0) {
@@ -164,9 +164,9 @@ export const createRequest = async (
       }
     }
 
-    // Validate fromLocation != toLocation
-    if (requestData.fromLocation.toString() === requestData.toLocation.toString()) {
-      throw new Error('fromLocation and toLocation cannot be the same');
+    // Validate destinationLocation != sourceLocation
+    if (requestData.destinationLocation.toString() === requestData.sourceLocation.toString()) {
+      throw new Error('destinationLocation and sourceLocation cannot be the same');
     }
 
     // Get user details
@@ -190,10 +190,10 @@ export const createRequest = async (
       throw new Error('Warehouse admins cannot create stock requests. You can only receive and fulfill incoming requests.');
     }
 
-    // Validate user has access to fromLocation (source location)
+    // Validate user has access to destinationLocation (source location)
     // Users can request TO any location, but must have access to FROM location
-    if (!hasLocationAccess(user, requestData.fromLocation)) {
-      throw new Error('Access denied. You do not have permission to access the following locations: fromLocation');
+    if (!hasLocationAccess(user, requestData.destinationLocation)) {
+      throw new Error('Access denied. You do not have permission to access the following locations: destinationLocation');
     }
 
     // Get company database
@@ -211,8 +211,8 @@ export const createRequest = async (
     const stockRequest = new StockRequest({
       requestNumber,
       companyId,
-      fromLocation: requestData.fromLocation,
-      toLocation: requestData.toLocation,
+      destinationLocation: requestData.destinationLocation,
+      sourceLocation: requestData.sourceLocation,
       priority,
       expectedDeliveryDate,
       items: requestData.items,
@@ -231,8 +231,8 @@ export const createRequest = async (
 
     // Populate request for notification (populate inventoryItem and manually populate requestedBy from platform DB)
     const populatedRequest = await StockRequest.findById(stockRequest._id)
-      .populate('fromLocation')
-      .populate('toLocation')
+      .populate('destinationLocation')
+      .populate('sourceLocation')
       .populate('items.inventoryItem')
       .lean();
 
@@ -259,8 +259,8 @@ export const createRequest = async (
           new Map(superAdmins.map(admin => [admin._id.toString(), admin])).values()
         );
 
-        const fromLocationName = populatedRequest.fromLocation?.name || 'Unknown location';
-        const toLocationName = populatedRequest.toLocation?.name || 'Unknown location';
+        const fromLocationName = populatedRequest.destinationLocation?.name || 'Unknown location';
+        const toLocationName = populatedRequest.sourceLocation?.name || 'Unknown location';
         const requesterName = populatedRequest.requestedBy?.name || 'Unknown user';
         const itemCount = populatedRequest.items?.length || 0;
 
@@ -341,7 +341,7 @@ const canApproveRequest = (user, toLocationId) => {
     return true;
   }
   
-  // Warehouse Admins can approve if they have access to toLocation
+  // Warehouse Admins can approve if they have access to sourceLocation
   if (isWarehouseAdmin(user) && hasLocationAccess(user, toLocationId)) {
     return true;
   }
@@ -594,7 +594,7 @@ export const approveRequest = async (
     }
     
     // Validate user authorization
-    if (!canApproveRequest(user, request.toLocation)) {
+    if (!canApproveRequest(user, request.sourceLocation)) {
       throw new Error('User is not authorized to approve this request. Must be Super Admin or Warehouse Admin with access to destination location.');
     }
     
@@ -647,10 +647,10 @@ export const approveRequest = async (
       
       // Reserve inventory if approved quantity > 0
       if (approvedQuantity > 0) {
-        // Reserve inventory from toLocation (the source/warehouse)
+        // Reserve inventory from sourceLocation (the source/warehouse)
         const reservations = await reserveInventoryFIFO(
           companyDB,
-          request.toLocation, // Source location (warehouse)
+          request.sourceLocation, // Source location (warehouse)
           requestItem.inventoryItem,
           approvedQuantity,
           null
@@ -680,8 +680,8 @@ export const approveRequest = async (
           companyId: companyId,
           originalRequestId: request._id,
           originalTransferId: null, // Will be set after transfer creation
-          fromLocation: request.toLocation, // Source location (warehouse)
-          toLocation: request.fromLocation, // Destination location (requesting branch)
+          destinationLocation: request.sourceLocation, // Source location (warehouse)
+          sourceLocation: request.destinationLocation, // Destination location (requesting branch)
           inventoryItem: requestItem.inventoryItem,
           backorderedQuantity: backorderedQuantity,
           unit: requestItem.unit,
@@ -725,8 +725,8 @@ export const approveRequest = async (
       transfer = new StockTransfer({
         transferNumber,
         companyId: companyId,
-        fromLocation: request.toLocation, // Source location (warehouse)
-        toLocation: request.fromLocation, // Destination location (requesting branch)
+        destinationLocation: request.sourceLocation, // Source location (warehouse)
+        sourceLocation: request.destinationLocation, // Destination location (requesting branch)
         transferType: 'request',
         originalRequestId: request._id,
         priority: request.priority,
@@ -773,8 +773,8 @@ export const approveRequest = async (
     
     // Get updated request with populated fields
     const updatedRequest = await StockRequest.findById(request._id)
-      .populate('fromLocation')
-      .populate('toLocation')
+      .populate('destinationLocation')
+      .populate('sourceLocation')
       .populate('items.inventoryItem')
       .lean();
     
@@ -811,8 +811,8 @@ export const approveRequest = async (
     // Send notifications: Super Admins + Sender location users + Destination location users
     try {
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
-      const senderUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.fromLocation.toString());
-      const destinationUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.toLocation.toString());
+      const senderUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.destinationLocation.toString());
+      const destinationUsers = await locationNotificationRouter.getUsersByLocation(companyId, request.sourceLocation.toString());
       
       // Combine and deduplicate by userId
       const allRecipients = [...superAdmins, ...senderUsers, ...destinationUsers];
@@ -820,8 +820,8 @@ export const approveRequest = async (
         new Map(allRecipients.map(user => [user._id.toString(), user])).values()
       );
       
-      const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
-      const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
+      const fromLocationName = updatedRequest.destinationLocation?.name || 'Unknown location';
+      const toLocationName = updatedRequest.sourceLocation?.name || 'Unknown location';
       const approverName = updatedRequest.approvedBy?.name || 'Unknown user';
       const itemCount = updatedRequest.items?.length || 0;
       const hasBackorders = backorders.length > 0;
@@ -893,8 +893,8 @@ export const approveRequest = async (
             const populatedBackorder = {
               ...backorder.toObject(),
               originalRequestId: updatedRequest,
-              fromLocation: updatedRequest.fromLocation,
-              toLocation: updatedRequest.toLocation,
+              destinationLocation: updatedRequest.destinationLocation,
+              sourceLocation: updatedRequest.sourceLocation,
               inventoryItem: updatedRequest.items.find(item => 
                 item.inventoryItem._id.toString() === backorder.inventoryItem.toString()
               )?.inventoryItem
@@ -984,8 +984,8 @@ export const rejectRequest = async (
     }
     
     // Validate user authorization
-    // Must be Super Admin or Warehouse Admin with access to toLocation
-    if (!canApproveRequest(user, request.toLocation)) {
+    // Must be Super Admin or Warehouse Admin with access to sourceLocation
+    if (!canApproveRequest(user, request.sourceLocation)) {
       throw new Error('User is not authorized to reject this request. Must be Super Admin or Warehouse Admin with access to destination location.');
     }
     
@@ -1014,8 +1014,8 @@ export const rejectRequest = async (
     
     // Get updated request with populated fields
     const updatedRequest = await StockRequest.findById(request._id)
-      .populate('fromLocation')
-      .populate('toLocation')
+      .populate('destinationLocation')
+      .populate('sourceLocation')
       .populate('items.inventoryItem')
       .lean();
     
@@ -1051,8 +1051,8 @@ export const rejectRequest = async (
 
     // Send notification to requestedBy user with rejectionReason
     try {
-      const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
-      const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
+      const fromLocationName = updatedRequest.destinationLocation?.name || 'Unknown location';
+      const toLocationName = updatedRequest.sourceLocation?.name || 'Unknown location';
       const rejectorName = updatedRequest.rejectedBy?.name || 'Unknown user';
 
       await notificationService.sendToCompanyUser(companyId, updatedRequest.requestedBy._id, {
@@ -1151,7 +1151,7 @@ export const cancelRequest = async (
     // Validate user authorization
     // User must be the requester OR have approval rights (Super Admin or Warehouse Admin with location access)
     const isRequester = request.requestedBy.toString() === userId.toString();
-    const hasApprovalRights = canApproveRequest(user, request.toLocation);
+    const hasApprovalRights = canApproveRequest(user, request.sourceLocation);
     
     if (!isRequester && !hasApprovalRights) {
       throw new Error('User is not authorized to cancel this request. Must be the requester, Super Admin, or Warehouse Admin with access to destination location.');
@@ -1267,8 +1267,8 @@ export const cancelRequest = async (
     
     // Get updated request with populated fields for notifications
     const updatedRequest = await StockRequest.findById(request._id)
-      .populate('fromLocation')
-      .populate('toLocation')
+      .populate('destinationLocation')
+      .populate('sourceLocation')
       .populate('items.inventoryItem')
       .lean();
     
@@ -1300,8 +1300,8 @@ export const cancelRequest = async (
           new Map(superAdmins.map(admin => [admin._id.toString(), admin])).values()
         );
 
-        const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
-        const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
+        const fromLocationName = updatedRequest.destinationLocation?.name || 'Unknown location';
+        const toLocationName = updatedRequest.sourceLocation?.name || 'Unknown location';
         const cancellerName = updatedRequest.cancelledBy?.name || user.name || 'Unknown user';
 
         // Send in-app notifications to super admins

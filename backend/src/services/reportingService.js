@@ -266,8 +266,8 @@ export const getTransferSummary = async (companyDB, filters = {}) => {
     }
     if (locationId) {
       query.$or = [
-        { fromLocation: locationId },
-        { toLocation: locationId }
+        { destinationLocation: locationId },
+        { sourceLocation: locationId }
       ];
     }
     if (status) {
@@ -275,8 +275,8 @@ export const getTransferSummary = async (companyDB, filters = {}) => {
     }
 
     const transfers = await StockTransfer.find(query)
-      .populate('fromLocation', 'name code type')
-      .populate('toLocation', 'name code type');
+      .populate('destinationLocation', 'name code type')
+      .populate('sourceLocation', 'name code type');
 
     // Calculate statistics
     const stats = {
@@ -308,8 +308,8 @@ export const getTransferSummary = async (companyDB, filters = {}) => {
       statistics: stats,
       transfers: transfers.map(t => ({
         transferNumber: t.transferNumber,
-        fromLocation: t.fromLocation,
-        toLocation: t.toLocation,
+        destinationLocation: t.destinationLocation,
+        sourceLocation: t.sourceLocation,
         transferType: t.transferType,
         status: t.status,
         itemCount: t.items.length,
@@ -595,7 +595,7 @@ export const getStockRequestsDashboard = async (companyDB, companyId, user) => {
 
       // Filter backorder counts by accessible locations
       filteredData.backorderCountsByLocation = cache.backorderCountsByLocation.filter(
-        item => userLocationIds.includes(item.fromLocation.toString())
+        item => userLocationIds.includes(item.destinationLocation.toString())
       );
 
       // Recalculate total pending backorders for filtered locations
@@ -642,8 +642,8 @@ export const exportStockRequestsCSV = async (companyDB, filters = {}) => {
     // Build query
     const query = { isArchived: false };
     if (filters.status) query.status = filters.status;
-    if (filters.fromLocation) query.fromLocation = filters.fromLocation;
-    if (filters.toLocation) query.toLocation = filters.toLocation;
+    if (filters.destinationLocation) query.destinationLocation = filters.destinationLocation;
+    if (filters.sourceLocation) query.sourceLocation = filters.sourceLocation;
     if (filters.startDate || filters.endDate) {
       query.requestDate = {};
       if (filters.startDate) query.requestDate.$gte = new Date(filters.startDate);
@@ -651,8 +651,8 @@ export const exportStockRequestsCSV = async (companyDB, filters = {}) => {
     }
 
     const requests = await StockRequest.find(query)
-      .populate('fromLocation', 'name code')
-      .populate('toLocation', 'name code')
+      .populate('destinationLocation', 'name code')
+      .populate('sourceLocation', 'name code')
       .populate('requestedBy', 'name email')
       .populate('approvedBy', 'name email')
       .populate('rejectedBy', 'name email')
@@ -689,8 +689,8 @@ export const exportStockRequestsCSV = async (companyDB, filters = {}) => {
       req.requestNumber,
       req.status,
       req.priority,
-      req.fromLocation?.name || '',
-      req.toLocation?.name || '',
+      req.destinationLocation?.name || '',
+      req.sourceLocation?.name || '',
       req.requestedBy?.name || '',
       req.requestDate ? new Date(req.requestDate).toISOString() : '',
       req.requestIpAddress || '',
@@ -734,8 +734,8 @@ export const exportStockTransfersCSV = async (companyDB, filters = {}) => {
     // Build query
     const query = { isArchived: false };
     if (filters.status) query.status = filters.status;
-    if (filters.fromLocation) query.fromLocation = filters.fromLocation;
-    if (filters.toLocation) query.toLocation = filters.toLocation;
+    if (filters.destinationLocation) query.destinationLocation = filters.destinationLocation;
+    if (filters.sourceLocation) query.sourceLocation = filters.sourceLocation;
     if (filters.startDate || filters.endDate) {
       query.requestDate = {};
       if (filters.startDate) query.requestDate.$gte = new Date(filters.startDate);
@@ -743,8 +743,8 @@ export const exportStockTransfersCSV = async (companyDB, filters = {}) => {
     }
 
     const transfers = await StockTransfer.find(query)
-      .populate('fromLocation', 'name code')
-      .populate('toLocation', 'name code')
+      .populate('destinationLocation', 'name code')
+      .populate('sourceLocation', 'name code')
       .populate('requestedBy', 'name email')
       .populate('shippedBy', 'name email')
       .populate('receivedBy', 'name email')
@@ -777,8 +777,8 @@ export const exportStockTransfersCSV = async (companyDB, filters = {}) => {
       transfer.transferNumber,
       transfer.status,
       transfer.transferType || 'request_based',
-      transfer.fromLocation?.name || '',
-      transfer.toLocation?.name || '',
+      transfer.destinationLocation?.name || '',
+      transfer.sourceLocation?.name || '',
       transfer.requestedBy?.name || '',
       transfer.requestDate ? new Date(transfer.requestDate).toISOString() : '',
       transfer.shippedBy?.name || '',
@@ -819,12 +819,12 @@ export const exportStockBackordersCSV = async (companyDB, filters = {}) => {
     // Build query
     const query = { isArchived: false };
     if (filters.status) query.status = filters.status;
-    if (filters.fromLocation) query.fromLocation = filters.fromLocation;
-    if (filters.toLocation) query.toLocation = filters.toLocation;
+    if (filters.destinationLocation) query.destinationLocation = filters.destinationLocation;
+    if (filters.sourceLocation) query.sourceLocation = filters.sourceLocation;
 
     const backorders = await StockBackorder.find(query)
-      .populate('fromLocation', 'name code')
-      .populate('toLocation', 'name code')
+      .populate('destinationLocation', 'name code')
+      .populate('sourceLocation', 'name code')
       .populate('inventoryItem', 'name code')
       .populate('createdBy', 'name email')
       .populate('fulfilledBy', 'name email')
@@ -857,8 +857,8 @@ export const exportStockBackordersCSV = async (companyDB, filters = {}) => {
       const ageInDays = Math.floor((now - new Date(backorder.createdAt)) / (1000 * 60 * 60 * 24));
       
       return [
-        backorder.fromLocation?.name || '',
-        backorder.toLocation?.name || '',
+        backorder.destinationLocation?.name || '',
+        backorder.sourceLocation?.name || '',
         backorder.inventoryItem?.name || '',
         backorder.backorderedQuantity || 0,
         backorder.unit || '',
@@ -903,8 +903,8 @@ export const exportStockRequestsPDF = async (companyDB, filters = {}) => {
       // Build query
       const query = { isArchived: false };
       if (filters.status) query.status = filters.status;
-      if (filters.fromLocation) query.fromLocation = filters.fromLocation;
-      if (filters.toLocation) query.toLocation = filters.toLocation;
+      if (filters.destinationLocation) query.destinationLocation = filters.destinationLocation;
+      if (filters.sourceLocation) query.sourceLocation = filters.sourceLocation;
       if (filters.startDate || filters.endDate) {
         query.requestDate = {};
         if (filters.startDate) query.requestDate.$gte = new Date(filters.startDate);
@@ -912,8 +912,8 @@ export const exportStockRequestsPDF = async (companyDB, filters = {}) => {
       }
 
       const requests = await StockRequest.find(query)
-        .populate('fromLocation', 'name code')
-        .populate('toLocation', 'name code')
+        .populate('destinationLocation', 'name code')
+        .populate('sourceLocation', 'name code')
         .populate('requestedBy', 'name email')
         .populate('approvedBy', 'name email')
         .populate('items.inventoryItem', 'name code')
@@ -962,9 +962,9 @@ export const exportStockRequestsPDF = async (companyDB, filters = {}) => {
         doc.fontSize(9).font('Helvetica').fillColor(colors.gray)
           .text(`Status: ${req.status}`, 60, yPosition + 25)
           .text(`Priority: ${req.priority}`, 60, yPosition + 40)
-          .text(`From: ${req.fromLocation?.name || 'N/A'}`, 60, yPosition + 55);
+          .text(`From: ${req.destinationLocation?.name || 'N/A'}`, 60, yPosition + 55);
         
-        doc.text(`To: ${req.toLocation?.name || 'N/A'}`, 250, yPosition + 55);
+        doc.text(`To: ${req.sourceLocation?.name || 'N/A'}`, 250, yPosition + 55);
         doc.text(`Requested: ${new Date(req.requestDate).toLocaleDateString()}`, 250, yPosition + 25);
         doc.text(`Items: ${req.items?.length || 0}`, 250, yPosition + 40);
 

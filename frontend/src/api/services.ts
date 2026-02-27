@@ -453,8 +453,8 @@ export const inventoryServices = {
 
 
   createStockTransfer: (data: {
-    fromLocation?: string;
-    toLocation?: string;
+    destinationLocation?: string;
+    sourceLocation?: string;
     fromBranch?: string; // Keep for backward compatibility
     toBranch?: string; // Keep for backward compatibility
     transferType?: 'push' | 'request'; // NEW
@@ -468,13 +468,13 @@ export const inventoryServices = {
   }) => {
     // Use location parameters if provided, otherwise fall back to branch parameters
     const requestData = { ...data };
-    if (data.fromLocation) {
-      requestData.fromBranch = data.fromLocation;
-      delete requestData.fromLocation;
+    if (data.destinationLocation) {
+      requestData.fromBranch = data.destinationLocation;
+      delete requestData.destinationLocation;
     }
-    if (data.toLocation) {
-      requestData.toBranch = data.toLocation;
-      delete requestData.toLocation;
+    if (data.sourceLocation) {
+      requestData.toBranch = data.sourceLocation;
+      delete requestData.sourceLocation;
     }
     return apiClient.post("/api/inventory/transfers", requestData);
   },
@@ -521,6 +521,8 @@ export const inventoryServices = {
     search?: string; 
     status?: string;
     priority?: string;
+    dateFrom?: string;
+    dateTo?: string;
   }) => {
     const queryParams = { ...params, branchId };
     return apiClient.get("/api/v2/stock-requests", { params: queryParams });
@@ -530,8 +532,8 @@ export const inventoryServices = {
     apiClient.get(`/api/v2/stock-requests/${id}`),
 
   createStockRequest: (data: {
-    fromLocation: string;
-    toLocation: string;
+    destinationLocation: string;
+    sourceLocation: string;
     priority: 'low' | 'normal' | 'high' | 'urgent';
     items: Array<{
       inventoryItem: string;
@@ -586,7 +588,7 @@ export const inventoryServices = {
     page?: number; 
     limit?: number; 
     status?: string;
-    fromLocation?: string;
+    destinationLocation?: string;
   }) => apiClient.get("/api/v2/backorders", { params }),
 
   fulfillBackorderV2: (backorderId: string, data: {

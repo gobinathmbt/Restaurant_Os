@@ -6,8 +6,8 @@ import { ENV } from '../../config/env.js';
 export function generateRequestApprovalEmailTemplate(request, recipientName, transfer, backorders) {
   const {
     requestNumber,
-    fromLocation,
-    toLocation,
+    destinationLocation,
+    sourceLocation,
     items,
     approvedBy,
     approvedDate
@@ -61,11 +61,11 @@ export function generateRequestApprovalEmailTemplate(request, recipientName, tra
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">From Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${fromLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${destinationLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">To Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${toLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${sourceLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">Approved By:</div>
@@ -137,8 +137,8 @@ export function generateRequestApprovalEmailTemplate(request, recipientName, tra
 export function generateRequestRejectionEmailTemplate(request, recipientName) {
   const {
     requestNumber,
-    fromLocation,
-    toLocation,
+    destinationLocation,
+    sourceLocation,
     items,
     rejectedBy,
     rejectedDate,
@@ -191,11 +191,11 @@ export function generateRequestRejectionEmailTemplate(request, recipientName) {
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">From Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${fromLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${destinationLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">To Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${toLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${sourceLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">Rejected By:</div>
@@ -251,8 +251,8 @@ export function generateRequestRejectionEmailTemplate(request, recipientName) {
 export function generateRequestCancellationEmailTemplate(request, recipientName) {
   const {
     requestNumber,
-    fromLocation,
-    toLocation,
+    destinationLocation,
+    sourceLocation,
     items,
     cancelledBy,
     cancelledDate,
@@ -305,11 +305,11 @@ export function generateRequestCancellationEmailTemplate(request, recipientName)
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">From Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${fromLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${destinationLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">To Location:</div>
-          <div style="font-size: 13px; color: #111827; font-weight: 500;">${toLocation?.name || 'N/A'}</div>
+          <div style="font-size: 13px; color: #111827; font-weight: 500;">${sourceLocation?.name || 'N/A'}</div>
         </div>
         <div style="display: flex; padding: 8px 0; border-bottom: 1px solid #f3f4f6;">
           <div style="font-size: 13px; color: #6b7280; width: 140px;">Cancelled By:</div>

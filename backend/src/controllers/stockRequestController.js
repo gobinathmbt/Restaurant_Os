@@ -100,10 +100,10 @@ export const createRequest = async (req, res, next) => {
     const requestData = req.body;
 
     // Validate required fields
-    if (!requestData.fromLocation || !requestData.toLocation) {
+    if (!requestData.destinationLocation || !requestData.sourceLocation) {
       return res.status(400).json({
         success: false,
-        message: 'fromLocation and toLocation are required'
+        message: 'destinationLocation and sourceLocation are required'
       });
     }
 
@@ -205,8 +205,8 @@ export const listRequests = async (req, res, next) => {
     const filters = {
       status: req.query.status,
       priority: req.query.priority,
-      fromLocation: req.query.fromLocation,
-      toLocation: req.query.toLocation,
+      destinationLocation: req.query.destinationLocation,
+      sourceLocation: req.query.sourceLocation,
       inventoryItem: req.query.inventoryItem,
       requestDateStart: req.query.requestDateStart,
       requestDateEnd: req.query.requestDateEnd,
@@ -227,8 +227,8 @@ export const listRequests = async (req, res, next) => {
     if (!isUnrestricted) {
       // Non-Super Admins can only see requests for their locations
       query.$or = [
-        { fromLocation: { $in: locationIds } },
-        { toLocation: { $in: locationIds } }
+        { destinationLocation: { $in: locationIds } },
+        { sourceLocation: { $in: locationIds } }
       ];
     }
 
@@ -241,12 +241,12 @@ export const listRequests = async (req, res, next) => {
       query.priority = filters.priority;
     }
 
-    if (filters.fromLocation) {
-      query.fromLocation = filters.fromLocation;
+    if (filters.destinationLocation) {
+      query.destinationLocation = filters.destinationLocation;
     }
 
-    if (filters.toLocation) {
-      query.toLocation = filters.toLocation;
+    if (filters.sourceLocation) {
+      query.sourceLocation = filters.sourceLocation;
     }
 
     if (filters.inventoryItem) {
@@ -296,8 +296,8 @@ export const listRequests = async (req, res, next) => {
       .sort({ [sortField]: sortDirection, requestNumber: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('fromLocation', 'name type')
-      .populate('toLocation', 'name type')
+      .populate('destinationLocation', 'name type')
+      .populate('sourceLocation', 'name type')
       .populate('items.inventoryItem', 'name code')
       .lean();
 
@@ -342,8 +342,8 @@ export const getRequestById = async (req, res, next) => {
     const StockRequest = req.companyDB.model('StockRequest');
 
     const request = await StockRequest.findOne({ _id: requestId })
-      .populate('fromLocation', 'name type address')
-      .populate('toLocation', 'name type address')
+      .populate('destinationLocation', 'name type address')
+      .populate('sourceLocation', 'name type address')
       .populate('items.inventoryItem', 'name code unit')
       .populate('createdTransferId', 'transferNumber status')
       .lean();
@@ -729,8 +729,8 @@ export const getMyRequests = async (req, res, next) => {
       .sort({ [sortField]: sortDirection, requestNumber: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('fromLocation', 'name type')
-      .populate('toLocation', 'name type')
+      .populate('destinationLocation', 'name type')
+      .populate('sourceLocation', 'name type')
       .populate('items.inventoryItem', 'name code')
       .lean();
 
@@ -792,10 +792,10 @@ export const getRequestsToMe = async (req, res, next) => {
 
     const StockRequest = req.companyDB.model('StockRequest');
 
-    // Build query - filter by toLocation in user's accessible locations
+    // Build query - filter by sourceLocation in user's accessible locations
     const query = { 
       isArchived: false,
-      toLocation: { $in: locationIds }
+      sourceLocation: { $in: locationIds }
     };
 
     // Apply filters
@@ -836,8 +836,8 @@ export const getRequestsToMe = async (req, res, next) => {
       .sort({ [sortField]: sortDirection, requestNumber: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('fromLocation', 'name type')
-      .populate('toLocation', 'name type')
+      .populate('destinationLocation', 'name type')
+      .populate('sourceLocation', 'name type')
       .populate('items.inventoryItem', 'name code')
       .lean();
 
@@ -946,8 +946,8 @@ export const getPendingApprovals = async (req, res, next) => {
       .sort({ [sortField]: sortDirection, requestNumber: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('fromLocation', 'name type')
-      .populate('toLocation', 'name type')
+      .populate('destinationLocation', 'name type')
+      .populate('sourceLocation', 'name type')
       .populate('items.inventoryItem', 'name code')
       .lean();
 

@@ -61,12 +61,12 @@ const stockRequestSchema = new mongoose.Schema({
   },
   
   // Location references
-  fromLocation: {
+  destinationLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
     required: true
   },
-  toLocation: {
+  sourceLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
     required: true
@@ -215,8 +215,8 @@ stockRequestSchema.index({ requestNumber: 1 }, { unique: true });
 
 // Compound indexes for common query patterns
 stockRequestSchema.index({ status: 1, requestDate: -1 });
-stockRequestSchema.index({ fromLocation: 1, status: 1 });
-stockRequestSchema.index({ toLocation: 1, status: 1 });
+stockRequestSchema.index({ destinationLocation: 1, status: 1 });
+stockRequestSchema.index({ sourceLocation: 1, status: 1 });
 stockRequestSchema.index({ status: 1, priority: 1, requestDate: -1 });
 stockRequestSchema.index({ requestedBy: 1, status: 1 });
 
@@ -226,11 +226,11 @@ stockRequestSchema.index(
   { partialFilterExpression: { isArchived: false } }
 );
 stockRequestSchema.index(
-  { toLocation: 1, status: 1 },
+  { sourceLocation: 1, status: 1 },
   { partialFilterExpression: { isArchived: false, status: 'pending' } }
 );
 stockRequestSchema.index(
-  { fromLocation: 1, status: 1 },
+  { destinationLocation: 1, status: 1 },
   { partialFilterExpression: { isArchived: false } }
 );
 

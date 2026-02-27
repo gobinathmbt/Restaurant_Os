@@ -63,21 +63,21 @@ router.get('/v2/dashboard/stock-requests', reportingController.getStockRequestsD
 /**
  * GET /api/v2/reports/stock-requests/export
  * Export stock requests to CSV or PDF format
- * Query params: format (csv|pdf), status, fromLocation, toLocation, startDate, endDate
+ * Query params: format (csv|pdf), status, destinationLocation, sourceLocation, startDate, endDate
  */
 router.get('/v2/reports/stock-requests/export', reportingController.exportStockRequests);
 
 /**
  * GET /api/v2/reports/stock-transfers/export
  * Export stock transfers to CSV format
- * Query params: status, fromLocation, toLocation, startDate, endDate
+ * Query params: status, destinationLocation, sourceLocation, startDate, endDate
  */
 router.get('/v2/reports/stock-transfers/export', reportingController.exportStockTransfers);
 
 /**
  * GET /api/v2/reports/stock-backorders/export
  * Export stock backorders to CSV format
- * Query params: status, fromLocation, toLocation
+ * Query params: status, destinationLocation, sourceLocation
  */
 router.get('/v2/reports/stock-backorders/export', reportingController.exportStockBackorders);
 

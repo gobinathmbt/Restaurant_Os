@@ -271,8 +271,8 @@ class StockRequestEmailService {
   generateRequestCreationEmailTemplate(request, recipientName) {
     const {
       requestNumber,
-      fromLocation,
-      toLocation,
+      destinationLocation,
+      sourceLocation,
       priority,
       expectedDeliveryDate,
       items,
@@ -336,11 +336,11 @@ class StockRequestEmailService {
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
           <span style="font-size: 14px; opacity: 0.9;">From Location:</span>
-          <span style="font-size: 14px; font-weight: 600;">${fromLocation?.name || 'N/A'}</span>
+          <span style="font-size: 14px; font-weight: 600;">${destinationLocation?.name || 'N/A'}</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
           <span style="font-size: 14px; opacity: 0.9;">To Location:</span>
-          <span style="font-size: 14px; font-weight: 600;">${toLocation?.name || 'N/A'}</span>
+          <span style="font-size: 14px; font-weight: 600;">${sourceLocation?.name || 'N/A'}</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
           <span style="font-size: 14px; opacity: 0.9;">Priority:</span>

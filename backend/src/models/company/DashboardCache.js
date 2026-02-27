@@ -54,10 +54,10 @@ const topLocationSchema = new mongoose.Schema({
 
 /**
  * Backorder Count by Location Sub-Schema
- * Tracks backorder counts grouped by fromLocation
+ * Tracks backorder counts grouped by destinationLocation
  */
 const backorderCountSchema = new mongoose.Schema({
-  fromLocation: {
+  destinationLocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
     required: true
