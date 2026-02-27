@@ -119,48 +119,6 @@ export default function PendingApprovalsTab({
     }
   };
 
-  const handleApprove = async (requestId: string) => {
-    try {
-      await inventoryServices.approveStockRequest(requestId);
-      toast({
-        title: "Success",
-        description: "Request approved successfully",
-      });
-      fetchRequests();
-      if (onItemsUpdate) {
-        onItemsUpdate();
-      }
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.response?.data?.message || 'Failed to approve request',
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleReject = async (requestId: string) => {
-    try {
-      await inventoryServices.rejectStockRequest(requestId, {
-        rejectionReason: 'Rejected by super admin'
-      });
-      toast({
-        title: "Success",
-        description: "Request rejected successfully",
-      });
-      fetchRequests();
-      if (onItemsUpdate) {
-        onItemsUpdate();
-      }
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.response?.data?.message || 'Failed to reject request',
-        variant: "destructive",
-      });
-    }
-  };
-
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-IN', {
       year: 'numeric',
@@ -223,24 +181,6 @@ export default function PendingApprovalsTab({
             title="View Details"
           >
             <Eye className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleApprove(request._id)}
-            className="text-green-600 hover:text-green-700"
-            title="Approve"
-          >
-            <Check className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleReject(request._id)}
-            className="text-red-600 hover:text-red-700"
-            title="Reject"
-          >
-            <X className="h-4 w-4" />
           </Button>
         </div>
       </TableCell>
