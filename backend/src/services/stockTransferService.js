@@ -296,16 +296,20 @@ export const validateStageTransition = (transfer, newStage, user) => {
       return true;
     }
     
-    // Check sender role permission (source location - where stock comes FROM)
+    // NOTE: Field naming in model is swapped:
+    // - transfer.destinationLocation = actual SOURCE (warehouse sending stock)
+    // - transfer.sourceLocation = actual DESTINATION (branch receiving stock)
+    
+    // Check sender role permission (actual source - destinationLocation in model)
     if (requiredRoles.includes('sender')) {
-      if (hasLocationAccess(user, transfer.sourceLocation)) {
+      if (hasLocationAccess(user, transfer.destinationLocation)) {
         return true;
       }
     }
     
-    // Check destination role permission (destination location - where stock goes TO)
+    // Check destination role permission (actual destination - sourceLocation in model)
     if (requiredRoles.includes('destination')) {
-      if (hasLocationAccess(user, transfer.destinationLocation)) {
+      if (hasLocationAccess(user, transfer.sourceLocation)) {
         return true;
       }
     }

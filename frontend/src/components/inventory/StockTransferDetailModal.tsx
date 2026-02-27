@@ -158,30 +158,36 @@ export default function StockTransferDetailModal({
     const currentStage = getCurrentStage();
     if (!currentStage) return false;
 
+    // NOTE: Field naming in model is swapped:
+    // - transfer.destinationLocation = actual SOURCE (warehouse sending stock)
+    // - transfer.sourceLocation = actual DESTINATION (branch receiving stock)
+    
     // Sender stages: PREPARING_STOCK to ARRIVED_AT_DESTINATION
     // These are done by the SOURCE location (warehouse/branch that has stock)
+    // In model: destinationLocation
     const senderStages = ['PREPARING_STOCK', 'LOADING_INTO_VEHICLE', 'DISPATCHED', 'IN_TRANSIT', 'ARRIVED_AT_DESTINATION'];
     
-    // Destination stages: UNLOADING, GOODS_RECEIVED_CONFIRMED
+    // Receiver stages: UNLOADING, GOODS_RECEIVED_CONFIRMED
     // These are done by the DESTINATION location (branch receiving stock)
-    const destinationStages = ['UNLOADING', 'GOODS_RECEIVED_CONFIRMED'];
+    // In model: sourceLocation
+    const receiverStages = ['UNLOADING', 'GOODS_RECEIVED_CONFIRMED'];
 
     const userLocationIds = [
       ...(user?.branchIds || []),
       ...(user?.warehouseIds || [])
     ];
 
-    // Check if user has access to SOURCE location (for sender stages)
-    const isSourceUser = userLocationIds.includes(transfer.sourceLocation._id);
+    // Check if user has access to actual SOURCE location (destinationLocation in model)
+    const isSenderUser = userLocationIds.includes(transfer.destinationLocation._id);
     
-    // Check if user has access to DESTINATION location (for destination stages)
-    const isDestinationUser = userLocationIds.includes(transfer.destinationLocation._id);
+    // Check if user has access to actual DESTINATION location (sourceLocation in model)
+    const isReceiverUser = userLocationIds.includes(transfer.sourceLocation._id);
 
-    if (senderStages.includes(currentStage.stage) && isSourceUser) {
+    if (senderStages.includes(currentStage.stage) && isSenderUser) {
       return true;
     }
 
-    if (destinationStages.includes(currentStage.stage) && isDestinationUser) {
+    if (receiverStages.includes(currentStage.stage) && isReceiverUser) {
       return true;
     }
 
