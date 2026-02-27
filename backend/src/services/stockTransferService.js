@@ -14,6 +14,10 @@ import locationNotificationRouter from './locationNotificationRouter.js';
 /**
  * Stage transition state machine
  * Defines valid transitions and role permissions for each stage
+ * 
+ * NOTE: Field naming in model is swapped:
+ * - transfer.destinationLocation = actual SOURCE (warehouse sending stock)
+ * - transfer.sourceLocation = actual DESTINATION (branch receiving stock)
  */
 const STAGE_TRANSITIONS = {
   PROCESS_STARTED: {
@@ -22,7 +26,7 @@ const STAGE_TRANSITIONS = {
   },
   PREPARING_STOCK: {
     next: ['LOADING_INTO_VEHICLE'],
-    roles: ['sender'] // Sender location admins
+    roles: ['sender'] // Source location (warehouse) admins
   },
   LOADING_INTO_VEHICLE: {
     next: ['DISPATCHED'],
@@ -30,15 +34,15 @@ const STAGE_TRANSITIONS = {
   },
   DISPATCHED: {
     next: ['IN_TRANSIT'],
-    roles: ['sender']
+    roles: ['sender', 'system'] // Sender can dispatch, then auto-transitions to IN_TRANSIT
   },
   IN_TRANSIT: {
     next: ['ARRIVED_AT_DESTINATION'],
-    roles: ['sender', 'system']
+    roles: ['destination'] // Destination location (branch) admins can mark as arrived
   },
   ARRIVED_AT_DESTINATION: {
     next: ['UNLOADING'],
-    roles: ['destination'] // Destination location admins
+    roles: ['destination']
   },
   UNLOADING: {
     next: ['GOODS_RECEIVED_CONFIRMED'],
@@ -394,14 +398,30 @@ export const updateExecutionStage = async (
       notes: notes || ''
     };
     
-    // Update transfer with new stage using optimistic locking
+    // Check if we need to auto-transition after this stage
+    const stagesToUpdate = [newStageEntry];
+    
+    // Auto-transition: DISPATCHED → IN_TRANSIT
+    if (newStage === 'DISPATCHED') {
+      stagesToUpdate.push({
+        stage: 'IN_TRANSIT',
+        timestamp: new Date(),
+        updatedBy: userId,
+        updatedByName: 'System',
+        ipAddress: ipAddress,
+        deviceInfo: deviceInfo,
+        notes: 'Auto-transitioned to IN_TRANSIT after dispatch confirmation'
+      });
+    }
+    
+    // Update transfer with new stage(s) using optimistic locking
     const updateResult = await StockTransfer.updateOne(
       {
         _id: transfer._id,
         version: transfer.version
       },
       {
-        $push: { executionStages: newStageEntry },
+        $push: { executionStages: { $each: stagesToUpdate } },
         $inc: { version: 1 }
       }
     );

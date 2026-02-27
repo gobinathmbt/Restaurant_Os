@@ -162,15 +162,17 @@ export default function StockTransferDetailModal({
     // - transfer.destinationLocation = actual SOURCE (warehouse sending stock)
     // - transfer.sourceLocation = actual DESTINATION (branch receiving stock)
     
-    // Sender stages: PREPARING_STOCK to ARRIVED_AT_DESTINATION
+    // Sender stages: PREPARING_STOCK → LOADING_INTO_VEHICLE → DISPATCHED
     // These are done by the SOURCE location (warehouse/branch that has stock)
     // In model: destinationLocation
-    const senderStages = ['PREPARING_STOCK', 'LOADING_INTO_VEHICLE', 'DISPATCHED', 'IN_TRANSIT', 'ARRIVED_AT_DESTINATION'];
+    // After DISPATCHED, system auto-transitions to IN_TRANSIT
+    const senderStages = ['PREPARING_STOCK', 'LOADING_INTO_VEHICLE', 'DISPATCHED'];
     
-    // Receiver stages: UNLOADING, GOODS_RECEIVED_CONFIRMED
+    // Receiver stages: ARRIVED_AT_DESTINATION → UNLOADING → GOODS_RECEIVED_CONFIRMED
     // These are done by the DESTINATION location (branch receiving stock)
     // In model: sourceLocation
-    const receiverStages = ['UNLOADING', 'GOODS_RECEIVED_CONFIRMED'];
+    // IN_TRANSIT can be updated by receiver to mark ARRIVED_AT_DESTINATION
+    const receiverStages = ['IN_TRANSIT', 'ARRIVED_AT_DESTINATION', 'UNLOADING', 'GOODS_RECEIVED_CONFIRMED'];
 
     const userLocationIds = [
       ...(user?.branchIds || []),
