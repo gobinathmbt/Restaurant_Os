@@ -393,6 +393,13 @@ export const approveRequest = async (req, res, next) => {
     const { requestId } = req.params;
     const approvalData = req.body;
 
+    // Log the received requestId
+    logger.info('Approve request controller - received params', {
+      requestId,
+      requestIdFromUrl: req.url,
+      params: req.params
+    });
+
     // Validate approval data
     if (!approvalData.items || !Array.isArray(approvalData.items) || approvalData.items.length === 0) {
       return res.status(400).json({

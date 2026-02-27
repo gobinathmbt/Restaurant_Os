@@ -85,7 +85,7 @@ const stockTransferSchema = new mongoose.Schema({
   
   // Company isolation for future-proofing and cross-company reporting
   companyId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: String,
     required: true,
     index: true
   },

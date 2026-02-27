@@ -5,15 +5,18 @@
  * Optimized for 5000+ branches with location-based access control
  */
 
+import mongoose from 'mongoose';
 import { getCompanyDB } from '../config/database.js';
 import { getStockRequestModel } from '../models/company/StockRequest.js';
 import { getCounterModel } from '../models/company/Counter.js';
+import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
+import { getStockTransferModel } from '../models/company/StockTransfer.js';
+import { getStockBackorderModel } from '../models/company/StockBackorder.js';
 import { logger } from '../utils/logger.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import notificationService from './notificationService.js';
 import locationNotificationRouter from './locationNotificationRouter.js';
 import stockRequestEmailService from './emailTemplates/stockRequestEmailService.js';
-
 /**
  * Generate unique request number in format REQ-YYYYMMDD-NNNN
  * @param {Object} companyDB - Company database connection
@@ -238,8 +241,7 @@ export const createRequest = async (
       // Populate request for notification
       const populatedRequest = await StockRequest.findById(stockRequest._id)
         .populate('fromLocation')
-        .populate('toLocation')
-        .populate('requestedBy');
+        .populate('toLocation');
 
       const fromLocationName = populatedRequest.fromLocation?.name || 'Unknown location';
       const toLocationName = populatedRequest.toLocation?.name || 'Unknown location';
@@ -331,17 +333,15 @@ const canApproveRequest = (user, toLocationId) => {
  * @param {string} fromLocationId - Source location ID
  * @param {string} inventoryItemId - Inventory item ID
  * @param {number} quantityToReserve - Quantity to reserve
- * @param {Object} session - Mongoose session for transaction
  * @returns {Promise<Array>} Array of batch reservations with retry logic
  */
 const reserveInventoryFIFO = async (
   companyDB,
   fromLocationId,
   inventoryItemId,
-  quantityToReserve,
-  session
+  quantityToReserve
 ) => {
-  const InventoryBatchLocation = companyDB.model('InventoryBatchLocation');
+  const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
   const maxRetries = 3;
   const baseBackoffMs = 100;
   
@@ -364,8 +364,7 @@ const reserveInventoryFIFO = async (
           { expiryDate: { $gte: now } }
         ]
       })
-      .sort({ createdAt: 1, expiryDate: 1 }) // FIFO with FEFO
-      .session(session);
+      .sort({ createdAt: 1, expiryDate: 1 }); // FIFO with FEFO
       
       // Calculate total available quantity
       const totalAvailable = batches.reduce((sum, batch) => sum + batch.availableQuantity, 0);
@@ -396,8 +395,7 @@ const reserveInventoryFIFO = async (
               reservedQuantity: quantityFromThisBatch,
               version: 1
             }
-          },
-          { session }
+          }
         );
         
         if (updateResult.modifiedCount === 0) {
@@ -406,7 +404,7 @@ const reserveInventoryFIFO = async (
         }
         
         // Verify inventory invariant after update
-        const updatedBatch = await InventoryBatchLocation.findById(batch._id).session(session);
+        const updatedBatch = await InventoryBatchLocation.findById(batch._id);
         const totalQuantity = updatedBatch.availableQuantity + updatedBatch.reservedQuantity;
         const originalTotal = batch.availableQuantity + batch.reservedQuantity + quantityFromThisBatch;
         
@@ -494,9 +492,8 @@ export const approveRequest = async (
   ipAddress,
   deviceInfo
 ) => {
-  const mongoose = (await import('mongoose')).default;
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // Get company database first
+  const companyDB = getCompanyDB(companyId);
   
   try {
     // Get user details
@@ -510,17 +507,40 @@ export const approveRequest = async (
       throw new Error('User not found or inactive');
     }
     
-    // Get company database
-    const companyDB = getCompanyDB(companyId);
     const StockRequest = getStockRequestModel(companyDB);
-    const StockTransfer = companyDB.model('StockTransfer');
-    const StockBackorder = companyDB.model('StockBackorder');
+    const StockTransfer = getStockTransferModel(companyDB);
+    const StockBackorder = getStockBackorderModel(companyDB);
+    
+    // Log the query parameters for debugging
+    logger.info('Attempting to find stock request', {
+      requestId,
+      requestIdOriginal: requestId,
+      companyId,
+      requestIdType: typeof requestId,
+      isValidObjectId: mongoose.Types.ObjectId.isValid(requestId),
+      requestIdLength: requestId.length
+    });
+    
+    // Try to find without companyId filter first for debugging
+    const requestWithoutCompanyFilter = await StockRequest.findById(requestId);
+    logger.info('Stock request query without company filter', {
+      found: !!requestWithoutCompanyFilter,
+      companyIdInDb: requestWithoutCompanyFilter?.companyId,
+      companyIdProvided: companyId,
+      match: requestWithoutCompanyFilter?.companyId === companyId
+    });
     
     // Get stock request with optimistic locking
     const request = await StockRequest.findOne({
       _id: requestId,
       companyId: companyId
-    }).session(session);
+    });
+    
+    logger.info('Stock request query result', {
+      found: !!request,
+      requestIdAfterQuery: requestId,
+      requestIdUsedInQuery: requestId
+    });
     
     if (!request) {
       throw new Error('Stock request not found');
@@ -590,7 +610,7 @@ export const approveRequest = async (
           request.fromLocation,
           requestItem.inventoryItem,
           approvedQuantity,
-          session
+          null
         );
         
         // Create transfer item
@@ -647,8 +667,7 @@ export const approveRequest = async (
           approvalNotes: approvalData.notes || ''
         },
         $inc: { version: 1 }
-      },
-      { session }
+      }
     );
     
     if (updateResult.modifiedCount === 0) {
@@ -688,13 +707,12 @@ export const approveRequest = async (
         version: 0
       });
       
-      await transfer.save({ session });
+      await transfer.save();
       
       // Link transfer back to request
       await StockRequest.updateOne(
         { _id: request._id },
-        { $set: { createdTransferId: transfer._id } },
-        { session }
+        { $set: { createdTransferId: transfer._id } }
       );
     }
     
@@ -706,19 +724,14 @@ export const approveRequest = async (
         backorderItem.originalTransferId = transfer._id;
       }
       
-      const createdBackorders = await StockBackorder.insertMany(backorderItems, { session });
+      const createdBackorders = await StockBackorder.insertMany(backorderItems);
       backorders.push(...createdBackorders);
     }
-    
-    // Commit transaction
-    await session.commitTransaction();
     
     // Get updated request
     const updatedRequest = await StockRequest.findById(request._id)
       .populate('fromLocation')
-      .populate('toLocation')
-      .populate('requestedBy')
-      .populate('approvedBy');
+      .populate('toLocation');
     
     logger.info(
       `Stock request ${request.requestNumber} approved by user ${userId} for company ${companyId}. ` +
@@ -840,11 +853,8 @@ export const approveRequest = async (
     };
     
   } catch (error) {
-    await session.abortTransaction();
     logger.error('Error approving stock request:', error);
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 
@@ -866,9 +876,8 @@ export const rejectRequest = async (
   ipAddress,
   deviceInfo
 ) => {
-  const mongoose = (await import('mongoose')).default;
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // Get company database first
+  const companyDB = getCompanyDB(companyId);
   
   try {
     // Validate rejection reason is non-empty
@@ -887,15 +896,13 @@ export const rejectRequest = async (
       throw new Error('User not found or inactive');
     }
     
-    // Get company database
-    const companyDB = getCompanyDB(companyId);
     const StockRequest = getStockRequestModel(companyDB);
     
     // Get stock request with optimistic locking
     const request = await StockRequest.findOne({
       _id: requestId,
       companyId: companyId
-    }).session(session);
+    });
     
     if (!request) {
       throw new Error('Stock request not found');
@@ -928,23 +935,17 @@ export const rejectRequest = async (
           rejectionReason: rejectionReason.trim()
         },
         $inc: { version: 1 }
-      },
-      { session }
+      }
     );
     
     if (updateResult.modifiedCount === 0) {
       throw new Error('Request was modified by another user. Please refresh and try again.');
     }
     
-    // Commit transaction
-    await session.commitTransaction();
-    
     // Get updated request
     const updatedRequest = await StockRequest.findById(request._id)
       .populate('fromLocation')
-      .populate('toLocation')
-      .populate('requestedBy')
-      .populate('rejectedBy');
+      .populate('toLocation');
     
     logger.info(
       `Stock request ${request.requestNumber} rejected by user ${userId} for company ${companyId}. ` +
@@ -995,11 +996,8 @@ export const rejectRequest = async (
     return updatedRequest;
     
   } catch (error) {
-    await session.abortTransaction();
     logger.error('Error rejecting stock request:', error);
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 
@@ -1021,9 +1019,8 @@ export const cancelRequest = async (
   ipAddress,
   deviceInfo
 ) => {
-  const mongoose = (await import('mongoose')).default;
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // Get company database first
+  const companyDB = getCompanyDB(companyId);
   
   try {
     // Validate cancellation reason is non-empty
@@ -1042,15 +1039,13 @@ export const cancelRequest = async (
       throw new Error('User not found or inactive');
     }
     
-    // Get company database
-    const companyDB = getCompanyDB(companyId);
     const StockRequest = getStockRequestModel(companyDB);
     
     // Get stock request with optimistic locking
     const request = await StockRequest.findOne({
       _id: requestId,
       companyId: companyId
-    }).session(session);
+    });
     
     if (!request) {
       throw new Error('Stock request not found');
@@ -1074,12 +1069,12 @@ export const cancelRequest = async (
     if (request.status === 'approved') {
       // Get the associated transfer
       if (request.createdTransferId) {
-        const StockTransfer = companyDB.model('StockTransfer');
-        const transfer = await StockTransfer.findById(request.createdTransferId).session(session);
+        const StockTransfer = getStockTransferModel(companyDB);
+        const transfer = await StockTransfer.findById(request.createdTransferId);
         
         if (transfer && transfer.status === 'approved') {
           // Release inventory reservations
-          const InventoryBatchLocation = companyDB.model('InventoryBatchLocation');
+          const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
           
           for (const item of transfer.items) {
             if (item.batchCosts && item.batchCosts.length > 0) {
@@ -1090,7 +1085,7 @@ export const cancelRequest = async (
                 
                 while (retries > 0 && !success) {
                   try {
-                    const batch = await InventoryBatchLocation.findById(batchCost.sourceBatchId).session(session);
+                    const batch = await InventoryBatchLocation.findById(batchCost.sourceBatchId);
                     
                     if (batch) {
                       const updateResult = await InventoryBatchLocation.updateOne(
@@ -1103,8 +1098,7 @@ export const cancelRequest = async (
                             reservedQuantity: -batchCost.quantity,
                             version: 1
                           }
-                        },
-                        { session }
+                        }
                       );
                       
                       if (updateResult.modifiedCount > 0) {
@@ -1145,8 +1139,7 @@ export const cancelRequest = async (
                 cancellationReason: `Transfer cancelled due to request cancellation: ${cancellationReason}`
               },
               $inc: { version: 1 }
-            },
-            { session }
+            }
           );
         }
       }
@@ -1168,23 +1161,17 @@ export const cancelRequest = async (
           cancellationReason: cancellationReason.trim()
         },
         $inc: { version: 1 }
-      },
-      { session }
+      }
     );
     
     if (updateResult.modifiedCount === 0) {
       throw new Error('Request was modified by another user. Please refresh and try again.');
     }
     
-    // Commit transaction
-    await session.commitTransaction();
-    
     // Get updated request
     const updatedRequest = await StockRequest.findById(request._id)
       .populate('fromLocation')
-      .populate('toLocation')
-      .populate('requestedBy')
-      .populate('cancelledBy');
+      .populate('toLocation');
     
     logger.info(
       `Stock request ${request.requestNumber} cancelled by user ${userId} for company ${companyId}. ` +
@@ -1194,10 +1181,7 @@ export const cancelRequest = async (
     return updatedRequest;
     
   } catch (error) {
-    await session.abortTransaction();
     logger.error('Error cancelling stock request:', error);
     throw error;
-  } finally {
-    session.endSession();
   }
 };

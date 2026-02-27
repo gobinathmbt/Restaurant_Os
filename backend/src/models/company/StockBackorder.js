@@ -8,7 +8,7 @@ import mongoose from 'mongoose';
 const stockBackorderSchema = new mongoose.Schema({
   // Company isolation for future-proofing
   companyId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: String,
     required: true,
     index: true
   },

@@ -46,6 +46,13 @@ const stockRequestItemSchema = new mongoose.Schema({
  * Separates request creation (Branch Admin) from approval (Super Admin/Warehouse Admin)
  */
 const stockRequestSchema = new mongoose.Schema({
+  // Company identifier for multi-tenant support
+  companyId: {
+    type: String,
+    required: true,
+    index: true
+  },
+  
   requestNumber: {
     type: String,
     required: true,
@@ -108,8 +115,7 @@ const stockRequestSchema = new mongoose.Schema({
   // Audit trail - Request creation
   requestedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    ref: 'CompanyUser'
+    required: true
   },
   requestDate: {
     type: Date,
@@ -129,8 +135,7 @@ const stockRequestSchema = new mongoose.Schema({
   
   // Audit trail - Approval
   approvedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'CompanyUser'
+    type: mongoose.Schema.Types.ObjectId
   },
   approvedDate: {
     type: Date
@@ -148,8 +153,7 @@ const stockRequestSchema = new mongoose.Schema({
   
   // Audit trail - Rejection
   rejectedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'CompanyUser'
+    type: mongoose.Schema.Types.ObjectId
   },
   rejectedDate: {
     type: Date
@@ -167,8 +171,7 @@ const stockRequestSchema = new mongoose.Schema({
   
   // Audit trail - Cancellation
   cancelledBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'CompanyUser'
+    type: mongoose.Schema.Types.ObjectId
   },
   cancelledDate: {
     type: Date
@@ -200,8 +203,7 @@ const stockRequestSchema = new mongoose.Schema({
     type: Date
   },
   archivedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'CompanyUser'
+    type: mongoose.Schema.Types.ObjectId
   }
 }, {
   timestamps: true
