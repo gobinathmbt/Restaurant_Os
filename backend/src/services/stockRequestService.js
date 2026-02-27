@@ -229,12 +229,25 @@ export const createRequest = async (
 
     logger.info(`Stock request created: ${requestNumber} by user ${userId} for company ${companyId}`);
 
-    // Populate request for notification (populate inventoryItem and requestedBy)
+    // Populate request for notification (populate inventoryItem and manually populate requestedBy from platform DB)
     const populatedRequest = await StockRequest.findById(stockRequest._id)
       .populate('fromLocation')
       .populate('toLocation')
       .populate('items.inventoryItem')
-      .populate('requestedBy', 'name email role');
+      .lean();
+
+    // Manually populate requestedBy from platform CompanyUser model
+    if (populatedRequest.requestedBy) {
+      const requester = await CompanyUser.findOne({
+        _id: populatedRequest.requestedBy,
+        companyId: companyId,
+        isActive: true
+      }).select('_id name email role').lean();
+      
+      if (requester) {
+        populatedRequest.requestedBy = requester;
+      }
+    }
 
     // Send notifications to Super Admins independently (non-blocking)
     setImmediate(async () => {
@@ -741,10 +754,37 @@ export const approveRequest = async (
       backorders.push(...createdBackorders);
     }
     
-    // Get updated request
+    // Get updated request with populated fields
     const updatedRequest = await StockRequest.findById(request._id)
       .populate('fromLocation')
-      .populate('toLocation');
+      .populate('toLocation')
+      .populate('items.inventoryItem')
+      .lean();
+    
+    // Manually populate requestedBy and approvedBy from platform CompanyUser model
+    if (updatedRequest.requestedBy) {
+      const requester = await CompanyUser.findOne({
+        _id: updatedRequest.requestedBy,
+        companyId: companyId,
+        isActive: true
+      }).select('_id name email role').lean();
+      
+      if (requester) {
+        updatedRequest.requestedBy = requester;
+      }
+    }
+    
+    if (updatedRequest.approvedBy) {
+      const approver = await CompanyUser.findOne({
+        _id: updatedRequest.approvedBy,
+        companyId: companyId,
+        isActive: true
+      }).select('_id name email role').lean();
+      
+      if (approver) {
+        updatedRequest.approvedBy = approver;
+      }
+    }
     
     logger.info(
       `Stock request ${request.requestNumber} approved by user ${userId} for company ${companyId}. ` +
@@ -955,10 +995,37 @@ export const rejectRequest = async (
       throw new Error('Request was modified by another user. Please refresh and try again.');
     }
     
-    // Get updated request
+    // Get updated request with populated fields
     const updatedRequest = await StockRequest.findById(request._id)
       .populate('fromLocation')
-      .populate('toLocation');
+      .populate('toLocation')
+      .populate('items.inventoryItem')
+      .lean();
+    
+    // Manually populate requestedBy and rejectedBy from platform CompanyUser model
+    if (updatedRequest.requestedBy) {
+      const requester = await CompanyUser.findOne({
+        _id: updatedRequest.requestedBy,
+        companyId: companyId,
+        isActive: true
+      }).select('_id name email role').lean();
+      
+      if (requester) {
+        updatedRequest.requestedBy = requester;
+      }
+    }
+    
+    if (updatedRequest.rejectedBy) {
+      const rejector = await CompanyUser.findOne({
+        _id: updatedRequest.rejectedBy,
+        companyId: companyId,
+        isActive: true
+      }).select('_id name email role').lean();
+      
+      if (rejector) {
+        updatedRequest.rejectedBy = rejector;
+      }
+    }
     
     logger.info(
       `Stock request ${request.requestNumber} rejected by user ${userId} for company ${companyId}. ` +
@@ -991,7 +1058,7 @@ export const rejectRequest = async (
       });
 
       // Send email notification to requester
-      if (updatedRequest.requestedBy.email) {
+      if (updatedRequest.requestedBy?.email) {
         await stockRequestEmailService.sendStockRequestRejectionNotification(updatedRequest.requestedBy.email, {
           request: updatedRequest,
           recipientName: updatedRequest.requestedBy.name
@@ -1181,10 +1248,25 @@ export const cancelRequest = async (
       throw new Error('Request was modified by another user. Please refresh and try again.');
     }
     
-    // Get updated request
+    // Get updated request with populated fields for notifications
     const updatedRequest = await StockRequest.findById(request._id)
       .populate('fromLocation')
-      .populate('toLocation');
+      .populate('toLocation')
+      .populate('items.inventoryItem')
+      .lean();
+    
+    // Manually populate cancelledBy from platform CompanyUser model
+    if (updatedRequest.cancelledBy) {
+      const canceller = await CompanyUser.findOne({
+        _id: updatedRequest.cancelledBy,
+        companyId: companyId,
+        isActive: true
+      }).select('_id name email role').lean();
+      
+      if (canceller) {
+        updatedRequest.cancelledBy = canceller;
+      }
+    }
     
     logger.info(
       `Stock request ${request.requestNumber} cancelled by user ${userId} for company ${companyId}. ` +
@@ -1203,7 +1285,7 @@ export const cancelRequest = async (
 
         const fromLocationName = updatedRequest.fromLocation?.name || 'Unknown location';
         const toLocationName = updatedRequest.toLocation?.name || 'Unknown location';
-        const cancellerName = user.name || 'Unknown user';
+        const cancellerName = updatedRequest.cancelledBy?.name || user.name || 'Unknown user';
 
         // Send in-app notifications to super admins
         const inAppPromises = uniqueAdmins.map(admin =>
