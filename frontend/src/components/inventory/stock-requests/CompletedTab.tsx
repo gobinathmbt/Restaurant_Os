@@ -66,6 +66,11 @@ interface CompletedRequest {
     executionStages: Array<{
       stage: string;
       timestamp: string;
+      updatedBy?: {
+        _id: string;
+        name: string;
+      };
+      updatedByName?: string;
     }>;
     exceptions: Array<{
       type: string;
@@ -134,14 +139,67 @@ export default function CompletedTab({
     }
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-IN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const formatDate = (date: string | undefined) => {
+    if (!date) return '-';
+    try {
+      return new Date(date).toLocaleDateString('en-IN', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return '-';
+    }
+  };
+
+  const getCompletedDate = (request: CompletedRequest): string => {
+    // Try to get from transfer execution stages first
+    if (request.transfer?.executionStages) {
+      const goodsReceivedStage = request.transfer.executionStages.find(
+        stage => stage.stage === 'GOODS_RECEIVED_CONFIRMED'
+      );
+      if (goodsReceivedStage?.timestamp) {
+        return goodsReceivedStage.timestamp;
+      }
+    }
+    // Fallback to request completedDate
+    return request.completedDate || '';
+  };
+
+  const getCompletedBy = (request: CompletedRequest): string => {
+    // Try to get from transfer execution stages first
+    if (request.transfer?.executionStages) {
+      const goodsReceivedStage = request.transfer.executionStages.find(
+        stage => stage.stage === 'GOODS_RECEIVED_CONFIRMED'
+      );
+      if (goodsReceivedStage?.updatedByName || goodsReceivedStage?.updatedBy?.name) {
+        return goodsReceivedStage.updatedByName || goodsReceivedStage.updatedBy?.name || '-';
+      }
+    }
+    // Fallback to request completedBy
+    return request.completedBy?.name || '-';
+  };
+
+  const getCompletedDateFromTransfer = (request: CompletedRequest): string => {
+    if (!request.transfer?.executionStages) return '-';
+    
+    const goodsReceivedStage = request.transfer.executionStages.find(
+      stage => stage.stage === 'GOODS_RECEIVED_CONFIRMED'
+    );
+    
+    return goodsReceivedStage ? formatDate(goodsReceivedStage.timestamp) : '-';
+  };
+
+  const getCompletedByFromTransfer = (request: CompletedRequest): string => {
+    if (!request.transfer?.executionStages) return '-';
+    
+    const goodsReceivedStage = request.transfer.executionStages.find(
+      stage => stage.stage === 'GOODS_RECEIVED_CONFIRMED'
+    );
+    
+    return goodsReceivedStage?.updatedByName || goodsReceivedStage?.updatedBy?.name || '-';
   };
 
   const getPriorityBadge = (priority: string) => {
@@ -211,8 +269,8 @@ export default function CompletedTab({
       <TableCell>{request.destinationLocation?.name || '-'}</TableCell>
       <TableCell>{request.sourceLocation?.name || '-'}</TableCell>
       <TableCell>{getPriorityBadge(request.priority)}</TableCell>
-      <TableCell>{formatDate(request.completedDate)}</TableCell>
-      <TableCell>{request.completedBy?.name || '-'}</TableCell>
+      <TableCell>{getCompletedDateFromTransfer(request)}</TableCell>
+      <TableCell>{getCompletedByFromTransfer(request)}</TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
           <Badge className="bg-green-100 text-green-800">
