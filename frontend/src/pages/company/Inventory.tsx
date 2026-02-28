@@ -32,9 +32,6 @@ export default function Inventory() {
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
-  
-  // Use storage hook to persist active tab per browser tab (sessionStorage)
-  const [activeTab, setActiveTab] = useTabStorage(STORAGE_KEYS.INVENTORY_ACTIVE_TAB, 'items');
 
   // Determine user's branch access
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
@@ -44,10 +41,22 @@ export default function Inventory() {
   const isSingleBranchAdmin = (user?.role === 'company_admin' && (user?.branchIds?.length || 0) === 1) ||
                               (isWarehouseAdmin && (user?.warehouseIds?.length || 0) === 1);
 
+  // Determine default tab based on role (warehouse admins only need transfers)
+  const defaultTab = isWarehouseAdmin ? 'transfers' : 'items';
+  // Use storage hook to persist active tab per browser tab (sessionStorage)
+  const [activeTab, setActiveTab] = useTabStorage(STORAGE_KEYS.INVENTORY_ACTIVE_TAB, defaultTab);
+
   // Fetch branches on mount
   useEffect(() => {
     fetchBranches();
   }, []);
+
+  // ensure active tab switches to transfers when role changes
+  useEffect(() => {
+    if (isWarehouseAdmin && activeTab !== 'transfers') {
+      setActiveTab('transfers');
+    }
+  }, [isWarehouseAdmin, activeTab, setActiveTab]);
 
   // Auto-select branch for single-branch admins and multi-branch admins
   useEffect(() => {
@@ -96,6 +105,13 @@ export default function Inventory() {
     }
   };
 
+  // compute layout classes early (non-hooks)
+  const tabListClass = isWarehouseAdmin
+    ? 'mx-6 mt-6 mb-0 flex w-full'
+    : 'mx-6 mt-6 mb-0 grid w-full grid-cols-6 lg:w-auto flex-shrink-0';
+
+  const tabTriggerClass = isWarehouseAdmin ? 'flex-1 text-center' : '';
+
   if (!selectedBranch && !isSingleBranchAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] p-8">
@@ -125,71 +141,92 @@ export default function Inventory() {
     );
   }
 
+  // hide all tabs except transfers when user is warehouse_admin
+  const isTabVisible = (tab: string) => {
+    if (isWarehouseAdmin) {
+      return tab === 'transfers';
+    }
+    return true;
+  };
+
+
   return (
     <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-        <TabsList className="mx-6 mt-6 mb-0 grid w-full grid-cols-6 lg:w-auto flex-shrink-0">
-          <TabsTrigger value="items">Items</TabsTrigger>
-          <TabsTrigger value="categories">Categories</TabsTrigger>
-          <TabsTrigger value="locations">Locations</TabsTrigger>
-          <TabsTrigger value="grn">GRN</TabsTrigger>
-          <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
-          <TabsTrigger value="transfers">Request for Stock</TabsTrigger>
+        <TabsList className={tabListClass}>
+          {isTabVisible('items') && <TabsTrigger className={tabTriggerClass} value="items">Items</TabsTrigger>}
+          {isTabVisible('categories') && <TabsTrigger className={tabTriggerClass} value="categories">Categories</TabsTrigger>}
+          {isTabVisible('locations') && <TabsTrigger className={tabTriggerClass} value="locations">Locations</TabsTrigger>}
+          {isTabVisible('grn') && <TabsTrigger className={tabTriggerClass} value="grn">GRN</TabsTrigger>}
+          {isTabVisible('adjustments') && <TabsTrigger className={tabTriggerClass} value="adjustments">Adjustments</TabsTrigger>}
+          {isTabVisible('transfers') && <TabsTrigger className={tabTriggerClass} value="transfers">Request for Stock</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="items" className="m-0 flex-1 min-h-0 overflow-hidden">
-          <InventoryItemsTab
-            selectedBranch={selectedBranch}
-            branches={branches}
-            onBranchChange={setSelectedBranch}
-            isSuperAdmin={isSuperAdmin}
-            isMultiBranchAdmin={isMultiBranchAdmin}
-          />
-        </TabsContent>
+        {isTabVisible('items') && (
+          <TabsContent value="items" className="m-0 flex-1 min-h-0 overflow-hidden">
+            <InventoryItemsTab
+              selectedBranch={selectedBranch}
+              branches={branches}
+              onBranchChange={setSelectedBranch}
+              isSuperAdmin={isSuperAdmin}
+              isMultiBranchAdmin={isMultiBranchAdmin}
+            />
+          </TabsContent>
+        )}
 
-        <TabsContent value="categories" className="m-0 flex-1 min-h-0 overflow-hidden">
-          <CategoriesTab
-            selectedBranch={selectedBranch}
-            branches={branches}
-            onBranchChange={setSelectedBranch}
-            isSuperAdmin={isSuperAdmin}
-            isMultiBranchAdmin={isMultiBranchAdmin}
-          />
-        </TabsContent>
+        {isTabVisible('categories') && (
+          <TabsContent value="categories" className="m-0 flex-1 min-h-0 overflow-hidden">
+            <CategoriesTab
+              selectedBranch={selectedBranch}
+              branches={branches}
+              onBranchChange={setSelectedBranch}
+              isSuperAdmin={isSuperAdmin}
+              isMultiBranchAdmin={isMultiBranchAdmin}
+            />
+          </TabsContent>
+        )}
 
-        <TabsContent value="locations" className="m-0 flex-1 min-h-0 overflow-hidden">
-          <LocationsTab />
-        </TabsContent>
+        {isTabVisible('locations') && (
+          <TabsContent value="locations" className="m-0 flex-1 min-h-0 overflow-hidden">
+            <LocationsTab />
+          </TabsContent>
+        )}
 
-        <TabsContent value="grn" className="m-0 flex-1 min-h-0 overflow-hidden">
-          <GRNTab
-            selectedBranch={selectedBranch}
-            branches={branches}
-            onBranchChange={setSelectedBranch}
-            isSuperAdmin={isSuperAdmin}
-            isMultiBranchAdmin={isMultiBranchAdmin}
-          />
-        </TabsContent>
+        {isTabVisible('grn') && (
+          <TabsContent value="grn" className="m-0 flex-1 min-h-0 overflow-hidden">
+            <GRNTab
+              selectedBranch={selectedBranch}
+              branches={branches}
+              onBranchChange={setSelectedBranch}
+              isSuperAdmin={isSuperAdmin}
+              isMultiBranchAdmin={isMultiBranchAdmin}
+            />
+          </TabsContent>
+        )}
 
-        <TabsContent value="adjustments" className="m-0 flex-1 min-h-0 overflow-hidden">
-          <StockAdjustmentsTab
-            selectedBranch={selectedBranch}
-            branches={branches}
-            onBranchChange={setSelectedBranch}
-            isSuperAdmin={isSuperAdmin}
-            isMultiBranchAdmin={isMultiBranchAdmin}
-          />
-        </TabsContent>
+        {isTabVisible('adjustments') && (
+          <TabsContent value="adjustments" className="m-0 flex-1 min-h-0 overflow-hidden">
+            <StockAdjustmentsTab
+              selectedBranch={selectedBranch}
+              branches={branches}
+              onBranchChange={setSelectedBranch}
+              isSuperAdmin={isSuperAdmin}
+              isMultiBranchAdmin={isMultiBranchAdmin}
+            />
+          </TabsContent>
+        )}
 
-        <TabsContent value="transfers" className="m-0 flex-1 min-h-0 overflow-hidden">
-          <StockTransfersTab
-            selectedBranch={selectedBranch}
-            branches={branches}
-            onBranchChange={setSelectedBranch}
-            isSuperAdmin={isSuperAdmin}
-            isMultiBranchAdmin={isMultiBranchAdmin}
-          />
-        </TabsContent>
+        {isTabVisible('transfers') && (
+          <TabsContent value="transfers" className="m-0 flex-1 min-h-0 overflow-hidden">
+            <StockTransfersTab
+              selectedBranch={selectedBranch}
+              branches={branches}
+              onBranchChange={setSelectedBranch}
+              isSuperAdmin={isSuperAdmin}
+              isMultiBranchAdmin={isMultiBranchAdmin}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
