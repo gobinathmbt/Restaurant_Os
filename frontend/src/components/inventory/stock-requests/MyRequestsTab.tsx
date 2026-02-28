@@ -91,23 +91,18 @@ export default function MyRequestsTab({
   const [isViewOpen, setIsViewOpen] = useState(false);
 
   useEffect(() => {
-    if (selectedBranch) {
-      fetchRequests();
-    }
-  }, [selectedBranch, page, rowsPerPage, search, statusFilter, priorityFilter]);
+    fetchRequests();
+  }, [page, rowsPerPage, search, statusFilter, priorityFilter]);
 
   const fetchRequests = async () => {
-    if (!selectedBranch) return;
-    
     try {
       setLoading(true);
-      const response = await inventoryServices.getStockRequests(selectedBranch, {
+      const response = await inventoryServices.getMyRequests({
         page,
         limit: rowsPerPage,
         search: search || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
-        executionStatus: 'not_started', // Only show requests that haven't started execution
       });
 
       setRequests(response.data.data.requests || []);
@@ -259,6 +254,7 @@ export default function MyRequestsTab({
           <SelectItem value="approved">Approved</SelectItem>
           <SelectItem value="rejected">Rejected</SelectItem>
           <SelectItem value="cancelled">Cancelled</SelectItem>
+          <SelectItem value="completed">Completed</SelectItem>
         </SelectContent>
       </Select>
       <Select value={priorityFilter || "all"} onValueChange={(value) => setPriorityFilter(value === "all" ? "" : value)}>

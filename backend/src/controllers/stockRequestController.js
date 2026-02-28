@@ -788,9 +788,19 @@ export const getMyRequests = async (req, res, next) => {
       requestedBy: userId
     };
 
-    // Apply filters
-    if (filters.status) {
+    // Exclude completed requests from My Requests tab UNLESS explicitly requested
+    // Completed requests should only appear in the dedicated "Completed" tab
+    if (!filters.status || filters.status !== 'completed') {
+      query.status = { $ne: 'completed' };
+    }
+
+    // Apply status filter (if provided and not 'all')
+    if (filters.status && filters.status !== 'all' && filters.status !== 'completed') {
+      // Override with specific status, but maintain completed exclusion
       query.status = filters.status;
+    } else if (filters.status === 'completed') {
+      // If explicitly requesting completed, override the exclusion
+      query.status = 'completed';
     }
 
     if (filters.priority) {
@@ -903,14 +913,19 @@ export const getRequestsToMe = async (req, res, next) => {
       sourceLocation: { $in: locationIds }
     };
 
-    // Exclude completed requests by default (unless explicitly requested)
+    // Exclude completed requests from Requests To Me tab UNLESS explicitly requested
+    // Completed requests should only appear in the dedicated "Completed" tab
     if (!filters.status || filters.status !== 'completed') {
       query.status = { $ne: 'completed' };
     }
 
-    // Apply filters
-    if (filters.status && filters.status !== 'all') {
+    // Apply status filter (if provided and not 'all')
+    if (filters.status && filters.status !== 'all' && filters.status !== 'completed') {
+      // Override with specific status, but maintain completed exclusion
       query.status = filters.status;
+    } else if (filters.status === 'completed') {
+      // If explicitly requesting completed, override the exclusion
+      query.status = 'completed';
     }
 
     if (filters.priority) {
