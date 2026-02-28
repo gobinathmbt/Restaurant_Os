@@ -6,3 +6,4 @@ export { default as InTransitTab } from './InTransitTab';
 export { default as IncomingRequestsTab } from './IncomingRequestsTab';
 export { default as AllTransactionsTab } from './AllTransactionsTab';
 export { default as ExceptionsTab } from './ExceptionsTab';
+export { default as CompletedTab } from './CompletedTab';

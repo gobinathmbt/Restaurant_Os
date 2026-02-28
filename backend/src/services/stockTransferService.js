@@ -6,6 +6,9 @@
 
 import { getCompanyDB } from '../config/database.js';
 import { getStockTransferModel } from '../models/company/StockTransfer.js';
+import { getStockRequestModel } from '../models/company/StockRequest.js';
+import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
+import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
 import { logger } from '../utils/logger.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import notificationService from './notificationService.js';
@@ -889,6 +892,184 @@ export const acceptStock = async (
       `${exceptions.length} exception(s) recorded.`
     );
     
+    // Update inventory at destination location (if source is branch, not warehouse)
+    // Deduct from source location inventory
+    const Location = companyDB.model('Location');
+    const sourceLocationDoc = await Location.findById(transfer.destinationLocation._id);
+    const isWarehouseSource = sourceLocationDoc?.type === 'warehouse';
+    
+    if (!isWarehouseSource) {
+      // Source is a branch - deduct inventory from source location
+      const { recordLedgerEntry } = await import('./inventoryLedgerService.js');
+      const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+      const InventoryBatchLocation = getInventoryBatchLocationModel(companyDB);
+      
+      for (const item of transfer.items) {
+        const receivedQuantity = item.receivedQuantity || item.sentQuantity;
+        
+        // Deduct from source location inventory using batch costs
+        if (item.batchCosts && item.batchCosts.length > 0) {
+          for (const batchCost of item.batchCosts) {
+            // Update batch location - deduct from reserved, add to consumed
+            const batch = await InventoryBatchLocation.findById(batchCost.sourceBatchId);
+            if (batch) {
+              batch.reservedQuantity -= batchCost.quantity;
+              batch.version += 1;
+              await batch.save();
+              
+              logger.info(`Deducted ${batchCost.quantity} from batch ${batch.batchNumber} at source location`);
+            }
+          }
+        }
+        
+        // Update inventory item location summary
+        const itemLocation = await InventoryItemLocation.findOne({
+          inventoryItem: item.inventoryItem,
+          locationId: transfer.destinationLocation._id
+        });
+        
+        if (itemLocation) {
+          const beforeAvailable = itemLocation.availableQuantity;
+          const beforeReserved = itemLocation.reservedQuantity;
+          const beforeInTransit = itemLocation.inTransitQuantity;
+          
+          itemLocation.reservedQuantity -= receivedQuantity;
+          itemLocation.version += 1;
+          await itemLocation.save();
+          
+          // Record ledger entry for transfer out
+          await recordLedgerEntry({
+            inventoryItem: item.inventoryItem,
+            locationId: transfer.destinationLocation._id,
+            movementType: 'transfer_out',
+            quantityDelta: -receivedQuantity,
+            beforeAvailable: beforeAvailable,
+            afterAvailable: itemLocation.availableQuantity,
+            beforeReserved: beforeReserved,
+            afterReserved: itemLocation.reservedQuantity,
+            beforeInTransit: beforeInTransit,
+            afterInTransit: itemLocation.inTransitQuantity,
+            referenceType: 'StockTransfer',
+            referenceId: transfer._id,
+            performedBy: userId,
+            notes: `Stock transferred out to ${transfer.sourceLocation.name}`,
+            companyId: companyId
+          }, companyId);
+          
+          logger.info(`Inventory deducted at source location for item ${item.inventoryItem}`);
+        }
+      }
+      
+      // Add to destination location inventory
+      for (const item of transfer.items) {
+        const receivedQuantity = item.receivedQuantity || item.sentQuantity;
+        
+        // Create or update batch at destination
+        const { createOrUpdateBatch } = await import('./inventoryBatchLocationService.js');
+        
+        // Use average cost from batch costs or zero for warehouse sources
+        const avgUnitCost = item.batchCosts && item.batchCosts.length > 0
+          ? item.totalCost / receivedQuantity
+          : 0;
+        
+        await createOrUpdateBatch({
+          inventoryItem: item.inventoryItem,
+          locationId: transfer.sourceLocation._id,
+          batchNumber: `TRF-${transfer.transferNumber}-${item.inventoryItem}`,
+          availableQuantity: receivedQuantity,
+          unitCost: avgUnitCost,
+          grnReference: null
+        }, companyId);
+        
+        // Update inventory item location summary
+        const itemLocation = await InventoryItemLocation.findOne({
+          inventoryItem: item.inventoryItem,
+          locationId: transfer.sourceLocation._id
+        });
+        
+        if (itemLocation) {
+          const beforeAvailable = itemLocation.availableQuantity;
+          const beforeReserved = itemLocation.reservedQuantity;
+          const beforeInTransit = itemLocation.inTransitQuantity;
+          
+          itemLocation.availableQuantity += receivedQuantity;
+          itemLocation.version += 1;
+          await itemLocation.save();
+          
+          // Record ledger entry for transfer in
+          await recordLedgerEntry({
+            inventoryItem: item.inventoryItem,
+            locationId: transfer.sourceLocation._id,
+            movementType: 'transfer_in',
+            quantityDelta: receivedQuantity,
+            beforeAvailable: beforeAvailable,
+            afterAvailable: itemLocation.availableQuantity,
+            beforeReserved: beforeReserved,
+            afterReserved: itemLocation.reservedQuantity,
+            beforeInTransit: beforeInTransit,
+            afterInTransit: itemLocation.inTransitQuantity,
+            referenceType: 'StockTransfer',
+            referenceId: transfer._id,
+            performedBy: userId,
+            notes: `Stock transferred in from ${transfer.destinationLocation.name}`,
+            companyId: companyId
+          }, companyId);
+          
+          logger.info(`Inventory added at destination location for item ${item.inventoryItem}`);
+        } else {
+          // Create new inventory item location if doesn't exist
+          const newItemLocation = new InventoryItemLocation({
+            inventoryItem: item.inventoryItem,
+            locationId: transfer.sourceLocation._id,
+            availableQuantity: receivedQuantity,
+            reservedQuantity: 0,
+            inTransitQuantity: 0,
+            version: 0
+          });
+          await newItemLocation.save();
+          
+          // Record ledger entry
+          await recordLedgerEntry({
+            inventoryItem: item.inventoryItem,
+            locationId: transfer.sourceLocation._id,
+            movementType: 'transfer_in',
+            quantityDelta: receivedQuantity,
+            beforeAvailable: 0,
+            afterAvailable: receivedQuantity,
+            beforeReserved: 0,
+            afterReserved: 0,
+            beforeInTransit: 0,
+            afterInTransit: 0,
+            referenceType: 'StockTransfer',
+            referenceId: transfer._id,
+            performedBy: userId,
+            notes: `Stock transferred in from ${transfer.destinationLocation.name} (first time)`,
+            companyId: companyId
+          }, companyId);
+          
+          logger.info(`New inventory item location created at destination for item ${item.inventoryItem}`);
+        }
+      }
+    } else {
+      logger.info(`Skipping inventory deduction for warehouse source ${sourceLocationDoc.name}`);
+    }
+    
+    // Update stock request status to completed if this transfer was created from a request
+    if (transfer.originalRequestId) {
+      const StockRequest = getStockRequestModel(companyDB);
+      await StockRequest.updateOne(
+        { _id: transfer.originalRequestId },
+        { 
+          $set: { 
+            status: 'completed',
+            completedBy: userId,
+            completedDate: new Date()
+          }
+        }
+      );
+      logger.info(`Stock request ${transfer.originalRequestId} marked as completed`);
+    }
+    
     // Send notifications to all parties
     try {
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
@@ -946,6 +1127,177 @@ export const acceptStock = async (
     
   } catch (error) {
     logger.error('Error accepting stock:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Get completed stock transfers
+ * Shows transfers that have been fully processed (status: completed)
+ * @param {string} companyId - Company ID
+ * @param {Object} filters - Filter options
+ * @param {Object} pagination - Pagination options
+ * @param {Object} accessControl - Access control options (isUnrestricted, locationIds)
+ * @returns {Promise<Object>} Completed transfers with pagination
+ */
+export const getCompletedTransfers = async (companyId, filters = {}, pagination = {}, accessControl = {}) => {
+  try {
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    const {
+      destinationLocation,
+      sourceLocation,
+      startDate,
+      endDate,
+      search,
+      hasExceptions
+    } = filters;
+    
+    const {
+      page = 1,
+      limit = 10
+    } = pagination;
+    
+    const {
+      isUnrestricted = false,
+      locationIds = []
+    } = accessControl;
+    
+    const skip = (page - 1) * limit;
+    
+    // Build query for completed transfers
+    const query = {
+      status: 'completed',
+      isArchived: false
+    };
+    
+    // Apply location-based filtering
+    if (!isUnrestricted && locationIds.length > 0) {
+      query.$or = [
+        { destinationLocation: { $in: locationIds } },
+        { sourceLocation: { $in: locationIds } }
+      ];
+    }
+    
+    // Apply filters
+    if (destinationLocation) {
+      query.destinationLocation = destinationLocation;
+    }
+    
+    if (sourceLocation) {
+      query.sourceLocation = sourceLocation;
+    }
+    
+    if (startDate || endDate) {
+      query.completedDate = {};
+      if (startDate) {
+        query.completedDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.completedDate.$lte = new Date(endDate);
+      }
+    }
+    
+    if (search) {
+      query.transferNumber = { $regex: search, $options: 'i' };
+    }
+    
+    if (hasExceptions === 'true' || hasExceptions === true) {
+      query['exceptions.0'] = { $exists: true };
+    }
+    
+    // Get total count
+    const total = await StockTransfer.countDocuments(query);
+    const pages = Math.ceil(total / limit);
+    
+    // Execute query with pagination
+    const transfers = await StockTransfer.find(query)
+      .sort({ completedDate: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('destinationLocation', 'name type')
+      .populate('sourceLocation', 'name type')
+      .populate('items.inventoryItem', 'name code')
+      .populate('exceptions.inventoryItem', 'name code')
+      .populate('originalRequestId', 'requestNumber')
+      .lean();
+    
+    // Manually populate user fields
+    const userIds = new Set();
+    transfers.forEach(transfer => {
+      if (transfer.requestedBy) userIds.add(transfer.requestedBy.toString());
+      if (transfer.approvedBy) userIds.add(transfer.approvedBy.toString());
+      if (transfer.completedBy) userIds.add(transfer.completedBy.toString());
+      
+      // Collect user IDs from execution stages
+      if (transfer.executionStages) {
+        transfer.executionStages.forEach(stage => {
+          if (stage.updatedBy) userIds.add(stage.updatedBy.toString());
+        });
+      }
+      
+      // Collect user IDs from exceptions
+      if (transfer.exceptions) {
+        transfer.exceptions.forEach(exception => {
+          if (exception.reportedBy) userIds.add(exception.reportedBy.toString());
+        });
+      }
+    });
+    
+    if (userIds.size > 0) {
+      const users = await CompanyUser.find({
+        _id: { $in: Array.from(userIds) },
+        companyId: companyId
+      }).select('_id name email role').lean();
+      
+      const userMap = new Map(users.map(u => [u._id.toString(), u]));
+      
+      transfers.forEach(transfer => {
+        if (transfer.requestedBy && userMap.has(transfer.requestedBy.toString())) {
+          transfer.requestedBy = userMap.get(transfer.requestedBy.toString());
+        }
+        if (transfer.approvedBy && userMap.has(transfer.approvedBy.toString())) {
+          transfer.approvedBy = userMap.get(transfer.approvedBy.toString());
+        }
+        if (transfer.completedBy && userMap.has(transfer.completedBy.toString())) {
+          transfer.completedBy = userMap.get(transfer.completedBy.toString());
+        }
+        
+        // Populate execution stage users
+        if (transfer.executionStages) {
+          transfer.executionStages.forEach(stage => {
+            if (stage.updatedBy && userMap.has(stage.updatedBy.toString())) {
+              stage.updatedBy = userMap.get(stage.updatedBy.toString());
+            }
+          });
+        }
+        
+        // Populate exception users
+        if (transfer.exceptions) {
+          transfer.exceptions.forEach(exception => {
+            if (exception.reportedBy && userMap.has(exception.reportedBy.toString())) {
+              exception.reportedBy = userMap.get(exception.reportedBy.toString());
+            }
+          });
+        }
+      });
+    }
+    
+    logger.info(`Completed transfers fetched: ${transfers.length} for company ${companyId}`);
+    
+    return {
+      transfers,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting completed transfers:', error);
     throw error;
   }
 };

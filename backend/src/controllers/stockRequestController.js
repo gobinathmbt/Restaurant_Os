@@ -224,6 +224,13 @@ export const listRequests = async (req, res, next) => {
     
     // Build query (no companyId needed - database-level isolation)
     const query = { isArchived: false };
+    
+    // IMPORTANT: Exclude completed requests from main listing
+    // Completed requests should only appear in the dedicated "Completed" tab
+    // This prevents clutter in active request views
+    if (!filters.status || filters.status !== 'completed') {
+      query.status = { $ne: 'completed' };
+    }
 
     // Location-based access control
     if (!isUnrestricted) {
@@ -256,7 +263,15 @@ export const listRequests = async (req, res, next) => {
 
     // Apply filters
     if (filters.status) {
-      query.status = filters.status;
+      // Only apply status filter if explicitly set
+      // The completed status exclusion is already handled above
+      if (filters.status === 'completed') {
+        // If explicitly requesting completed, override the exclusion
+        query.status = 'completed';
+      } else {
+        // For other statuses, apply normally
+        query.status = filters.status;
+      }
     }
 
     if (filters.priority) {
@@ -342,10 +357,15 @@ export const listRequests = async (req, res, next) => {
         }).select('_id executionStages').lean();
         
         const transferExecutionMap = new Map(
-          transfers.map(t => [
-            t._id.toString(),
-            (t.executionStages && t.executionStages.length > 0)
-          ])
+          transfers.map(t => {
+            // Check if there are stages beyond PROCESS_STARTED
+            // PROCESS_STARTED is auto-added, so we need to check for actual progress
+            const hasProgressBeyondStart = t.executionStages && 
+              t.executionStages.length > 0 && 
+              t.executionStages.some(stage => stage.stage !== 'PROCESS_STARTED');
+            
+            return [t._id.toString(), hasProgressBeyondStart];
+          })
         );
         
         // Filter based on execution status
@@ -355,12 +375,14 @@ export const listRequests = async (req, res, next) => {
             return filters.executionStatus === 'not_started';
           }
           
-          const hasExecutionStages = transferExecutionMap.get(request.createdTransferId.toString()) || false;
+          const hasProgressBeyondStart = transferExecutionMap.get(request.createdTransferId.toString()) || false;
           
           if (filters.executionStatus === 'not_started') {
-            return !hasExecutionStages; // Show only if execution NOT started
+            // Show only if execution has NOT progressed beyond PROCESS_STARTED
+            return !hasProgressBeyondStart;
           } else if (filters.executionStatus === 'in_progress') {
-            return hasExecutionStages; // Show only if execution started
+            // Show only if execution has progressed beyond PROCESS_STARTED
+            return hasProgressBeyondStart;
           }
           
           return true;
@@ -1043,6 +1065,56 @@ export const getPendingApprovals = async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Get pending approvals error', error);
+    next(error);
+  }
+};
+
+
+/**
+ * Get completed stock requests
+ * GET /api/v2/stock-requests/completed
+ */
+export const getCompletedRequests = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const user = req.user;
+    
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+    
+    // Extract filter parameters
+    const filters = {
+      destinationLocation: req.query.destinationLocation,
+      sourceLocation: req.query.sourceLocation,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      search: req.query.search
+    };
+    
+    const result = await stockRequestService.getCompletedRequests(
+      companyId,
+      filters,
+      { page, limit },
+      user
+    );
+    
+    logger.info('Completed stock requests listed via API', {
+      companyId,
+      userId: user.userId,
+      count: result.requests.length,
+      page,
+      total: result.pagination.total
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        requests: result.requests,
+        pagination: result.pagination
+      }
+    });
+  } catch (error) {
+    logger.error('Get completed stock requests error', error);
     next(error);
   }
 };

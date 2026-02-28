@@ -598,6 +598,28 @@ export const inventoryServices = {
   cancelBackorderV2: (backorderId: string, data: { cancellationReason: string }) =>
     apiClient.post(`/api/v2/backorders/${backorderId}/cancel`, data),
 
+  // Completed stock requests and transfers
+  getCompletedRequests: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    destinationLocation?: string;
+    sourceLocation?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => apiClient.get("/api/v2/stock-requests/completed", { params }),
+
+  getCompletedTransfers: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    destinationLocation?: string;
+    sourceLocation?: string;
+    startDate?: string;
+    endDate?: string;
+    hasExceptions?: boolean;
+  }) => apiClient.get("/api/v2/stock-transfers/completed", { params }),
+
   // Ship transfer (mark as in_transit)
   shipTransfer: (transferId: string) =>
     apiClient.post(`/api/inventory/transfers/${transferId}/ship`),

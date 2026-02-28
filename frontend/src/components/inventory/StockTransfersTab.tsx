@@ -8,7 +8,8 @@ import {
   IncomingRequestsTab,
   PendingApprovalsTab, 
   AllTransactionsTab,
-  ExceptionsTab
+  ExceptionsTab,
+  CompletedTab
 } from './stock-requests';
 
 interface Branch {
@@ -55,9 +56,9 @@ export default function StockTransfersTab({
 
   // Calculate grid columns based on role
   const getGridColumns = () => {
-    if (isSuperAdminRole) return 3; // Pending Approvals, All Transactions, Exceptions
-    if (isWarehouseAdmin) return 2; // Incoming Requests, In-Transit
-    if (isBranchAdmin) return 3; // My Requests, Requests To Me, In-Transit
+    if (isSuperAdminRole) return 4; // Pending Approvals, All Transactions, Exceptions, Completed
+    if (isWarehouseAdmin) return 3; // Incoming Requests, In-Transit, Completed
+    if (isBranchAdmin) return 4; // My Requests, Requests To Me, In-Transit, Completed
     return 2;
   };
 
@@ -74,6 +75,7 @@ export default function StockTransfersTab({
               <TabsTrigger value="my-requests">My Requests</TabsTrigger>
               <TabsTrigger value="requests-to-me">Requests To Me</TabsTrigger>
               <TabsTrigger value="in-transit">In-Transit/Processing</TabsTrigger>
+              <TabsTrigger value="completed">Completed</TabsTrigger>
             </>
           )}
           
@@ -82,6 +84,7 @@ export default function StockTransfersTab({
             <>
               <TabsTrigger value="incoming-requests">Incoming Requests</TabsTrigger>
               <TabsTrigger value="in-transit">In-Transit/Processing</TabsTrigger>
+              <TabsTrigger value="completed">Completed</TabsTrigger>
             </>
           )}
           
@@ -91,6 +94,7 @@ export default function StockTransfersTab({
               <TabsTrigger value="pending-approvals">Pending Approvals</TabsTrigger>
               <TabsTrigger value="all-transactions">All Transactions</TabsTrigger>
               <TabsTrigger value="exceptions">Exceptions</TabsTrigger>
+              <TabsTrigger value="completed">Completed</TabsTrigger>
             </>
           )}
         </TabsList>
@@ -135,6 +139,15 @@ export default function StockTransfersTab({
                 userWarehouseIds={user?.warehouseIds || []}
               />
             </TabsContent>
+            <TabsContent value="completed" className="m-0 flex-1 min-h-0 overflow-hidden">
+              <CompletedTab
+                selectedBranch={selectedBranch}
+                branches={branches}
+                onBranchChange={onBranchChange}
+                isSuperAdmin={isSuperAdmin}
+                isMultiBranchAdmin={isMultiBranchAdmin}
+              />
+            </TabsContent>
           </>
         )}
 
@@ -161,6 +174,15 @@ export default function StockTransfersTab({
                 userRole={user?.role || ''}
                 userBranchIds={user?.branchIds || []}
                 userWarehouseIds={user?.warehouseIds || []}
+              />
+            </TabsContent>
+            <TabsContent value="completed" className="m-0 flex-1 min-h-0 overflow-hidden">
+              <CompletedTab
+                selectedBranch={selectedBranch}
+                branches={branches}
+                onBranchChange={onBranchChange}
+                isSuperAdmin={isSuperAdmin}
+                isMultiBranchAdmin={isMultiBranchAdmin}
               />
             </TabsContent>
           </>
@@ -197,6 +219,15 @@ export default function StockTransfersTab({
                 isSuperAdmin={isSuperAdmin}
                 isMultiBranchAdmin={isMultiBranchAdmin}
                 onItemsUpdate={onItemsUpdate}
+              />
+            </TabsContent>
+            <TabsContent value="completed" className="m-0 flex-1 min-h-0 overflow-hidden">
+              <CompletedTab
+                selectedBranch={selectedBranch}
+                branches={branches}
+                onBranchChange={onBranchChange}
+                isSuperAdmin={isSuperAdmin}
+                isMultiBranchAdmin={isMultiBranchAdmin}
               />
             </TabsContent>
           </>

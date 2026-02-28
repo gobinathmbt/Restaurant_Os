@@ -20,7 +20,8 @@ import {
   updateExecutionStage,
   acceptStock,
   getInTransitTransfers,
-  getExceptions
+  getExceptions,
+  getCompletedTransfers
 } from '../controllers/stockTransferController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { idempotencyMiddleware } from '../middlewares/idempotency.js';
@@ -69,6 +70,9 @@ router.get('/v2/in-transit', getInTransitTransfers);
 
 // Get transfers with exceptions (location-based filtering applied in controller)
 router.get('/v2/exceptions', getExceptions);
+
+// Get completed transfers (location-based filtering applied in controller)
+router.get('/v2/completed', getCompletedTransfers);
 
 // Legacy V1 API endpoints (maintained for backward compatibility)
 

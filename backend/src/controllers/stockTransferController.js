@@ -928,3 +928,56 @@ export const getExceptions = async (req, res, next) => {
     next(error);
   }
 };
+
+
+/**
+ * Get completed stock transfers
+ * GET /api/v2/stock-transfers/completed
+ */
+export const getCompletedTransfers = async (req, res, next) => {
+  try {
+    const { companyId } = req.user;
+    const { page = 1, limit = 10, hasExceptions } = req.query;
+    
+    // Validate pagination parameters
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const parsedLimit = Math.min(parseInt(limit) || 10, 100);
+    
+    // Get accessible locations for the user
+    const { isUnrestricted, locationIds } = getAccessibleLocations(req.user);
+    
+    // Build filters
+    const filters = {
+      destinationLocation: req.query.destinationLocation,
+      sourceLocation: req.query.sourceLocation,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      search: req.query.search,
+      hasExceptions
+    };
+    
+    const result = await stockTransferService.getCompletedTransfers(
+      companyId,
+      filters,
+      {
+        page: parsedPage,
+        limit: parsedLimit
+      },
+      {
+        isUnrestricted,
+        locationIds
+      }
+    );
+    
+    res.json({
+      success: true,
+      data: {
+        transfers: result.transfers,
+        pagination: result.pagination
+      }
+    });
+  } catch (error) {
+    logger.error('Get completed stock transfers error', error);
+    next(error);
+  }
+};

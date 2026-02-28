@@ -14,7 +14,8 @@ import {
   cancelRequest,
   getMyRequests,
   getRequestsToMe,
-  getPendingApprovals
+  getPendingApprovals,
+  getCompletedRequests
 } from '../controllers/stockRequestController.js';
 import { authenticate, requireCompanyDB } from '../middlewares/auth.js';
 import { validateLocationAccess, validateMultipleLocationsAccess } from '../middlewares/locationAccess.js';
@@ -96,6 +97,25 @@ router.get('/requests-to-me', getRequestsToMe);
  * Authorization: Super admin only
  */
 router.get('/pending-approvals', getPendingApprovals);
+
+/**
+ * Get completed stock requests
+ * GET /api/v2/stock-requests/completed
+ * 
+ * Query params: page, limit, destinationLocation, sourceLocation, startDate, endDate, search
+ * 
+ * Response: {
+ *   success: true,
+ *   data: {
+ *     requests: [...],
+ *     pagination: { total, page, limit, pages }
+ *   }
+ * }
+ * 
+ * Shows all completed stock requests with their associated transfer details
+ * Available to all users (filtered by location access)
+ */
+router.get('/completed', getCompletedRequests);
 
 /**
  * List stock requests with offset-based pagination and filtering

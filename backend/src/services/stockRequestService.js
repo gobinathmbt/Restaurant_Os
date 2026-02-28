@@ -776,6 +776,23 @@ export const approveRequest = async (
         { _id: request._id },
         { $set: { createdTransferId: transfer._id } }
       );
+      
+      // Auto-initiate PROCESS_STARTED stage when source accepts the request
+      // This happens immediately after approval (source has accepted the request)
+      const processStartedStage = {
+        stage: 'PROCESS_STARTED',
+        timestamp: new Date(),
+        updatedBy: userId,
+        updatedByName: user.name || 'System',
+        ipAddress: ipAddress,
+        deviceInfo: deviceInfo,
+        notes: 'Transfer process started automatically after request approval'
+      };
+      
+      transfer.executionStages.push(processStartedStage);
+      await transfer.save();
+      
+      logger.info(`PROCESS_STARTED stage auto-initiated for transfer ${transfer.transferNumber}`);
     }
     
     // Create backorders
@@ -1460,6 +1477,151 @@ export const cancelRequest = async (
     
   } catch (error) {
     logger.error('Error cancelling stock request:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Get completed stock requests with their associated transfers
+ * Shows requests that have been fully processed (status: completed)
+ * @param {string} companyId - Company ID
+ * @param {Object} filters - Filter options
+ * @param {Object} pagination - Pagination options
+ * @param {Object} user - User object for access control
+ * @returns {Promise<Object>} Completed requests with pagination
+ */
+export const getCompletedRequests = async (companyId, filters = {}, pagination = {}, user) => {
+  try {
+    const companyDB = getCompanyDB(companyId);
+    const StockRequest = getStockRequestModel(companyDB);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    const {
+      destinationLocation,
+      sourceLocation,
+      startDate,
+      endDate,
+      search
+    } = filters;
+    
+    const {
+      page = 1,
+      limit = 10
+    } = pagination;
+    
+    const skip = (page - 1) * limit;
+    
+    // Build query for completed requests
+    const query = {
+      status: 'completed',
+      isArchived: false
+    };
+    
+    // Apply location-based filtering
+    if (!isSuperAdmin(user)) {
+      // Non-Super Admins can only see requests for their locations
+      const locationIds = [
+        ...(user.branchIds || []),
+        ...(user.warehouseIds || [])
+      ];
+      
+      query.$or = [
+        { destinationLocation: { $in: locationIds } },
+        { sourceLocation: { $in: locationIds } }
+      ];
+    }
+    
+    // Apply filters
+    if (destinationLocation) {
+      query.destinationLocation = destinationLocation;
+    }
+    
+    if (sourceLocation) {
+      query.sourceLocation = sourceLocation;
+    }
+    
+    if (startDate || endDate) {
+      query.completedDate = {};
+      if (startDate) {
+        query.completedDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.completedDate.$lte = new Date(endDate);
+      }
+    }
+    
+    if (search) {
+      query.requestNumber = { $regex: search, $options: 'i' };
+    }
+    
+    // Get total count
+    const total = await StockRequest.countDocuments(query);
+    const pages = Math.ceil(total / limit);
+    
+    // Execute query with pagination
+    const requests = await StockRequest.find(query)
+      .sort({ completedDate: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('destinationLocation', 'name type')
+      .populate('sourceLocation', 'name type')
+      .populate('items.inventoryItem', 'name code')
+      .populate('createdTransferId')
+      .lean();
+    
+    // Manually populate user fields
+    const userIds = new Set();
+    requests.forEach(request => {
+      if (request.requestedBy) userIds.add(request.requestedBy.toString());
+      if (request.approvedBy) userIds.add(request.approvedBy.toString());
+      if (request.completedBy) userIds.add(request.completedBy.toString());
+    });
+    
+    if (userIds.size > 0) {
+      const users = await CompanyUser.find({
+        _id: { $in: Array.from(userIds) },
+        companyId: companyId
+      }).select('_id name email role').lean();
+      
+      const userMap = new Map(users.map(u => [u._id.toString(), u]));
+      
+      requests.forEach(request => {
+        if (request.requestedBy && userMap.has(request.requestedBy.toString())) {
+          request.requestedBy = userMap.get(request.requestedBy.toString());
+        }
+        if (request.approvedBy && userMap.has(request.approvedBy.toString())) {
+          request.approvedBy = userMap.get(request.approvedBy.toString());
+        }
+        if (request.completedBy && userMap.has(request.completedBy.toString())) {
+          request.completedBy = userMap.get(request.completedBy.toString());
+        }
+      });
+    }
+    
+    // Fetch transfer details for each request
+    for (const request of requests) {
+      if (request.createdTransferId) {
+        const transfer = await StockTransfer.findById(request.createdTransferId)
+          .select('transferNumber status executionStages exceptions')
+          .lean();
+        request.transfer = transfer;
+      }
+    }
+    
+    logger.info(`Completed requests fetched: ${requests.length} for company ${companyId}`);
+    
+    return {
+      requests,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting completed requests:', error);
     throw error;
   }
 };
