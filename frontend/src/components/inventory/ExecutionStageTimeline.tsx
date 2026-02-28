@@ -93,6 +93,11 @@ export default function ExecutionStageTimeline({
 
   const getStageStatus = (stageKey: string, index: number): 'completed' | 'current' | 'pending' => {
     if (completedStagesMap.has(stageKey)) {
+      // If this is PROCESS_COMPLETED stage, it should always show as completed (green), not current
+      if (stageKey === 'PROCESS_COMPLETED') {
+        return 'completed';
+      }
+      // Otherwise, if it's the current (last) stage, show as current (blue)
       return stageKey === currentStage ? 'current' : 'completed';
     }
     return 'pending';
@@ -120,11 +125,14 @@ export default function ExecutionStageTimeline({
     }
   };
 
+  // Check if PROCESS_STARTED stage already exists
+  const hasProcessStarted = executionStages.some(stage => stage.stage === 'PROCESS_STARTED');
+
   const handleStartWork = async () => {
     if (!transferId) return;
     
     // Prevent duplicate calls if already starting or already started
-    if (isStarting || executionStages.length > 0) {
+    if (isStarting || hasProcessStarted) {
       return;
     }
     
@@ -165,7 +173,7 @@ export default function ExecutionStageTimeline({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {executionStages.length === 0 ? (
+        {!hasProcessStarted ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="rounded-full bg-gray-100 p-4 mb-4">
               <Play className="h-8 w-8 text-gray-400" />

@@ -9,6 +9,7 @@ import { getStockTransferModel } from '../models/company/StockTransfer.js';
 import { getStockRequestModel } from '../models/company/StockRequest.js';
 import { getInventoryItemLocationModel } from '../models/company/InventoryItemLocation.js';
 import { getInventoryBatchLocationModel } from '../models/company/InventoryBatchLocation.js';
+import { getInventoryLedgerModel } from '../models/company/InventoryLedger.js';
 import { logger } from '../utils/logger.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import notificationService from './notificationService.js';
@@ -334,6 +335,124 @@ export const validateStageTransition = (transfer, newStage, user) => {
 };
 
 /**
+ * Update inventory when transfer is completed
+ * Increases stock at destination and decreases at source (if warehouse)
+ * 
+ * @param {Object} companyDB - Company database connection
+ * @param {Object} transfer - Stock transfer object
+ * @param {string} userId - User ID performing the update
+ */
+const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
+  try {
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const InventoryLedger = getInventoryLedgerModel(companyDB);
+
+    // Process each item in the transfer
+    for (const item of transfer.items) {
+      const inventoryItemId = item.inventoryItem._id || item.inventoryItem;
+      const quantity = item.sentQuantity;
+      const unit = item.unit;
+
+      // 1. Increase inventory at DESTINATION location
+      const destinationLocationId = transfer.destinationLocation._id || transfer.destinationLocation;
+
+      let destinationInventory = await InventoryItemLocation.findOne({
+        inventoryItem: inventoryItemId,
+        locationId: destinationLocationId
+      });
+
+      if (!destinationInventory) {
+        // Create new inventory record at destination
+        destinationInventory = new InventoryItemLocation({
+          inventoryItem: inventoryItemId,
+          locationId: destinationLocationId,
+          availableQuantity: 0,
+          reservedQuantity: 0,
+          inTransitQuantity: 0,
+          unit: unit,
+          minimumStock: 0
+        });
+      }
+
+      destinationInventory.availableQuantity += quantity;
+      destinationInventory.lastRestocked = new Date();
+      
+      const beforeAvailable = destinationInventory.availableQuantity - quantity;
+      const afterAvailable = destinationInventory.availableQuantity;
+      
+      await destinationInventory.save();
+
+      // Create ledger entry for destination (RECEIVE)
+      await InventoryLedger.create({
+        inventoryItem: inventoryItemId,
+        locationId: destinationLocationId,
+        movementType: 'transfer_in',
+        quantityDelta: quantity,
+        beforeAvailable: beforeAvailable,
+        afterAvailable: afterAvailable,
+        beforeReserved: 0,
+        afterReserved: 0,
+        beforeInTransit: 0,
+        afterInTransit: 0,
+        referenceType: 'TRANSFER',
+        referenceId: transfer._id,
+        referenceNumber: transfer.transferNumber,
+        performedBy: userId,
+        notes: `Stock received from ${transfer.sourceLocation.name || 'source location'}`,
+        timestamp: new Date()
+      });
+
+      // 2. Decrease inventory at SOURCE location (if it's a warehouse)
+      const sourceLocationId = transfer.sourceLocation._id || transfer.sourceLocation;
+      const sourceLocationType = transfer.sourceLocation.type;
+
+      if (sourceLocationType === 'warehouse' || item.isWarehouseSource) {
+        let sourceInventory = await InventoryItemLocation.findOne({
+          inventoryItem: inventoryItemId,
+          locationId: sourceLocationId
+        });
+
+        if (sourceInventory) {
+          const beforeSourceAvailable = sourceInventory.availableQuantity;
+          sourceInventory.availableQuantity -= quantity;
+          if (sourceInventory.availableQuantity < 0) {
+            logger.warn(`Negative stock at source location ${sourceLocationId} for item ${inventoryItemId}`);
+            sourceInventory.availableQuantity = 0; // Prevent negative stock
+          }
+          const afterSourceAvailable = sourceInventory.availableQuantity;
+          await sourceInventory.save();
+
+          // Create ledger entry for source (SEND)
+          await InventoryLedger.create({
+            inventoryItem: inventoryItemId,
+            locationId: sourceLocationId,
+            movementType: 'transfer_out',
+            quantityDelta: -quantity, // Negative for outgoing
+            beforeAvailable: beforeSourceAvailable,
+            afterAvailable: afterSourceAvailable,
+            beforeReserved: 0,
+            afterReserved: 0,
+            beforeInTransit: 0,
+            afterInTransit: 0,
+            referenceType: 'TRANSFER',
+            referenceId: transfer._id,
+            referenceNumber: transfer.transferNumber,
+            performedBy: userId,
+            notes: `Stock sent to ${transfer.destinationLocation.name || 'destination location'}`,
+            timestamp: new Date()
+          });
+        }
+      }
+    }
+
+    logger.info(`Inventory updated for completed transfer ${transfer.transferNumber}`);
+  } catch (error) {
+    logger.error('Error updating inventory on completion:', error);
+    throw error;
+  }
+};
+
+/**
  * Update execution stage with audit trail and notifications
  * Validates transition, adds stage to executionStages array, sends notifications
  * 
@@ -428,6 +547,25 @@ export const updateExecutionStage = async (
         deviceInfo: deviceInfo,
         notes: 'Auto-transitioned to PROCESS_COMPLETED after goods confirmation'
       });
+      
+      // Update inventory at destination and source
+      await updateInventoryOnCompletion(companyDB, transfer, userId);
+      
+      // Update stock request status to completed
+      if (transfer.originalRequestId) {
+        const StockRequest = companyDB.model('StockRequest');
+        await StockRequest.updateOne(
+          { _id: transfer.originalRequestId },
+          {
+            $set: {
+              status: 'completed',
+              completedBy: userId,
+              completedDate: new Date()
+            }
+          }
+        );
+        logger.info(`Stock request ${transfer.originalRequestId} marked as completed`);
+      }
     }
     
     // Update transfer with new stage(s) using optimistic locking

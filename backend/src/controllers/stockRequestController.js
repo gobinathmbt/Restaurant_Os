@@ -337,52 +337,50 @@ export const listRequests = async (req, res, next) => {
       .populate('sourceLocation', 'name type')
       .populate('items.inventoryItem', 'name code')
       .lean();
+    
+    // Manually populate createdTransferId with executionStages for approved requests
+    const StockTransfer = req.companyDB.model('StockTransfer');
+    for (const request of requests) {
+      if (request.createdTransferId) {
+        try {
+          const transfer = await StockTransfer.findById(request.createdTransferId)
+            .select('executionStages status')
+            .lean();
+          if (transfer) {
+            request.createdTransferId = transfer;
+          }
+        } catch (err) {
+          logger.warn('Failed to populate transfer for request', { requestId: request._id, error: err.message });
+        }
+      }
+    }
 
     // Manually populate CompanyUser fields (platform model)
     let populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy', 'approvedBy']);
 
     // Filter by execution status if specified
     if (filters.executionStatus && filters.executionStatus !== 'all') {
-      const StockTransfer = req.companyDB.model('StockTransfer');
-      
-      // Get transfer IDs for approved requests
-      const approvedRequestIds = populatedRequests
-        .filter(r => r.status === 'approved' && r.createdTransferId)
-        .map(r => r.createdTransferId);
-      
-      if (approvedRequestIds.length > 0) {
-        // Fetch transfers to check their status
-        const transfers = await StockTransfer.find({
-          _id: { $in: approvedRequestIds }
-        }).select('_id status').lean();
+      // Filter based on execution status using the populated transfer data
+      populatedRequests = populatedRequests.filter(request => {
+        if (request.status !== 'approved' || !request.createdTransferId) {
+          // Non-approved requests: include based on filter
+          return filters.executionStatus === 'not_started';
+        }
         
-        const transferStatusMap = new Map(
-          transfers.map(t => [t._id.toString(), t.status])
-        );
+        // createdTransferId is now populated with transfer object
+        const transfer = request.createdTransferId;
+        const transferStatus = transfer.status;
         
-        // Filter based on execution status
-        populatedRequests = populatedRequests.filter(request => {
-          if (request.status !== 'approved' || !request.createdTransferId) {
-            // Non-approved requests: include based on filter
-            return filters.executionStatus === 'not_started';
-          }
-          
-          const transferStatus = transferStatusMap.get(request.createdTransferId.toString());
-          
-          if (filters.executionStatus === 'not_started') {
-            // Show only if transfer status is 'not_started'
-            return transferStatus === 'not_started';
-          } else if (filters.executionStatus === 'in_progress') {
-            // Show only if transfer status is 'in_progress'
-            return transferStatus === 'in_progress';
-          }
-          
-          return true;
-        });
-      } else if (filters.executionStatus === 'in_progress') {
-        // If filtering for in_progress but no approved requests, return empty
-        populatedRequests = [];
-      }
+        if (filters.executionStatus === 'not_started') {
+          // Show only if transfer status is 'not_started'
+          return transferStatus === 'not_started';
+        } else if (filters.executionStatus === 'in_progress') {
+          // Show only if transfer status is 'in_progress'
+          return transferStatus === 'in_progress';
+        }
+        
+        return true;
+      });
     }
 
     logger.info('Stock requests listed via API', {
