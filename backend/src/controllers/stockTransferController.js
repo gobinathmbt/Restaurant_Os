@@ -21,6 +21,7 @@ export const listTransfers = async (req, res, next) => {
       transferType,
       destinationLocation,
       sourceLocation,
+      branchId, // Add branchId parameter
       startDate,
       endDate
     } = req.query;
@@ -31,6 +32,11 @@ export const listTransfers = async (req, res, next) => {
 
     // Get accessible locations for the user
     const { isUnrestricted, locationIds } = getAccessibleLocations(req.user);
+    
+    // Check if user is super admin
+    const isSuperAdmin = req.user.role === 'company_super_admin_primary' || 
+                         req.user.role === 'company_super_admin_secondary';
+
 
     // Build filters
     const filters = {
@@ -43,10 +49,13 @@ export const listTransfers = async (req, res, next) => {
     };
 
     // Apply location-based filtering
-    if (!isUnrestricted) {
-      // For non-Super Admins, filter by accessible locations
-      // Show transfers where user has access to destinationLocation OR sourceLocation
-      filters.accessibleLocations = locationIds;
+    // Super admins with branchId='all' can see ALL transfers (no location filter)
+    if (!isSuperAdmin || (branchId && branchId !== 'all')) {
+      if (!isUnrestricted) {
+         filters.accessibleLocations = locationIds;
+      }
+    } else {
+      console.log('✅ [LIST TRANSFERS DEBUG] Super admin with branchId=all - showing ALL transfers');
     }
 
     const result = await stockTransferService.listTransfers(

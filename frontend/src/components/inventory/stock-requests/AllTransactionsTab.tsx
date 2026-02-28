@@ -39,12 +39,19 @@ interface Transaction {
   priority: string;
   requestDate?: string;
   transferDate?: string;
+  requestedBy?: {
+    _id: string;
+    name: string;
+  };
+  expectedDeliveryDate?: string;
+  notes?: string;
   items: Array<{
     inventoryItem: {
       _id: string;
       name: string;
     };
     requestedQuantity?: number;
+    approvedQuantity?: number;
     sentQuantity?: number;
     unit: string;
   }>;
@@ -97,11 +104,11 @@ export default function AllTransactionsTab({
     try {
       setLoading(true);
       
-      // Fetch both requests and transfers
+      // Fetch both requests and transfers with proper pagination
       const [requestsResponse, transfersResponse] = await Promise.all([
         inventoryServices.getStockRequests(selectedBranch, {
-          page: 1,
-          limit: 1000, // Get all for filtering
+          page,
+          limit: rowsPerPage,
           search: search || undefined,
           status: statusFilter || undefined,
           priority: priorityFilter || undefined,
@@ -109,13 +116,10 @@ export default function AllTransactionsTab({
           dateTo: dateTo || undefined,
         }),
         inventoryServices.getStockTransfers(selectedBranch, {
-          page: 1,
-          limit: 1000, // Get all for filtering
+          page,
+          limit: rowsPerPage,
           search: search || undefined,
           status: statusFilter || undefined,
-          priority: priorityFilter || undefined,
-          dateFrom: dateFrom || undefined,
-          dateTo: dateTo || undefined,
         })
       ]);
 
@@ -150,14 +154,15 @@ export default function AllTransactionsTab({
         return dateB - dateA;
       });
 
-      // Paginate
-      const startIndex = (page - 1) * rowsPerPage;
-      const endIndex = startIndex + rowsPerPage;
-      const paginatedTransactions = allTransactions.slice(startIndex, endIndex);
-
-      setTransactions(paginatedTransactions);
-      setTotalCount(allTransactions.length);
-      setTotalPages(Math.ceil(allTransactions.length / rowsPerPage));
+      setTransactions(allTransactions);
+      
+      // Calculate total from both responses
+      const requestsTotal = requestsResponse.data.data.pagination?.total || 0;
+      const transfersTotal = transfersResponse.data.data.pagination?.total || 0;
+      const total = requestsTotal + transfersTotal;
+      
+      setTotalCount(total);
+      setTotalPages(Math.ceil(total / rowsPerPage));
     } catch (error: any) {
       toast({
         title: "Error",
@@ -247,17 +252,19 @@ export default function AllTransactionsTab({
       </TableCell>
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSelectedTransaction(transaction);
-              setIsViewOpen(true);
-            }}
-            title="View Details"
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
+          {transaction.type === 'request' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSelectedTransaction(transaction);
+                setIsViewOpen(true);
+              }}
+              title="View Details"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </TableCell>
     </TableRow>
@@ -390,7 +397,7 @@ export default function AllTransactionsTab({
           setIsViewOpen(false);
           setSelectedTransaction(null);
         }}
-        request={selectedTransaction}
+        request={selectedTransaction?.type === 'request' ? selectedTransaction as any : null}
         onSuccess={() => {
           setIsViewOpen(false);
           setSelectedTransaction(null);

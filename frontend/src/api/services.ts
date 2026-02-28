@@ -482,6 +482,9 @@ export const inventoryServices = {
     limit?: number; 
     search?: string; 
     status?: string;
+    priority?: string;
+    dateFrom?: string;
+    dateTo?: string;
   }) => {
     const queryParams = { ...params, branchId };
     return apiClient.get("/api/inventory/transfers", { params: queryParams });

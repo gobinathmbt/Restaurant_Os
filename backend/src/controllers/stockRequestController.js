@@ -222,23 +222,41 @@ export const listRequests = async (req, res, next) => {
     // Apply location-based filtering
     const { isUnrestricted, locationIds } = getAccessibleLocations(user);
     
+    // Check if user is super admin
+    const isSuperAdmin = user.role === 'company_super_admin_primary' || 
+                         user.role === 'company_super_admin_secondary';
+    
+    
     // Build query (no companyId needed - database-level isolation)
     const query = { isArchived: false };
     
-    // IMPORTANT: Exclude completed requests from main listing
-    // Completed requests should only appear in the dedicated "Completed" tab
+    // IMPORTANT: Exclude completed requests from main listing UNLESS branchId=all (All Transactions tab)
+    // Completed requests should only appear in the dedicated "Completed" tab or All Transactions tab
     // This prevents clutter in active request views
-    if (!filters.status || filters.status !== 'completed') {
+    if ((!filters.status || filters.status !== 'completed') && filters.branchId !== 'all') {
       query.status = { $ne: 'completed' };
+      console.log('🔍 [LIST REQUESTS DEBUG] Excluding completed requests (not All Transactions tab)');
+    } else if (filters.branchId === 'all') {
+      console.log('✅ [LIST REQUESTS DEBUG] Including completed requests (All Transactions tab)');
     }
 
     // Location-based access control
-    if (!isUnrestricted) {
-      // Non-Super Admins can only see requests for their locations
-      query.$or = [
-        { destinationLocation: { $in: locationIds } },
-        { sourceLocation: { $in: locationIds } }
-      ];
+    // Super admins with branchId='all' can see ALL requests (no location filter)
+    if (!isSuperAdmin || (filters.branchId && filters.branchId !== 'all')) {
+      if (!isUnrestricted) {
+        // Non-Super Admins can only see requests for their locations
+        query.$or = [
+          { destinationLocation: { $in: locationIds } },
+          { sourceLocation: { $in: locationIds } }
+        ];
+        
+        console.log('🔍 [LIST REQUESTS DEBUG] Applying location filter', {
+          locationIds,
+          reason: isSuperAdmin ? 'Super admin with specific branch' : 'Non-super admin'
+        });
+      }
+    } else {
+      console.log('✅ [LIST REQUESTS DEBUG] Super admin with branchId=all - showing ALL requests');
     }
 
     // Handle branchId parameter (used by frontend tabs)
@@ -863,8 +881,16 @@ export const getRequestsToMe = async (req, res, next) => {
       requestDateEnd: req.query.requestDateEnd,
       search: req.query.search,
       sortBy: req.query.sortBy || 'requestDate',
-      sortOrder: req.query.sortOrder || 'desc'
+      sortOrder: req.query.sortOrder || 'desc',
+      executionStatus: req.query.executionStatus || 'not_started' // Default to not_started
     };
+
+    console.log('🔍 [REQUESTS TO ME DEBUG] Filter parameters', {
+      executionStatus: filters.executionStatus,
+      status: filters.status,
+      userId: user.userId,
+      userRole: user.role
+    });
 
     // Get accessible locations for the user
     const { locationIds } = getAccessibleLocations(user);
@@ -877,8 +903,13 @@ export const getRequestsToMe = async (req, res, next) => {
       sourceLocation: { $in: locationIds }
     };
 
+    // Exclude completed requests by default (unless explicitly requested)
+    if (!filters.status || filters.status !== 'completed') {
+      query.status = { $ne: 'completed' };
+    }
+
     // Apply filters
-    if (filters.status) {
+    if (filters.status && filters.status !== 'all') {
       query.status = filters.status;
     }
 
@@ -906,7 +937,105 @@ export const getRequestsToMe = async (req, res, next) => {
                       filters.sortBy === 'status' ? 'status' : 'requestDate';
     const sortDirection = filters.sortOrder === 'asc' ? 1 : -1;
 
-    // Get total count
+    // For execution status filtering, we need to fetch transfers first
+    let requestsToFilter = [];
+    
+    if (filters.executionStatus && filters.executionStatus !== 'all') {
+      console.log('🔍 [REQUESTS TO ME DEBUG] Applying execution status filter', {
+        executionStatus: filters.executionStatus
+      });
+      
+      // Fetch all matching requests (without pagination first)
+      requestsToFilter = await StockRequest.find(query)
+        .sort({ [sortField]: sortDirection, requestNumber: -1 })
+        .populate('destinationLocation', 'name type')
+        .populate('sourceLocation', 'name type')
+        .populate('items.inventoryItem', 'name code')
+        .lean();
+      
+      // Populate transfer execution stages for approved requests
+      const StockTransfer = req.companyDB.model('StockTransfer');
+      for (const request of requestsToFilter) {
+        if (request.createdTransferId) {
+          try {
+            const transfer = await StockTransfer.findById(request.createdTransferId)
+              .select('executionStages status')
+              .lean();
+            if (transfer) {
+              request.createdTransferId = transfer;
+            }
+          } catch (err) {
+            logger.warn('Failed to populate transfer for request', { requestId: request._id, error: err.message });
+          }
+        }
+      }
+      
+      // Filter by execution status
+      requestsToFilter = requestsToFilter.filter(request => {
+        if (request.status !== 'approved' || !request.createdTransferId) {
+          // Non-approved requests: include only if looking for 'not_started'
+          return filters.executionStatus === 'not_started';
+        }
+        
+        const transfer = request.createdTransferId;
+        const transferStatus = transfer.status;
+        
+        console.log('🔍 [REQUESTS TO ME DEBUG] Checking transfer status', {
+          requestNumber: request.requestNumber,
+          transferStatus,
+          executionStatusFilter: filters.executionStatus,
+          willInclude: transferStatus === filters.executionStatus
+        });
+        
+        if (filters.executionStatus === 'not_started') {
+          return transferStatus === 'not_started';
+        } else if (filters.executionStatus === 'in_progress') {
+          return transferStatus === 'in_progress';
+        }
+        
+        return true;
+      });
+      
+      // Now apply pagination to filtered results
+      const total = requestsToFilter.length;
+      const pages = Math.ceil(total / limit);
+      const requests = requestsToFilter.slice(skip, skip + limit);
+      
+      // Manually populate CompanyUser fields (platform model)
+      const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy']);
+      
+      console.log('✅ [REQUESTS TO ME DEBUG] Filtered and paginated results', {
+        totalBeforeFilter: requestsToFilter.length,
+        totalAfterFilter: total,
+        page,
+        limit,
+        returnedCount: populatedRequests.length
+      });
+
+      logger.info('Requests to me listed via API', {
+        companyId,
+        userId: user.userId,
+        count: populatedRequests.length,
+        page,
+        total,
+        executionStatus: filters.executionStatus
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          requests: populatedRequests,
+          pagination: {
+            total,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages
+          }
+        }
+      });
+    }
+
+    // No execution status filter - use standard pagination
     const total = await StockRequest.countDocuments(query);
     const pages = Math.ceil(total / limit);
 
@@ -922,6 +1051,13 @@ export const getRequestsToMe = async (req, res, next) => {
 
     // Manually populate CompanyUser fields (platform model)
     const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy']);
+
+    console.log('✅ [REQUESTS TO ME DEBUG] Standard query results', {
+      total,
+      page,
+      limit,
+      returnedCount: populatedRequests.length
+    });
 
     logger.info('Requests to me listed via API', {
       companyId,

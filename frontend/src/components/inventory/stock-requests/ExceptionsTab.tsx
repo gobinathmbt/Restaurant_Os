@@ -103,10 +103,10 @@ export default function ExceptionsTab({
     try {
       setLoading(true);
       
-      // Fetch all transfers
+      // Fetch all transfers (exceptions are nested, so we need all transfers to filter)
       const response = await inventoryServices.getStockTransfers(selectedBranch, {
         page: 1,
-        limit: 1000, // Get all for filtering
+        limit: 500, // Reasonable limit for exception filtering
         search: search || undefined,
       });
 
@@ -163,16 +163,16 @@ export default function ExceptionsTab({
   const handleMarkResolved = async (transferId: string, exceptionId: string) => {
     try {
       // TODO: Implement API call to mark exception as resolved
-      await inventoryServices.resolveException(transferId, exceptionId);
+      // await inventoryServices.resolveException(transferId, exceptionId);
       
       toast({
-        title: "Success",
-        description: "Exception marked as resolved",
+        title: "Info",
+        description: "Exception resolution feature coming soon",
       });
-      fetchExceptions();
-      if (onItemsUpdate) {
-        onItemsUpdate();
-      }
+      // fetchExceptions();
+      // if (onItemsUpdate) {
+      //   onItemsUpdate();
+      // }
     } catch (error: any) {
       toast({
         title: "Error",

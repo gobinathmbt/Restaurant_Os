@@ -356,12 +356,27 @@ const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
       // 1. Increase inventory at DESTINATION location
       const destinationLocationId = transfer.destinationLocation._id || transfer.destinationLocation;
 
+      console.log('🔍 [TRANSFER COMPLETION DEBUG] Processing destination location', {
+        transferNumber: transfer.transferNumber,
+        destinationLocationId,
+        inventoryItemId,
+        quantity,
+        unit
+      });
+
       let destinationInventory = await InventoryItemLocation.findOne({
         inventoryItem: inventoryItemId,
         locationId: destinationLocationId
       });
 
+      console.log('🔍 [TRANSFER COMPLETION DEBUG] Destination inventory before addition', {
+        found: !!destinationInventory,
+        availableQuantity: destinationInventory?.availableQuantity || 0,
+        quantityToAdd: quantity
+      });
+
       if (!destinationInventory) {
+        console.log('ℹ️ [TRANSFER COMPLETION INFO] Creating new inventory record at destination');
         // Create new inventory record at destination
         destinationInventory = new InventoryItemLocation({
           inventoryItem: inventoryItemId,
@@ -381,6 +396,12 @@ const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
       const afterAvailable = destinationInventory.availableQuantity;
       
       await destinationInventory.save();
+
+      console.log('✅ [TRANSFER COMPLETION DEBUG] Destination inventory updated', {
+        beforeAvailable,
+        afterAvailable,
+        quantityAdded: quantity
+      });
 
       // Create ledger entry for destination (RECEIVE)
       await InventoryLedger.create({
@@ -402,25 +423,66 @@ const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
         timestamp: new Date()
       });
 
-      // 2. Decrease inventory at SOURCE location (if it's a warehouse)
+      // 2. Decrease inventory at SOURCE location
       const sourceLocationId = transfer.sourceLocation._id || transfer.sourceLocation;
       const sourceLocationType = transfer.sourceLocation.type;
 
-      if (sourceLocationType === 'warehouse' || item.isWarehouseSource) {
+      console.log('🔍 [TRANSFER COMPLETION DEBUG] Processing source location deduction', {
+        transferNumber: transfer.transferNumber,
+        sourceLocationId,
+        sourceLocationType,
+        inventoryItemId,
+        quantity,
+        isWarehouseSource: item.isWarehouseSource
+      });
+
+      // Deduct from source location for all transfer types (branch-to-branch, warehouse-to-branch, etc.)
+      // Skip only if explicitly marked as warehouse source without inventory tracking
+      const shouldDeductFromSource = sourceLocationType !== 'warehouse' || !item.isWarehouseSource;
+      
+      console.log('🔍 [TRANSFER COMPLETION DEBUG] Source deduction decision', {
+        shouldDeductFromSource,
+        reason: shouldDeductFromSource ? 
+          'Will deduct from source (branch or tracked warehouse)' : 
+          'Skipping deduction (untracked warehouse)'
+      });
+
+      if (shouldDeductFromSource) {
         let sourceInventory = await InventoryItemLocation.findOne({
           inventoryItem: inventoryItemId,
           locationId: sourceLocationId
         });
 
+        console.log('🔍 [TRANSFER COMPLETION DEBUG] Source inventory before deduction', {
+          found: !!sourceInventory,
+          availableQuantity: sourceInventory?.availableQuantity || 0,
+          quantityToDeduct: quantity
+        });
+
         if (sourceInventory) {
           const beforeSourceAvailable = sourceInventory.availableQuantity;
           sourceInventory.availableQuantity -= quantity;
+          
           if (sourceInventory.availableQuantity < 0) {
+            console.log('⚠️ [TRANSFER COMPLETION WARNING] Negative stock detected', {
+              sourceLocationId,
+              inventoryItemId,
+              beforeAvailable: beforeSourceAvailable,
+              quantityDeducted: quantity,
+              resultingQuantity: sourceInventory.availableQuantity
+            });
             logger.warn(`Negative stock at source location ${sourceLocationId} for item ${inventoryItemId}`);
             sourceInventory.availableQuantity = 0; // Prevent negative stock
           }
+          
           const afterSourceAvailable = sourceInventory.availableQuantity;
           await sourceInventory.save();
+
+          console.log('✅ [TRANSFER COMPLETION DEBUG] Source inventory deducted', {
+            beforeAvailable: beforeSourceAvailable,
+            afterAvailable: afterSourceAvailable,
+            quantityDeducted: quantity
+          });
 
           // Create ledger entry for source (SEND)
           await InventoryLedger.create({
@@ -441,7 +503,20 @@ const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
             notes: `Stock sent to ${transfer.destinationLocation.name || 'destination location'}`,
             timestamp: new Date()
           });
+        } else {
+          console.log('⚠️ [TRANSFER COMPLETION WARNING] Source inventory not found', {
+            sourceLocationId,
+            inventoryItemId,
+            message: 'Cannot deduct from non-existent inventory record'
+          });
+          logger.warn(`Source inventory not found for item ${inventoryItemId} at location ${sourceLocationId}`);
         }
+      } else {
+        console.log('ℹ️ [TRANSFER COMPLETION INFO] Skipping source deduction for untracked warehouse', {
+          sourceLocationId,
+          sourceLocationType,
+          isWarehouseSource: item.isWarehouseSource
+        });
       }
     }
 
