@@ -50,7 +50,7 @@ const STAGE_TRANSITIONS = {
   },
   GOODS_RECEIVED_CONFIRMED: {
     next: ['PROCESS_COMPLETED'],
-    roles: ['system'] // Auto-transition only
+    roles: ['destination', 'system'] // Destination can confirm, then auto-transitions to PROCESS_COMPLETED
   },
   PROCESS_COMPLETED: {
     next: [], // Terminal state
@@ -414,16 +414,41 @@ export const updateExecutionStage = async (
       });
     }
     
+    // Auto-transition: GOODS_RECEIVED_CONFIRMED → PROCESS_COMPLETED
+    if (newStage === 'GOODS_RECEIVED_CONFIRMED') {
+      stagesToUpdate.push({
+        stage: 'PROCESS_COMPLETED',
+        timestamp: new Date(),
+        updatedBy: userId,
+        updatedByName: 'System',
+        ipAddress: ipAddress,
+        deviceInfo: deviceInfo,
+        notes: 'Auto-transitioned to PROCESS_COMPLETED after goods confirmation'
+      });
+    }
+    
     // Update transfer with new stage(s) using optimistic locking
+    // Also update status to 'completed' if PROCESS_COMPLETED is reached
+    const updateData = {
+      $push: { executionStages: { $each: stagesToUpdate } },
+      $inc: { version: 1 }
+    };
+    
+    // If GOODS_RECEIVED_CONFIRMED, also set status to completed
+    if (newStage === 'GOODS_RECEIVED_CONFIRMED') {
+      updateData.$set = {
+        status: 'completed',
+        completedBy: userId,
+        completedDate: new Date()
+      };
+    }
+    
     const updateResult = await StockTransfer.updateOne(
       {
         _id: transfer._id,
         version: transfer.version
       },
-      {
-        $push: { executionStages: { $each: stagesToUpdate } },
-        $inc: { version: 1 }
-      }
+      updateData
     );
     
     if (updateResult.modifiedCount === 0) {
