@@ -18,9 +18,9 @@ import locationNotificationRouter from './locationNotificationRouter.js';
  * Stage transition state machine
  * Defines valid transitions and role permissions for each stage
  * 
- * NOTE: Field naming in model is swapped:
- * - transfer.destinationLocation = actual SOURCE (warehouse sending stock)
- * - transfer.sourceLocation = actual DESTINATION (branch receiving stock)
+ * Field naming (CORRECTED):
+ * - transfer.sourceLocation = actual SOURCE (warehouse/branch sending stock)
+ * - transfer.destinationLocation = actual DESTINATION (branch receiving stock)
  */
 const STAGE_TRANSITIONS = {
   PROCESS_STARTED: {
@@ -256,7 +256,7 @@ export const validateStageTransition = (transfer, newStage, user) => {
       
       // Only source location admins can start the transfer process
       // This is the "Start Work" action in Incoming Requests / Requests To Me tabs
-      const hasSourceAccess = hasLocationAccess(user, transfer.destinationLocation);
+      const hasSourceAccess = hasLocationAccess(user, transfer.sourceLocation);
       
       if (!hasSourceAccess && !isSuperAdmin(user)) {
         throw new Error('Only source location admins can start the transfer process');
@@ -303,20 +303,20 @@ export const validateStageTransition = (transfer, newStage, user) => {
       return true;
     }
     
-    // NOTE: Field naming in model is swapped:
-    // - transfer.destinationLocation = actual SOURCE (warehouse sending stock)
-    // - transfer.sourceLocation = actual DESTINATION (branch receiving stock)
+    // Field naming (CORRECTED):
+    // - transfer.sourceLocation = actual SOURCE (warehouse sending stock)
+    // - transfer.destinationLocation = actual DESTINATION (branch receiving stock)
     
-    // Check sender role permission (actual source - destinationLocation in model)
+    // Check sender role permission (source location - warehouse/branch sending stock)
     if (requiredRoles.includes('sender')) {
-      if (hasLocationAccess(user, transfer.destinationLocation)) {
+      if (hasLocationAccess(user, transfer.sourceLocation)) {
         return true;
       }
     }
     
-    // Check destination role permission (actual destination - sourceLocation in model)
+    // Check destination role permission (destination location - branch receiving stock)
     if (requiredRoles.includes('destination')) {
-      if (hasLocationAccess(user, transfer.sourceLocation)) {
+      if (hasLocationAccess(user, transfer.destinationLocation)) {
         return true;
       }
     }

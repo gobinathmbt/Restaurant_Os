@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { cn } from '@/lib/utils';
 import { inventoryServices } from '@/api/services';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
 
 interface ExecutionStage {
@@ -22,6 +23,7 @@ interface ExecutionStageTimelineProps {
   executionStages: ExecutionStage[];
   className?: string;
   transferId?: string;
+  sourceLocationId?: string;
   onStageUpdate?: () => void;
 }
 
@@ -41,10 +43,27 @@ export default function ExecutionStageTimeline({
   executionStages,
   className,
   transferId,
+  sourceLocationId,
   onStageUpdate,
 }: ExecutionStageTimelineProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isStarting, setIsStarting] = useState(false);
+
+  const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
+
+  // Check if user has access to source location
+  const hasSourceAccess = () => {
+    if (isSuperAdmin) return true;
+    if (!sourceLocationId) return false;
+
+    const userLocationIds = [
+      ...(user?.branchIds || []),
+      ...(user?.warehouseIds || [])
+    ];
+
+    return userLocationIds.includes(sourceLocationId);
+  };
 
   // Create a map of completed stages
   const completedStagesMap = new Map<string, ExecutionStage>();
@@ -104,6 +123,11 @@ export default function ExecutionStageTimeline({
   const handleStartWork = async () => {
     if (!transferId) return;
     
+    // Prevent duplicate calls if already starting or already started
+    if (isStarting || executionStages.length > 0) {
+      return;
+    }
+    
     try {
       setIsStarting(true);
       
@@ -148,9 +172,11 @@ export default function ExecutionStageTimeline({
             </div>
             <h3 className="text-lg font-semibold mb-2">No stages yet</h3>
             <p className="text-sm text-muted-foreground mb-6">
-              Click "Start Work" to begin the transfer process
+              {hasSourceAccess() 
+                ? 'Click "Start Work" to begin the transfer process'
+                : 'Waiting for source location to start the transfer process'}
             </p>
-            {transferId && (
+            {transferId && hasSourceAccess() && (
               <Button
                 onClick={handleStartWork}
                 disabled={isStarting}

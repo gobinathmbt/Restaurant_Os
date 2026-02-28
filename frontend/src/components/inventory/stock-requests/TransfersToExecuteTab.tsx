@@ -119,8 +119,8 @@ export default function TransfersToExecuteTab({
       const readyTransfers = (response.data.data.requests || []).map((request: any) => ({
         _id: request.createdTransferId?._id || request.createdTransferId || request._id,
         transferNumber: request.requestNumber,
-        destinationLocation: request.sourceLocation, // Source in request = destination in transfer
-        sourceLocation: request.destinationLocation, // Destination in request = source in transfer
+        destinationLocation: request.destinationLocation, // Branch receiving stock (requester)
+        sourceLocation: request.sourceLocation, // Warehouse sending stock (supplier)
         status: request.status,
         priority: request.priority,
         executionStages: request.createdTransferId?.executionStages || [],
@@ -207,14 +207,14 @@ export default function TransfersToExecuteTab({
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-1">
-          <span className="text-sm">{transfer.destinationLocation?.name || '-'}</span>
-          <span className="text-xs text-muted-foreground">(Requester)</span>
+          <span className="text-sm">{transfer.sourceLocation?.name || '-'}</span>
+          <span className="text-xs text-muted-foreground">(You - Source)</span>
         </div>
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-1">
-          <span className="text-sm">{transfer.sourceLocation?.name || '-'}</span>
-          <span className="text-xs text-muted-foreground">(You)</span>
+          <span className="text-sm">{transfer.destinationLocation?.name || '-'}</span>
+          <span className="text-xs text-muted-foreground">(Destination)</span>
         </div>
       </TableCell>
       <TableCell>{transfer.items?.length || 0} items</TableCell>

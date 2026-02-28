@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, Package, ArrowRight, CheckCircle, Play } from 'lucide-react';
+import { Eye, Package, ArrowRight, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select';
 import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { inventoryServices } from '@/api/services';
 import StockRequestViewModal from '../StockRequestViewModal';
 import StockTransferDetailModal from '../StockTransferDetailModal';
@@ -84,9 +85,11 @@ export default function IncomingRequestsTab({
   onItemsUpdate,
 }: IncomingRequestsTabProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [requests, setRequests] = useState<StockRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [startingWorkForId, setStartingWorkForId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('approved');
   const [priorityFilter, setPriorityFilter] = useState('');
@@ -212,13 +215,27 @@ export default function IncomingRequestsTab({
 
   const canStartWork = (request: StockRequest): boolean => {
     // Can start work if status is approved and no execution stages yet
-    return request.status === 'approved' && 
-           (!request.executionStages || request.executionStages.length === 0);
+    if (request.status !== 'approved' || (request.executionStages && request.executionStages.length > 0)) {
+      return false;
+    }
+
+    // Check if user has access to source location
+    const userLocationIds = [
+      ...(user?.branchIds || []),
+      ...(user?.warehouseIds || [])
+    ];
+
+    return isSuperAdmin || userLocationIds.includes(request.sourceLocation._id);
   };
 
   const handleStartWork = async (request: StockRequest) => {
+    // Prevent duplicate calls
+    if (startingWorkForId === request._id) {
+      return;
+    }
+
     try {
-      setLoading(true);
+      setStartingWorkForId(request._id);
       
       // Start the transfer by updating to PROCESS_STARTED stage
       const transferId = request.transferId || request.createdTransferId;
@@ -245,7 +262,7 @@ export default function IncomingRequestsTab({
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      setStartingWorkForId(null);
     }
   };
 
@@ -319,11 +336,12 @@ export default function IncomingRequestsTab({
               variant="default"
               size="sm"
               onClick={() => handleStartWork(request)}
+              disabled={startingWorkForId === request._id}
               title="Start Work"
               className="bg-green-600 hover:bg-green-700"
             >
               <Play className="h-4 w-4 mr-1" />
-              Start Work
+              {startingWorkForId === request._id ? 'Starting...' : 'Start Work'}
             </Button>
           )}
           <Button

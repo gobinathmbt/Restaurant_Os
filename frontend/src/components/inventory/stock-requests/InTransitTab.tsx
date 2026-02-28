@@ -128,8 +128,8 @@ export default function InTransitTab({
       const inTransitTransfers = (response.data.data.requests || []).map((request: any) => ({
         _id: request.createdTransferId?._id || request.createdTransferId || request._id,
         transferNumber: request.requestNumber,
-        destinationLocation: request.sourceLocation, // Source in request = destination in transfer
-        sourceLocation: request.destinationLocation, // Destination in request = source in transfer
+        destinationLocation: request.destinationLocation, // Branch receiving stock (requester)
+        sourceLocation: request.sourceLocation, // Warehouse sending stock (supplier)
         status: request.status,
         priority: request.priority,
         executionStages: request.createdTransferId?.executionStages || [],
@@ -277,12 +277,12 @@ export default function InTransitTab({
           <p className="font-medium">{transfer.transferNumber}</p>
         </TableCell>
         <TableCell>
-          <span className="text-sm">{transfer.destinationLocation?.name || '-'}</span>
-          <span className="text-xs text-muted-foreground ml-1">(Requester)</span>
-        </TableCell>
-        <TableCell>
           <span className="text-sm">{transfer.sourceLocation?.name || '-'}</span>
           <span className="text-xs text-muted-foreground ml-1">(Source)</span>
+        </TableCell>
+        <TableCell>
+          <span className="text-sm">{transfer.destinationLocation?.name || '-'}</span>
+          <span className="text-xs text-muted-foreground ml-1">(Destination)</span>
         </TableCell>
         <TableCell>
           {currentStage ? getStageBadge(currentStage.stage) : '-'}

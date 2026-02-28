@@ -752,8 +752,8 @@ export const approveRequest = async (
       transfer = new StockTransfer({
         transferNumber,
         companyId: companyId,
-        destinationLocation: request.sourceLocation, // Source location (warehouse)
-        sourceLocation: request.destinationLocation, // Destination location (requesting branch)
+        destinationLocation: request.destinationLocation, // FIXED: Branch that needs stock (requester)
+        sourceLocation: request.sourceLocation, // FIXED: Warehouse that has stock (supplier)
         transferType: 'request',
         originalRequestId: request._id,
         priority: request.priority,

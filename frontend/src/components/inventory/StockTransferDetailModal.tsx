@@ -107,8 +107,8 @@ export default function StockTransferDetailModal({
   if (!transfer) return null;
 
   const canAcceptTransfer = (): boolean => {
-    // Can accept if status is approved and not yet started
-    return transfer.status === 'approved' && 
+    // Can accept if status is not_started (no stages yet)
+    return transfer.status === 'not_started' && 
            (!transfer.executionStages || transfer.executionStages.length === 0);
   };
 
@@ -158,19 +158,17 @@ export default function StockTransferDetailModal({
     const currentStage = getCurrentStage();
     if (!currentStage) return false;
 
-    // NOTE: Field naming in model is swapped:
-    // - transfer.destinationLocation = actual SOURCE (warehouse sending stock)
-    // - transfer.sourceLocation = actual DESTINATION (branch receiving stock)
+    // Field naming (CORRECTED):
+    // - displayTransfer.sourceLocation = actual SOURCE (warehouse sending stock)
+    // - displayTransfer.destinationLocation = actual DESTINATION (branch receiving stock)
     
     // Sender stages: PREPARING_STOCK → LOADING_INTO_VEHICLE → DISPATCHED
     // These are done by the SOURCE location (warehouse/branch that has stock)
-    // In model: destinationLocation
     // After DISPATCHED, system auto-transitions to IN_TRANSIT
     const senderStages = ['PREPARING_STOCK', 'LOADING_INTO_VEHICLE', 'DISPATCHED'];
     
     // Receiver stages: ARRIVED_AT_DESTINATION → UNLOADING → GOODS_RECEIVED_CONFIRMED
     // These are done by the DESTINATION location (branch receiving stock)
-    // In model: sourceLocation
     // IN_TRANSIT can be updated by receiver to mark ARRIVED_AT_DESTINATION
     const receiverStages = ['IN_TRANSIT', 'ARRIVED_AT_DESTINATION', 'UNLOADING', 'GOODS_RECEIVED_CONFIRMED'];
 
@@ -179,17 +177,17 @@ export default function StockTransferDetailModal({
       ...(user?.warehouseIds || [])
     ];
 
-    // Check if user has access to actual SOURCE location (destinationLocation in model)
-    const isSenderUser = userLocationIds.includes(transfer.destinationLocation._id);
+    // Check if user has access to SOURCE location (for sender stages)
+    const isSourceUser = userLocationIds.includes(transfer.sourceLocation._id);
     
-    // Check if user has access to actual DESTINATION location (sourceLocation in model)
-    const isReceiverUser = userLocationIds.includes(transfer.sourceLocation._id);
+    // Check if user has access to DESTINATION location (for receiver stages)
+    const isDestinationUser = userLocationIds.includes(transfer.destinationLocation._id);
 
-    if (senderStages.includes(currentStage.stage) && isSenderUser) {
+    if (senderStages.includes(currentStage.stage) && isSourceUser) {
       return true;
     }
 
-    if (receiverStages.includes(currentStage.stage) && isReceiverUser) {
+    if (receiverStages.includes(currentStage.stage) && isDestinationUser) {
       return true;
     }
 
@@ -331,6 +329,7 @@ export default function StockTransferDetailModal({
             <ExecutionStageTimeline 
               executionStages={transfer.executionStages || []} 
               transferId={transfer._id}
+              sourceLocationId={transfer.sourceLocation._id}
               onStageUpdate={onSuccess}
             />
 
