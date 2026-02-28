@@ -759,7 +759,7 @@ export const approveRequest = async (
         priority: request.priority,
         expectedDeliveryDate: request.expectedDeliveryDate,
         items: transferItems,
-        status: 'approved',
+        status: 'not_started', // Changed from 'approved' - waiting for source to start work
         requestedBy: request.requestedBy,
         requestDate: request.requestDate,
         approvedBy: userId,
@@ -776,23 +776,6 @@ export const approveRequest = async (
         { _id: request._id },
         { $set: { createdTransferId: transfer._id } }
       );
-      
-      // Auto-initiate PROCESS_STARTED stage when source accepts the request
-      // This happens immediately after approval (source has accepted the request)
-      const processStartedStage = {
-        stage: 'PROCESS_STARTED',
-        timestamp: new Date(),
-        updatedBy: userId,
-        updatedByName: user.name || 'System',
-        ipAddress: ipAddress,
-        deviceInfo: deviceInfo,
-        notes: 'Transfer process started automatically after request approval'
-      };
-      
-      transfer.executionStages.push(processStartedStage);
-      await transfer.save();
-      
-      logger.info(`PROCESS_STARTED stage auto-initiated for transfer ${transfer.transferNumber}`);
     }
     
     // Create backorders

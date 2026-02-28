@@ -1,7 +1,11 @@
-import { Check, Circle, Clock } from 'lucide-react';
+import { Check, Circle, Clock, Play } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { inventoryServices } from '@/api/services';
+import { useToast } from '@/hooks/use-toast';
+import { useState } from 'react';
 
 interface ExecutionStage {
   stage: string;
@@ -17,6 +21,8 @@ interface ExecutionStage {
 interface ExecutionStageTimelineProps {
   executionStages: ExecutionStage[];
   className?: string;
+  transferId?: string;
+  onStageUpdate?: () => void;
 }
 
 const STAGE_DEFINITIONS = [
@@ -34,7 +40,12 @@ const STAGE_DEFINITIONS = [
 export default function ExecutionStageTimeline({
   executionStages,
   className,
+  transferId,
+  onStageUpdate,
 }: ExecutionStageTimelineProps) {
+  const { toast } = useToast();
+  const [isStarting, setIsStarting] = useState(false);
+
   // Create a map of completed stages
   const completedStagesMap = new Map<string, ExecutionStage>();
   executionStages.forEach(stage => {
@@ -90,6 +101,37 @@ export default function ExecutionStageTimeline({
     }
   };
 
+  const handleStartWork = async () => {
+    if (!transferId) return;
+    
+    try {
+      setIsStarting(true);
+      
+      await inventoryServices.updateTransferStage(transferId, {
+        stage: 'PROCESS_STARTED',
+        notes: 'Transfer process started by source location'
+      });
+
+      toast({
+        title: "Success",
+        description: "Work started successfully",
+        variant: "success",
+      });
+
+      if (onStageUpdate) {
+        onStageUpdate();
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to start work",
+        variant: "destructive",
+      });
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
   return (
     <Card className={className}>
       <CardHeader>
@@ -99,99 +141,122 @@ export default function ExecutionStageTimeline({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="relative">
-          {/* Vertical line connecting stages */}
-          <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200" />
+        {executionStages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="rounded-full bg-gray-100 p-4 mb-4">
+              <Play className="h-8 w-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2">No stages yet</h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              Click "Start Work" to begin the transfer process
+            </p>
+            {transferId && (
+              <Button
+                onClick={handleStartWork}
+                disabled={isStarting}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Play className="h-4 w-4 mr-2" />
+                {isStarting ? 'Starting...' : 'Start Work'}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="relative">
+              {/* Vertical line connecting stages */}
+              <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200" />
 
-          <div className="space-y-6">
-            {STAGE_DEFINITIONS.map((stageDef, index) => {
-              const status = getStageStatus(stageDef.key, index);
-              const stageData = completedStagesMap.get(stageDef.key);
-              const isLast = index === STAGE_DEFINITIONS.length - 1;
+              <div className="space-y-6">
+                {STAGE_DEFINITIONS.map((stageDef, index) => {
+                  const status = getStageStatus(stageDef.key, index);
+                  const stageData = completedStagesMap.get(stageDef.key);
 
-              return (
-                <div key={stageDef.key} className="relative flex gap-4">
-                  {/* Stage icon */}
-                  <div className={cn(
-                    'relative z-10 flex h-12 w-12 items-center justify-center rounded-full border-4 border-background',
-                    getStageColor(status)
-                  )}>
-                    {getStageIcon(status)}
-                  </div>
+                  return (
+                    <div key={stageDef.key} className="relative flex gap-4">
+                      {/* Stage icon */}
+                      <div className={cn(
+                        'relative z-10 flex h-12 w-12 items-center justify-center rounded-full border-4 border-background',
+                        getStageColor(status)
+                      )}>
+                        {getStageIcon(status)}
+                      </div>
 
-                  {/* Stage content */}
-                  <div className="flex-1 pb-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className={cn(
-                            'font-semibold',
-                            status === 'current' && 'text-blue-600',
-                            status === 'completed' && 'text-green-600',
-                            status === 'pending' && 'text-muted-foreground'
-                          )}>
-                            {stageDef.label}
-                          </h4>
-                          {status === 'current' && (
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
-                              Current
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {stageDef.description}
-                        </p>
-
-                        {stageData && (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-sm">
-                              <Clock className="h-3 w-3 text-muted-foreground" />
-                              <span className="text-muted-foreground">
-                                {formatDate(stageData.timestamp)}
-                              </span>
+                      {/* Stage content */}
+                      <div className="flex-1 pb-6">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className={cn(
+                                'font-semibold',
+                                status === 'current' && 'text-blue-600',
+                                status === 'completed' && 'text-green-600',
+                                status === 'pending' && 'text-muted-foreground'
+                              )}>
+                                {stageDef.label}
+                              </h4>
+                              {status === 'current' && (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+                                  Current
+                                </Badge>
+                              )}
                             </div>
-                            {(stageData.updatedBy?.name || stageData.updatedByName) && (
-                              <div className="text-sm text-muted-foreground">
-                                Updated by: <span className="font-medium">
-                                  {stageData.updatedBy?.name || stageData.updatedByName}
-                                </span>
-                              </div>
-                            )}
-                            {stageData.notes && (
-                              <div className="mt-2 p-2 bg-muted rounded-md">
-                                <p className="text-sm text-muted-foreground">
-                                  <span className="font-medium">Notes:</span> {stageData.notes}
-                                </p>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {stageDef.description}
+                            </p>
+
+                            {stageData && (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Clock className="h-3 w-3 text-muted-foreground" />
+                                  <span className="text-muted-foreground">
+                                    {formatDate(stageData.timestamp)}
+                                  </span>
+                                </div>
+                                {(stageData.updatedBy?.name || stageData.updatedByName) && (
+                                  <div className="text-sm text-muted-foreground">
+                                    Updated by: <span className="font-medium">
+                                      {stageData.updatedBy?.name || stageData.updatedByName}
+                                    </span>
+                                  </div>
+                                )}
+                                {stageData.notes && (
+                                  <div className="mt-2 p-2 bg-muted rounded-md">
+                                    <p className="text-sm text-muted-foreground">
+                                      <span className="font-medium">Notes:</span> {stageData.notes}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
-                        )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  );
+                })}
+              </div>
+            </div>
 
-        {/* Progress indicator */}
-        <div className="mt-6 pt-6 border-t">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">Overall Progress</span>
-            <span className="text-sm text-muted-foreground">
-              {executionStages.length} of {STAGE_DEFINITIONS.length} stages completed
-            </span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-              style={{
-                width: `${(executionStages.length / STAGE_DEFINITIONS.length) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
+            {/* Progress indicator */}
+            <div className="mt-6 pt-6 border-t">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium">Overall Progress</span>
+                <span className="text-sm text-muted-foreground">
+                  {executionStages.length} of {STAGE_DEFINITIONS.length} stages completed
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${(executionStages.length / STAGE_DEFINITIONS.length) * 100}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

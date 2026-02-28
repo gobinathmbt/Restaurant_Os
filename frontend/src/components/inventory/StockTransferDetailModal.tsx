@@ -328,9 +328,11 @@ export default function StockTransferDetailModal({
             </div>
 
             {/* Execution Timeline */}
-            {transfer.executionStages && transfer.executionStages.length > 0 && (
-              <ExecutionStageTimeline executionStages={transfer.executionStages} />
-            )}
+            <ExecutionStageTimeline 
+              executionStages={transfer.executionStages || []} 
+              transferId={transfer._id}
+              onStageUpdate={onSuccess}
+            />
 
             {/* Stage Update Section */}
             {canAcceptTransfer() && (

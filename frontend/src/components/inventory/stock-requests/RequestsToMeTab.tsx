@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, Package } from 'lucide-react';
+import { Eye, Package, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -21,6 +21,17 @@ interface Branch {
   code: string;
 }
 
+interface ExecutionStage {
+  stage: string;
+  timestamp: string;
+  updatedBy?: {
+    _id: string;
+    name: string;
+  };
+  updatedByName?: string;
+  notes?: string;
+}
+
 interface StockRequest {
   _id: string;
   requestNumber: string;
@@ -40,6 +51,9 @@ interface StockRequest {
   };
   requestDate: string;
   expectedDeliveryDate: string;
+  executionStages?: ExecutionStage[];
+  transferId?: string;
+  createdTransferId?: string | any;
   items: Array<{
     inventoryItem: {
       _id: string;
@@ -97,7 +111,48 @@ export default function RequestsToMeTab({
         priority: priorityFilter || undefined,
       });
 
-      setRequests(response.data.data.requests || []);
+      // Enrich requests with transfer data if available
+      const requestsData = response.data.data.requests || [];
+      
+      const enrichedRequests = await Promise.all(
+        requestsData.map(async (request: any) => {
+          // Check if request has a createdTransferId
+          if (request.status === 'approved' && request.createdTransferId) {
+            try {
+              // If createdTransferId is populated as an object, use it directly
+              if (typeof request.createdTransferId === 'object' && request.createdTransferId._id) {
+                return {
+                  ...request,
+                  transferId: request.createdTransferId._id,
+                  executionStages: request.createdTransferId.executionStages || []
+                };
+              }
+              
+              // Otherwise, fetch the transfer details
+              const transferResponse = await inventoryServices.getTransferById(request.createdTransferId);
+              return {
+                ...request,
+                transferId: request.createdTransferId,
+                executionStages: transferResponse.data.data.transfer?.executionStages || []
+              };
+            } catch (error) {
+              console.error(`Failed to fetch transfer for request ${request._id}:`, error);
+              return {
+                ...request,
+                transferId: request.createdTransferId,
+                executionStages: []
+              };
+            }
+          }
+          
+          return {
+            ...request,
+            executionStages: []
+          };
+        })
+      );
+
+      setRequests(enrichedRequests);
       setTotalCount(response.data.data.pagination.total);
       setTotalPages(response.data.data.pagination.pages);
     } catch (error: any) {
@@ -143,6 +198,45 @@ export default function RequestsToMeTab({
     return <Badge className={config.className}>{config.label}</Badge>;
   };
 
+  const canStartWork = (request: StockRequest): boolean => {
+    // Can start work if status is approved and no execution stages yet
+    return request.status === 'approved' && 
+           (!request.executionStages || request.executionStages.length === 0);
+  };
+
+  const handleStartWork = async (request: StockRequest) => {
+    try {
+      setLoading(true);
+      
+      // Start the transfer by updating to PROCESS_STARTED stage
+      const transferId = request.transferId || request.createdTransferId;
+      
+      await inventoryServices.updateTransferStage(transferId, {
+        stage: 'PROCESS_STARTED',
+        notes: 'Transfer process started by source location'
+      });
+
+      toast({
+        title: "Success",
+        description: "Work started successfully. Request moved to In-Transit/Processing.",
+        variant: "success",
+      });
+
+      fetchRequests();
+      if (onItemsUpdate) {
+        onItemsUpdate();
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to start work",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const tableHeaders = (
     <>
       <TableHead className="w-16">S.No</TableHead>
@@ -156,7 +250,10 @@ export default function RequestsToMeTab({
     </>
   );
 
-  const tableBody = requests.map((request, index) => (
+  const tableBody = requests.map((request, index) => {
+    const canStart = canStartWork(request);
+    
+    return (
     <TableRow key={request._id}>
       <TableCell className="font-medium text-muted-foreground">
         {(page - 1) * rowsPerPage + index + 1}
@@ -170,19 +267,34 @@ export default function RequestsToMeTab({
       <TableCell>{getStatusBadge(request.status)}</TableCell>
       <TableCell>{formatDate(request.requestDate)}</TableCell>
       <TableCell className="text-right">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setSelectedRequest(request);
-            setIsViewOpen(true);
-          }}
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center justify-end gap-2">
+          {canStart && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleStartWork(request)}
+              title="Start Work"
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <Play className="h-4 w-4 mr-1" />
+              Start Work
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedRequest(request);
+              setIsViewOpen(true);
+            }}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
-  ));
+  );
+});
 
   const filterComponent = (
     <div className="flex items-center gap-2">

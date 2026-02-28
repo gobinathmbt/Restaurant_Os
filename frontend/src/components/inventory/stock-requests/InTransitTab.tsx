@@ -115,39 +115,44 @@ export default function InTransitTab({
     try {
       setLoading(true);
       
-      // Fetch all transfers and filter for in-transit ones
-      const response = await inventoryServices.getStockTransfers(selectedBranch, {
+      // Use the stock requests API with executionStatus filter
+      const response = await inventoryServices.getStockRequests(selectedBranch, {
         page,
         limit: rowsPerPage,
         search: search || undefined,
-        status: 'approved', // In-transit transfers have approved status
+        status: 'approved', // Only approved requests
+        executionStatus: 'in_progress', // Only show transfers that are in progress
       });
 
-      // Filter transfers that have active execution stages
-      const inTransitTransfers = (response.data.data.transfers || []).filter(
-        (transfer: StockTransfer) => {
-          if (!transfer.executionStages || transfer.executionStages.length === 0) {
-            return false;
-          }
-          
-          // Get the latest stage
-          const latestStage = transfer.executionStages[transfer.executionStages.length - 1];
-          
-          // Check if latest stage is in active stages
-          const isInTransit = activeStages.includes(latestStage.stage);
-          
-          // Apply stage filter if set
-          if (stageFilter && isInTransit) {
-            return latestStage.stage === stageFilter;
-          }
-          
-          return isInTransit;
-        }
-      );
+      // Map requests to transfers format
+      const inTransitTransfers = (response.data.data.requests || []).map((request: any) => ({
+        _id: request.createdTransferId?._id || request.createdTransferId || request._id,
+        transferNumber: request.requestNumber,
+        destinationLocation: request.sourceLocation, // Source in request = destination in transfer
+        sourceLocation: request.destinationLocation, // Destination in request = source in transfer
+        status: request.status,
+        priority: request.priority,
+        executionStages: request.createdTransferId?.executionStages || [],
+        items: request.items.map((item: any) => ({
+          inventoryItem: item.inventoryItem,
+          sentQuantity: item.approvedQuantity || item.requestedQuantity,
+          unit: item.unit
+        })),
+        requestDate: request.requestDate,
+        expectedDeliveryDate: request.expectedDeliveryDate
+      }));
 
-      setTransfers(inTransitTransfers);
-      setTotalCount(inTransitTransfers.length);
-      setTotalPages(Math.ceil(inTransitTransfers.length / rowsPerPage));
+      // Apply stage filter if set
+      const filteredTransfers = stageFilter 
+        ? inTransitTransfers.filter((transfer: StockTransfer) => {
+            const currentStage = getCurrentStage(transfer);
+            return currentStage?.stage === stageFilter;
+          })
+        : inTransitTransfers;
+
+      setTransfers(filteredTransfers);
+      setTotalCount(filteredTransfers.length);
+      setTotalPages(Math.ceil(filteredTransfers.length / rowsPerPage));
     } catch (error: any) {
       toast({
         title: "Error",

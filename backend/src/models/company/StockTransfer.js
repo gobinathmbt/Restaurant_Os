@@ -162,7 +162,7 @@ const stockTransferSchema = new mongoose.Schema({
   status: {
     type: String,
     required: true,
-    enum: ['pending', 'approved', 'in_transit', 'rejected', 'completed', 'cancelled', 'returned'],
+    enum: ['pending', 'approved', 'not_started','in_transit', 'rejected', 'completed', 'cancelled', 'returned'],
     default: 'approved'
   },
   

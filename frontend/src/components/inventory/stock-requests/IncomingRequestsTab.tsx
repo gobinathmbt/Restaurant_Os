@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, Package, ArrowRight, CheckCircle } from 'lucide-react';
+import { Eye, Package, ArrowRight, CheckCircle, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -111,13 +111,14 @@ export default function IncomingRequestsTab({
     try {
       setLoading(true);
       
-      // Use the original stock requests API
+      // Use the original stock requests API with executionStatus filter
       const response = await inventoryServices.getStockRequests(selectedBranch, {
         page,
         limit: rowsPerPage,
         search: search || undefined,
         status: statusFilter || undefined,
         priority: priorityFilter || undefined,
+        executionStatus: 'not_started', // Only show requests that haven't started execution
       });
 
       // Get requests and enrich with transfer data if available
@@ -209,27 +210,27 @@ export default function IncomingRequestsTab({
     return <Badge className={config.className}>{config.label}</Badge>;
   };
 
-  const canAcceptRequest = (request: StockRequest): boolean => {
-    // Can accept if status is approved and not yet started
+  const canStartWork = (request: StockRequest): boolean => {
+    // Can start work if status is approved and no execution stages yet
     return request.status === 'approved' && 
            (!request.executionStages || request.executionStages.length === 0);
   };
 
-  const handleAcceptRequest = async (request: StockRequest) => {
+  const handleStartWork = async (request: StockRequest) => {
     try {
       setLoading(true);
       
-      // Start the transfer by updating to PREPARING_STOCK stage
+      // Start the transfer by updating to PROCESS_STARTED stage
       const transferId = request.transferId || request.createdTransferId;
       
       await inventoryServices.updateTransferStage(transferId, {
-        stage: 'PREPARING_STOCK',
-        notes: 'Transfer accepted and processing started'
+        stage: 'PROCESS_STARTED',
+        notes: 'Transfer process started by source location'
       });
 
       toast({
         title: "Success",
-        description: "Transfer accepted and moved to processing",
+        description: "Work started successfully. Request moved to In-Transit/Processing.",
         variant: "success",
       });
 
@@ -240,7 +241,7 @@ export default function IncomingRequestsTab({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Failed to accept transfer",
+        description: error.response?.data?.message || "Failed to start work",
         variant: "destructive",
       });
     } finally {
@@ -287,7 +288,7 @@ export default function IncomingRequestsTab({
   );
 
   const tableBody = requests.map((request, index) => {
-    const canAccept = canAcceptRequest(request);
+    const canStart = canStartWork(request);
     
     return (
     <TableRow key={request._id}>
@@ -313,6 +314,18 @@ export default function IncomingRequestsTab({
       <TableCell>{formatDate(request.requestDate)}</TableCell>
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-2">
+          {canStart && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleStartWork(request)}
+              title="Start Work"
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <Play className="h-4 w-4 mr-1" />
+              Start Work
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"

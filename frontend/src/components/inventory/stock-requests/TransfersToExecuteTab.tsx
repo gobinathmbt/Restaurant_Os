@@ -105,32 +105,36 @@ export default function TransfersToExecuteTab({
     try {
       setLoading(true);
       
-      // Fetch transfers where selectedBranch is the SOURCE location (supplier)
-      // Warehouse admin should see transfers they need to fulfill
-      const response = await inventoryServices.getStockTransfers(selectedBranch, {
+      // Use the stock requests API with executionStatus filter
+      // This shows requests where work has started (in_progress status)
+      const response = await inventoryServices.getStockRequests(selectedBranch, {
         page,
         limit: rowsPerPage,
         search: search || undefined,
-        status: 'approved', // Only show approved transfers ready for execution
+        status: 'approved', // Only approved requests
+        executionStatus: 'in_progress', // Only show transfers that are in progress
       });
 
-      // Filter to show only transfers that haven't started execution yet
-      // or are in PROCESS_STARTED stage
-      // AND where selectedBranch is the sourceLocation (supplier)
-      const readyTransfers = (response.data.data.transfers || []).filter(
-        (transfer: StockTransfer) => {
-          // Check if this branch is the source (supplier)
-          const isSource = transfer.sourceLocation._id === selectedBranch;
-          if (!isSource) return false;
-          
-          if (!transfer.executionStages || transfer.executionStages.length === 0) {
-            return true; // No stages yet, ready to start
-          }
-          
-          const latestStage = transfer.executionStages[transfer.executionStages.length - 1];
-          return latestStage.stage === 'PROCESS_STARTED'; // Only show if in initial stage
-        }
-      );
+      // Map requests to transfers format
+      const readyTransfers = (response.data.data.requests || []).map((request: any) => ({
+        _id: request.createdTransferId?._id || request.createdTransferId || request._id,
+        transferNumber: request.requestNumber,
+        destinationLocation: request.sourceLocation, // Source in request = destination in transfer
+        sourceLocation: request.destinationLocation, // Destination in request = source in transfer
+        status: request.status,
+        priority: request.priority,
+        executionStages: request.createdTransferId?.executionStages || [],
+        requestedBy: request.requestedBy,
+        requestDate: request.requestDate,
+        expectedDeliveryDate: request.expectedDeliveryDate,
+        items: request.items.map((item: any) => ({
+          inventoryItem: item.inventoryItem,
+          sentQuantity: item.approvedQuantity || item.requestedQuantity,
+          unit: item.unit,
+          notes: item.notes
+        })),
+        notes: request.notes
+      }));
 
       setTransfers(readyTransfers);
       setTotalCount(readyTransfers.length);

@@ -236,8 +236,9 @@ export const validateStageTransition = (transfer, newStage, user) => {
       : null;
     
     if (!currentStage) {
-      if (newStage !== 'PREPARING_STOCK') {
-        throw new Error('Transfer must start with PREPARING_STOCK stage. Please start the process first.');
+      // First stage must be PROCESS_STARTED (manually triggered by source user)
+      if (newStage !== 'PROCESS_STARTED') {
+        throw new Error('Transfer must start with PROCESS_STARTED stage. Please start the process first.');
       }
       
       // Debug logging
@@ -253,13 +254,12 @@ export const validateStageTransition = (transfer, newStage, user) => {
         hasDestinationAccess: hasLocationAccess(user, transfer.destinationLocation)
       });
       
-      // Allow either source or destination location admins to start the transfer
-      // This provides flexibility for both push and pull workflows
-      const hasSourceAccess = hasLocationAccess(user, transfer.sourceLocation);
-      const hasDestinationAccess = hasLocationAccess(user, transfer.destinationLocation);
+      // Only source location admins can start the transfer process
+      // This is the "Start Work" action in Incoming Requests / Requests To Me tabs
+      const hasSourceAccess = hasLocationAccess(user, transfer.destinationLocation);
       
-      if (!hasSourceAccess && !hasDestinationAccess && !isSuperAdmin(user)) {
-        throw new Error('Only source or destination location admins can start the transfer process');
+      if (!hasSourceAccess && !isSuperAdmin(user)) {
+        throw new Error('Only source location admins can start the transfer process');
       }
       
       return true;
@@ -431,14 +431,20 @@ export const updateExecutionStage = async (
     }
     
     // Update transfer with new stage(s) using optimistic locking
-    // Also update status to 'completed' if PROCESS_COMPLETED is reached
+    // Also update status based on stage
     const updateData = {
       $push: { executionStages: { $each: stagesToUpdate } },
       $inc: { version: 1 }
     };
     
-    // If GOODS_RECEIVED_CONFIRMED, also set status to completed
-    if (newStage === 'GOODS_RECEIVED_CONFIRMED') {
+    // Update status based on stage
+    if (newStage === 'PROCESS_STARTED') {
+      // When work starts, change status from 'not_started' to 'in_progress'
+      updateData.$set = {
+        status: 'in_progress'
+      };
+    } else if (newStage === 'GOODS_RECEIVED_CONFIRMED') {
+      // When goods are received, set status to completed
       updateData.$set = {
         status: 'completed',
         completedBy: userId,

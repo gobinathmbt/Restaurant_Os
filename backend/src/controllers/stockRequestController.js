@@ -351,21 +351,13 @@ export const listRequests = async (req, res, next) => {
         .map(r => r.createdTransferId);
       
       if (approvedRequestIds.length > 0) {
-        // Fetch transfers to check execution stages
+        // Fetch transfers to check their status
         const transfers = await StockTransfer.find({
           _id: { $in: approvedRequestIds }
-        }).select('_id executionStages').lean();
+        }).select('_id status').lean();
         
-        const transferExecutionMap = new Map(
-          transfers.map(t => {
-            // Check if there are stages beyond PROCESS_STARTED
-            // PROCESS_STARTED is auto-added, so we need to check for actual progress
-            const hasProgressBeyondStart = t.executionStages && 
-              t.executionStages.length > 0 && 
-              t.executionStages.some(stage => stage.stage !== 'PROCESS_STARTED');
-            
-            return [t._id.toString(), hasProgressBeyondStart];
-          })
+        const transferStatusMap = new Map(
+          transfers.map(t => [t._id.toString(), t.status])
         );
         
         // Filter based on execution status
@@ -375,14 +367,14 @@ export const listRequests = async (req, res, next) => {
             return filters.executionStatus === 'not_started';
           }
           
-          const hasProgressBeyondStart = transferExecutionMap.get(request.createdTransferId.toString()) || false;
+          const transferStatus = transferStatusMap.get(request.createdTransferId.toString());
           
           if (filters.executionStatus === 'not_started') {
-            // Show only if execution has NOT progressed beyond PROCESS_STARTED
-            return !hasProgressBeyondStart;
+            // Show only if transfer status is 'not_started'
+            return transferStatus === 'not_started';
           } else if (filters.executionStatus === 'in_progress') {
-            // Show only if execution has progressed beyond PROCESS_STARTED
-            return hasProgressBeyondStart;
+            // Show only if transfer status is 'in_progress'
+            return transferStatus === 'in_progress';
           }
           
           return true;
