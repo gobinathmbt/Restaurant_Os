@@ -90,12 +90,14 @@ class StaffWelcomeEmailService {
     const roleLabels = {
       company_super_admin_secondary: 'Super Admin (Secondary)',
       company_admin: 'Branch Admin',
+      warehouse_admin: 'Warehouse Admin',
       employee: 'Employee'
     };
 
     const roleColors = {
       company_super_admin_secondary: '#8B5CF6',
       company_admin: '#10B981',
+      warehouse_admin: '#F59E0B',
       employee: '#6B7280'
     };
 

@@ -35,6 +35,7 @@ const roleLabels: Record<string, string> = {
   company_super_admin_primary: 'Super Admin (Primary)',
   company_super_admin_secondary: 'Super Admin (Secondary)',
   company_admin: 'Admin',
+  warehouse_admin: 'Warehouse Admin',
   employee: 'Employee'
 };
 
@@ -42,6 +43,7 @@ const roleColors: Record<string, string> = {
   company_super_admin_primary: 'bg-purple-500',
   company_super_admin_secondary: 'bg-blue-500',
   company_admin: 'bg-green-500',
+  warehouse_admin: 'bg-orange-500',
   employee: 'bg-gray-500'
 };
 
@@ -281,6 +283,7 @@ export default function Staff() {
                 <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="company_super_admin_secondary">Super Admin (Secondary)</SelectItem>
                 <SelectItem value="company_admin">Admin</SelectItem>
+                <SelectItem value="warehouse_admin">Warehouse Admin</SelectItem>
                 <SelectItem value="employee">Employee</SelectItem>
               </SelectContent>
             </Select>
