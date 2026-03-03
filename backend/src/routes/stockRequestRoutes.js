@@ -29,7 +29,7 @@ router.use(requireCompanyDB);
 
 /**
  * Create a new stock request
- * POST /api/v2/stock-requests
+ * POST /api/stock-requests
  * 
  * Body: {
  *   destinationLocation: ObjectId,
@@ -50,7 +50,7 @@ router.post(
 
 /**
  * Get requests created by the current user
- * GET /api/v2/stock-requests/my-requests
+ * GET /api/stock-requests/my-requests
  * 
  * Query params: page, limit, status, priority, requestDateStart, requestDateEnd, search, sortBy, sortOrder
  * 
@@ -66,7 +66,7 @@ router.get('/my-requests', getMyRequests);
 
 /**
  * Get requests to the current user's locations
- * GET /api/v2/stock-requests/requests-to-me
+ * GET /api/stock-requests/requests-to-me
  * 
  * Query params: page, limit, status, priority, requestDateStart, requestDateEnd, search, sortBy, sortOrder
  * 
@@ -82,7 +82,7 @@ router.get('/requests-to-me', getRequestsToMe);
 
 /**
  * Get pending approval requests (super admin only)
- * GET /api/v2/stock-requests/pending-approvals
+ * GET /api/stock-requests/pending-approvals
  * 
  * Query params: page, limit, priority, requestDateStart, requestDateEnd, search, sortBy, sortOrder
  * 
@@ -100,7 +100,7 @@ router.get('/pending-approvals', getPendingApprovals);
 
 /**
  * Get completed stock requests
- * GET /api/v2/stock-requests/completed
+ * GET /api/stock-requests/completed
  * 
  * Query params: page, limit, destinationLocation, sourceLocation, startDate, endDate, search
  * 
@@ -119,7 +119,7 @@ router.get('/completed', getCompletedRequests);
 
 /**
  * List stock requests with offset-based pagination and filtering
- * GET /api/v2/stock-requests
+ * GET /api/stock-requests
  * 
  * Query params:
  * - page: number (default 1)
@@ -156,7 +156,7 @@ router.get('/', listRequests);
 
 /**
  * Get a single stock request by ID
- * GET /api/v2/stock-requests/:requestId
+ * GET /api/stock-requests/:requestId
  * 
  * Response: {
  *   success: true,
@@ -167,7 +167,7 @@ router.get('/:requestId', getRequestById);
 
 /**
  * Approve a stock request (full or partial)
- * POST /api/v2/stock-requests/:requestId/approve
+ * POST /api/stock-requests/:requestId/approve
  * 
  * Body: {
  *   items: [{ inventoryItem, approvedQuantity }],
@@ -197,7 +197,7 @@ router.post(
 
 /**
  * Reject a stock request
- * POST /api/v2/stock-requests/:requestId/reject
+ * POST /api/stock-requests/:requestId/reject
  * 
  * Body: {
  *   rejectionReason: string (required)
@@ -213,7 +213,7 @@ router.post('/:requestId/reject', rejectRequest);
 
 /**
  * Cancel a stock request
- * POST /api/v2/stock-requests/:requestId/cancel
+ * POST /api/stock-requests/:requestId/cancel
  * 
  * Body: {
  *   cancellationReason: string (required)

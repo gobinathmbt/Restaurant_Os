@@ -527,11 +527,11 @@ export const inventoryServices = {
     executionStatus?: string; // NEW: Filter by execution status
   }) => {
     const queryParams = { ...params, branchId };
-    return apiClient.get("/api/v2/stock-requests", { params: queryParams });
+    return apiClient.get("/api/stock-requests", { params: queryParams });
   },
 
   getStockRequestById: (id: string) =>
-    apiClient.get(`/api/v2/stock-requests/${id}`),
+    apiClient.get(`/api/stock-requests/${id}`),
 
   createStockRequest: (data: {
     destinationLocation: string;
@@ -544,7 +544,7 @@ export const inventoryServices = {
       notes?: string;
     }>;
     notes?: string;
-  }) => apiClient.post("/api/v2/stock-requests", data),
+  }) => apiClient.post("/api/stock-requests", data),
 
   approveStockRequest: (id: string, data: {
     items: Array<{
@@ -552,13 +552,13 @@ export const inventoryServices = {
       approvedQuantity: number;
     }>;
     notes?: string;
-  }) => apiClient.post(`/api/v2/stock-requests/${id}/approve`, data),
+  }) => apiClient.post(`/api/stock-requests/${id}/approve`, data),
 
   rejectStockRequest: (id: string, data: { rejectionReason: string }) =>
-    apiClient.post(`/api/v2/stock-requests/${id}/reject`, data),
+    apiClient.post(`/api/stock-requests/${id}/reject`, data),
 
   cancelStockRequest: (id: string, data: { cancellationReason: string }) =>
-    apiClient.post(`/api/v2/stock-requests/${id}/cancel`, data),
+    apiClient.post(`/api/stock-requests/${id}/cancel`, data),
 
   // Role-specific stock request endpoints
   getMyRequests: (params?: {
@@ -571,7 +571,7 @@ export const inventoryServices = {
     requestDateEnd?: string;
     sortBy?: string;
     sortOrder?: string;
-  }) => apiClient.get("/api/v2/stock-requests/my-requests", { params }),
+  }) => apiClient.get("/api/stock-requests/my-requests", { params }),
 
   getRequestsToMe: (params?: {
     page?: number;
@@ -583,7 +583,7 @@ export const inventoryServices = {
     requestDateEnd?: string;
     sortBy?: string;
     sortOrder?: string;
-  }) => apiClient.get("/api/v2/stock-requests/requests-to-me", { params }),
+  }) => apiClient.get("/api/stock-requests/requests-to-me", { params }),
 
   // Backorder endpoints
   getBackorders: (params?: { 
@@ -591,12 +591,12 @@ export const inventoryServices = {
     limit?: number; 
     status?: string;
     destinationLocation?: string;
-  }) => apiClient.get("/api/v2/backorders", { params }),
+  }) => apiClient.get("/api/backorders", { params }),
 
   fulfillBackorderV2: (backorderId: string, data: {
     fulfilledQuantity: number;
     notes?: string;
-  }) => apiClient.post(`/api/v2/backorders/${backorderId}/fulfill`, data),
+  }) => apiClient.post(`/api/backorders/${backorderId}/fulfill`, data),
 
   // Exception handling endpoints
   getTransfersWithExceptions: (params?: {
@@ -605,18 +605,18 @@ export const inventoryServices = {
     resolved?: boolean;
     page?: number;
     limit?: number;
-  }) => apiClient.get("/api/v2/stock-transfers/exceptions", { params }),
+  }) => apiClient.get("/api/stock-transfers/exceptions", { params }),
 
   resolveException: (transferId: string, exceptionId: string, data: {
     resolutionAction: 'confirm_damage' | 'return_to_source' | 'accept_excess' | 'reject_excess';
     resolutionNotes?: string;
-  }) => apiClient.put(`/api/v2/stock-transfers/${transferId}/exceptions/${exceptionId}`, data),
+  }) => apiClient.put(`/api/stock-transfers/${transferId}/exceptions/${exceptionId}`, data),
 
   getImpactPreview: (transferId: string) =>
-    apiClient.get(`/api/v2/stock-transfers/${transferId}/impact-preview`),
+    apiClient.get(`/api/stock-transfers/${transferId}/impact-preview`),
 
   cancelBackorderV2: (backorderId: string, data: { cancellationReason: string }) =>
-    apiClient.post(`/api/v2/backorders/${backorderId}/cancel`, data),
+    apiClient.post(`/api/backorders/${backorderId}/cancel`, data),
 
   // Completed stock requests and transfers
   getCompletedRequests: (params?: {
@@ -627,7 +627,7 @@ export const inventoryServices = {
     sourceLocation?: string;
     startDate?: string;
     endDate?: string;
-  }) => apiClient.get("/api/v2/stock-requests/completed", { params }),
+  }) => apiClient.get("/api/stock-requests/completed", { params }),
 
   getCompletedTransfers: (params?: {
     page?: number;
@@ -638,7 +638,7 @@ export const inventoryServices = {
     startDate?: string;
     endDate?: string;
     hasExceptions?: boolean;
-  }) => apiClient.get("/api/v2/stock-transfers/completed", { params }),
+  }) => apiClient.get("/api/stock-transfers/completed", { params }),
 
   // Ship transfer (mark as in_transit)
   shipTransfer: (transferId: string) =>
@@ -648,7 +648,7 @@ export const inventoryServices = {
   updateTransferStage: (transferId: string, data: {
     stage: string;
     notes?: string;
-  }) => apiClient.patch(`/api/transfers/v2/${transferId}/stage`, data),
+  }) => apiClient.patch(`/api/transfers/${transferId}/stage`, data),
 
   acceptStock: (transferId: string, data: {
     exceptions?: Array<{
@@ -658,10 +658,10 @@ export const inventoryServices = {
       notes?: string;
     }>;
     notes?: string;
-  }) => apiClient.post(`/api/transfers/v2/${transferId}/accept`, data),
+  }) => apiClient.post(`/api/transfers/${transferId}/accept`, data),
 
   getTransferById: (transferId: string) =>
-    apiClient.get(`/api/transfers/v2/${transferId}`),
+    apiClient.get(`/api/transfers/${transferId}`),
 
   // Exception Management Endpoints
   recordExceptions: (transferId: string, data: {
@@ -675,35 +675,20 @@ export const inventoryServices = {
     }>;
   }, idempotencyKey?: string) => {
     const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {};
-    return apiClient.post(`/api/v2/stock-transfers/${transferId}/exceptions`, data, { headers });
+    return apiClient.post(`/api/stock-transfers/${transferId}/exceptions`, data, { headers });
   },
 
-  getTransfersWithExceptions: (params?: {
-    status?: string;
-    severity?: string;
-    resolved?: boolean;
-    page?: number;
-    limit?: number;
-  }) => apiClient.get('/api/v2/stock-transfers/exceptions', { params }),
-
-  resolveException: (transferId: string, exceptionId: string, data: {
-    resolutionAction: 'confirm_damage' | 'return_to_source' | 'accept_excess' | 'reject_excess';
-    resolutionNotes?: string;
-  }) => apiClient.put(`/api/v2/stock-transfers/${transferId}/exceptions/${exceptionId}`, data),
-
   getTransferExceptions: (transferId: string) =>
-    apiClient.get(`/api/v2/stock-transfers/${transferId}/exceptions`),
+    apiClient.get(`/api/stock-transfers/${transferId}/exceptions`),
 
   escalateException: (transferId: string, data: { escalationReason: string }) =>
-    apiClient.post(`/api/v2/stock-transfers/${transferId}/escalate`, data),
+    apiClient.post(`/api/stock-transfers/${transferId}/escalate`, data),
 
   forceCompleteTransfer: (transferId: string, data: {
     overrideReason: string;
     applyInventoryAdjustments: boolean;
-  }) => apiClient.post(`/api/v2/stock-transfers/${transferId}/force-complete`, data),
+  }) => apiClient.post(`/api/stock-transfers/${transferId}/force-complete`, data),
 
-  getImpactPreview: (transferId: string) =>
-    apiClient.get(`/api/v2/stock-transfers/${transferId}/impact-preview`),
 };
 
 // Inventory Item Location Services

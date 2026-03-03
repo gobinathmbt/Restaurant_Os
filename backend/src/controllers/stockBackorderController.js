@@ -36,7 +36,7 @@ const getDeviceInfo = (req) => {
 
 /**
  * List backorders with offset-based pagination and location-based filtering
- * GET /api/v2/backorders
+ * GET /api/backorders
  * 
  * Query params:
  * - page: number (default 1)
@@ -175,7 +175,7 @@ export const listBackorders = async (req, res, next) => {
 
 /**
  * Get a single backorder by ID
- * GET /api/v2/backorders/:backorderId
+ * GET /api/backorders/:backorderId
  * 
  * Response: {
  *   success: true,
@@ -244,7 +244,7 @@ export const getBackorderById = async (req, res, next) => {
 
 /**
  * Fulfill a backorder by creating a new stock transfer
- * POST /api/v2/backorders/:backorderId/fulfill
+ * POST /api/backorders/:backorderId/fulfill
  * 
  * Body: {
  *   notes: string (optional)
@@ -321,7 +321,7 @@ export const fulfillBackorderHandler = async (req, res, next) => {
 
 /**
  * Cancel a backorder
- * POST /api/v2/backorders/:backorderId/cancel
+ * POST /api/backorders/:backorderId/cancel
  * 
  * Body: {
  *   cancellationReason: string (required)

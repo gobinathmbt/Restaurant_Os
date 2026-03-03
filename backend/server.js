@@ -90,9 +90,9 @@ const startServer = async () => {
     app.use('/api/suppliers', supplierRoutes);
     app.use('/api/categories', categoryRoutes);
     app.use('/api/menu', menuRoutes);
-    app.use('/api/v2/stock-transfers', stockTransferRoutes);
-    app.use('/api/v2/stock-requests', stockRequestRoutes);
-    app.use('/api/v2/backorders', backorderRoutes);
+    app.use('/api/stock-transfers', stockTransferRoutes);
+    app.use('/api/stock-requests', stockRequestRoutes);
+    app.use('/api/backorders', backorderRoutes);
     app.use('/api/adjustments', stockAdjustmentRoutes);
     app.use('/api/stock-count-sessions', stockCountSessionRoutes);
     app.use('/api/grn', grnRoutes);

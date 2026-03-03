@@ -9,7 +9,7 @@ import { getAccessibleLocations } from '../middlewares/locationAccess.js';
 
 /**
  * List stock transfers with offset-based pagination and location-based filtering
- * GET /api/v2/stock-transfers
+ * GET /api/stock-transfers
  */
 export const listTransfers = async (req, res, next) => {
   try {
@@ -157,7 +157,7 @@ export const createTransfer = async (req, res, next) => {
 
 /**
  * Get a single transfer by ID
- * GET /api/transfers/:id or /api/transfers/v2/:transferId
+ * GET /api/transfers/:id or /api/transfers/:transferId
  */
 export const getTransferById = async (req, res, next) => {
   try {
@@ -542,7 +542,7 @@ export const getTransfersByStatus = async (req, res, next) => {
 
 /**
  * Ship a stock transfer (Warehouse Admin marks as shipped)
- * POST /api/v2/stock-transfers/:transferId/ship
+ * POST /api/stock-transfers/:transferId/ship
  */
 export const shipTransfer = async (req, res, next) => {
   try {
@@ -610,7 +610,7 @@ export const shipTransfer = async (req, res, next) => {
 
 /**
  * Receive a stock transfer (Branch Admin marks as received)
- * POST /api/v2/stock-transfers/:transferId/receive
+ * POST /api/stock-transfers/:transferId/receive
  */
 export const receiveTransfer = async (req, res, next) => {
   try {
@@ -692,7 +692,7 @@ export const receiveTransfer = async (req, res, next) => {
 
 /**
  * Update execution stage of a stock transfer
- * PATCH /api/v2/stock-transfers/:transferId/stage
+ * PATCH /api/stock-transfers/:transferId/stage
  */
 export const updateExecutionStage = async (req, res, next) => {
   try {
@@ -762,7 +762,7 @@ export const updateExecutionStage = async (req, res, next) => {
 
 /**
  * Accept stock with exception recording
- * POST /api/v2/stock-transfers/:transferId/accept
+ * POST /api/stock-transfers/:transferId/accept
  */
 export const acceptStock = async (req, res, next) => {
   try {
@@ -843,7 +843,7 @@ export const acceptStock = async (req, res, next) => {
 
 /**
  * Get in-transit transfers
- * GET /api/v2/stock-transfers/in-transit
+ * GET /api/stock-transfers/in-transit
  */
 export const getInTransitTransfers = async (req, res, next) => {
   try {
@@ -890,7 +890,7 @@ export const getInTransitTransfers = async (req, res, next) => {
 
 /**
  * Get transfers with exceptions
- * GET /api/v2/stock-transfers/exceptions
+ * GET /api/stock-transfers/exceptions
  */
 export const getExceptions = async (req, res, next) => {
   try {
@@ -941,7 +941,7 @@ export const getExceptions = async (req, res, next) => {
 
 /**
  * Get completed stock transfers
- * GET /api/v2/stock-transfers/completed
+ * GET /api/stock-transfers/completed
  */
 export const getCompletedTransfers = async (req, res, next) => {
   try {
@@ -993,7 +993,7 @@ export const getCompletedTransfers = async (req, res, next) => {
 
 /**
  * Record exceptions for a stock transfer
- * POST /api/v2/stock-transfers/:transferId/exceptions
+ * POST /api/stock-transfers/:transferId/exceptions
  */
 export const recordExceptions = async (req, res, next) => {
   try {
@@ -1100,7 +1100,7 @@ export const recordExceptions = async (req, res, next) => {
 
 /**
  * Get transfers with exceptions (optimized for super admin dashboard)
- * GET /api/v2/stock-transfers/exceptions
+ * GET /api/stock-transfers/exceptions
  */
 export const getTransfersWithExceptions = async (req, res, next) => {
   try {
@@ -1159,7 +1159,7 @@ export const getTransfersWithExceptions = async (req, res, next) => {
 
 /**
  * Resolve an individual exception
- * PUT /api/v2/stock-transfers/:transferId/exceptions/:exceptionId
+ * PUT /api/stock-transfers/:transferId/exceptions/:exceptionId
  */
 export const resolveExceptionEndpoint = async (req, res, next) => {
   try {
@@ -1261,7 +1261,7 @@ export const resolveExceptionEndpoint = async (req, res, next) => {
 
 /**
  * Get exceptions for a specific transfer
- * GET /api/v2/stock-transfers/:transferId/exceptions
+ * GET /api/stock-transfers/:transferId/exceptions
  */
 export const getTransferExceptions = async (req, res, next) => {
   try {
@@ -1313,7 +1313,7 @@ export const getTransferExceptions = async (req, res, next) => {
 
 /**
  * Escalate unresolved exceptions
- * POST /api/v2/stock-transfers/:transferId/escalate
+ * POST /api/stock-transfers/:transferId/escalate
  */
 export const escalateExceptionEndpoint = async (req, res, next) => {
   try {
@@ -1392,7 +1392,7 @@ export const escalateExceptionEndpoint = async (req, res, next) => {
 
 /**
  * Force complete a transfer with unresolved exceptions
- * POST /api/v2/stock-transfers/:transferId/force-complete
+ * POST /api/stock-transfers/:transferId/force-complete
  */
 export const forceCompleteTransferEndpoint = async (req, res, next) => {
   try {
@@ -1475,7 +1475,7 @@ export const forceCompleteTransferEndpoint = async (req, res, next) => {
 
 /**
  * Get impact preview for a transfer
- * GET /api/v2/stock-transfers/:transferId/impact-preview
+ * GET /api/stock-transfers/:transferId/impact-preview
  */
 export const getImpactPreview = async (req, res, next) => {
   try {

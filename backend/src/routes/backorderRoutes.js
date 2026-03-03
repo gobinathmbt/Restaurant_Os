@@ -22,7 +22,7 @@ router.use(requireCompanyDB);
 
 /**
  * List backorders with offset-based pagination and filtering
- * GET /api/v2/backorders
+ * GET /api/backorders
  * 
  * Query params:
  * - page: number (default 1)
@@ -53,7 +53,7 @@ router.get('/', listBackorders);
 
 /**
  * Get a single backorder by ID
- * GET /api/v2/backorders/:backorderId
+ * GET /api/backorders/:backorderId
  * 
  * Response: {
  *   success: true,
@@ -64,7 +64,7 @@ router.get('/:backorderId', getBackorderById);
 
 /**
  * Fulfill a backorder by creating a new stock transfer
- * POST /api/v2/backorders/:backorderId/fulfill
+ * POST /api/backorders/:backorderId/fulfill
  * 
  * Body: {
  *   notes: string (optional)
@@ -92,7 +92,7 @@ router.post(
 
 /**
  * Cancel a backorder
- * POST /api/v2/backorders/:backorderId/cancel
+ * POST /api/backorders/:backorderId/cancel
  * 
  * Body: {
  *   cancellationReason: string (required)

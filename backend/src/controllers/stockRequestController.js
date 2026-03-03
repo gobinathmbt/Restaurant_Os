@@ -91,7 +91,7 @@ const getDeviceInfo = (req) => {
 
 /**
  * Create a new stock request
- * POST /api/v2/stock-requests
+ * POST /api/stock-requests
  */
 export const createRequest = async (req, res, next) => {
   try {
@@ -189,7 +189,7 @@ export const createRequest = async (req, res, next) => {
 
 /**
  * List stock requests with cursor-based pagination and filtering
- * GET /api/v2/stock-requests
+ * GET /api/stock-requests
  */
 export const listRequests = async (req, res, next) => {
   try {
@@ -429,7 +429,7 @@ export const listRequests = async (req, res, next) => {
 
 /**
  * Get a single stock request by ID
- * GET /api/v2/stock-requests/:requestId
+ * GET /api/stock-requests/:requestId
  */
 export const getRequestById = async (req, res, next) => {
   try {
@@ -481,7 +481,7 @@ export const getRequestById = async (req, res, next) => {
 
 /**
  * Approve a stock request (full or partial)
- * POST /api/v2/stock-requests/:requestId/approve
+ * POST /api/stock-requests/:requestId/approve
  */
 export const approveRequest = async (req, res, next) => {
   try {
@@ -593,7 +593,7 @@ export const approveRequest = async (req, res, next) => {
 
 /**
  * Reject a stock request
- * POST /api/v2/stock-requests/:requestId/reject
+ * POST /api/stock-requests/:requestId/reject
  */
 export const rejectRequest = async (req, res, next) => {
   try {
@@ -676,7 +676,7 @@ export const rejectRequest = async (req, res, next) => {
 
 /**
  * Cancel a stock request
- * POST /api/v2/stock-requests/:requestId/cancel
+ * POST /api/stock-requests/:requestId/cancel
  */
 export const cancelRequest = async (req, res, next) => {
   try {
@@ -760,7 +760,7 @@ export const cancelRequest = async (req, res, next) => {
 
 /**
  * Get requests created by the current user
- * GET /api/v2/stock-requests/my-requests
+ * GET /api/stock-requests/my-requests
  */
 export const getMyRequests = async (req, res, next) => {
   try {
@@ -905,7 +905,7 @@ export const getMyRequests = async (req, res, next) => {
 
 /**
  * Get requests to the current user's locations
- * GET /api/v2/stock-requests/requests-to-me
+ * GET /api/stock-requests/requests-to-me
  */
 export const getRequestsToMe = async (req, res, next) => {
   try {
@@ -1135,7 +1135,7 @@ export const getRequestsToMe = async (req, res, next) => {
 
 /**
  * Get pending approval requests (super admin only)
- * GET /api/v2/stock-requests/pending-approvals
+ * GET /api/stock-requests/pending-approvals
  */
 export const getPendingApprovals = async (req, res, next) => {
   try {
@@ -1245,7 +1245,7 @@ export const getPendingApprovals = async (req, res, next) => {
 
 /**
  * Get completed stock requests
- * GET /api/v2/stock-requests/completed
+ * GET /api/stock-requests/completed
  */
 export const getCompletedRequests = async (req, res, next) => {
   try {

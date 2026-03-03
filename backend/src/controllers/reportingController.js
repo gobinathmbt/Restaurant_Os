@@ -201,7 +201,7 @@ export const clearReportCache = async (req, res, next) => {
 };
 
 /**
- * GET /api/v2/dashboard/stock-requests
+ * GET /api/dashboard/stock-requests
  * Get stock requests dashboard with cached aggregated statistics
  * Applies location-based filtering for non-Super Admins
  * Requirements: 6.9, 16.1-16.10
@@ -240,7 +240,7 @@ export const getStockRequestsDashboard = async (req, res, next) => {
 };
 
 /**
- * GET /api/v2/reports/stock-requests/export
+ * GET /api/reports/stock-requests/export
  * Export stock requests to CSV or PDF format
  * Query params: format (csv|pdf), status, destinationLocation, sourceLocation, startDate, endDate
  * Requirements: 16.9
@@ -290,7 +290,7 @@ export const exportStockRequests = async (req, res, next) => {
 };
 
 /**
- * GET /api/v2/reports/stock-transfers/export
+ * GET /api/reports/stock-transfers/export
  * Export stock transfers to CSV format
  * Query params: status, destinationLocation, sourceLocation, startDate, endDate
  * Requirements: 16.9
@@ -327,7 +327,7 @@ export const exportStockTransfers = async (req, res, next) => {
 };
 
 /**
- * GET /api/v2/reports/stock-backorders/export
+ * GET /api/reports/stock-backorders/export
  * Export stock backorders to CSV format
  * Query params: status, destinationLocation, sourceLocation
  * Requirements: 16.9

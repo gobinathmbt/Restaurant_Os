@@ -54,31 +54,31 @@ router.get('/expiry-forecast/:locationId', reportingController.getExpiryForecast
 router.delete('/cache', reportingController.clearReportCache);
 
 /**
- * GET /api/v2/dashboard/stock-requests
+ * GET /api/dashboard/stock-requests
  * Get stock requests dashboard with cached aggregated statistics
  * Applies location-based filtering for non-Super Admins
  */
-router.get('/v2/dashboard/stock-requests', reportingController.getStockRequestsDashboard);
+router.get('/dashboard/stock-requests', reportingController.getStockRequestsDashboard);
 
 /**
- * GET /api/v2/reports/stock-requests/export
+ * GET /api/reports/stock-requests/export
  * Export stock requests to CSV or PDF format
  * Query params: format (csv|pdf), status, destinationLocation, sourceLocation, startDate, endDate
  */
-router.get('/v2/reports/stock-requests/export', reportingController.exportStockRequests);
+router.get('/reports/stock-requests/export', reportingController.exportStockRequests);
 
 /**
- * GET /api/v2/reports/stock-transfers/export
+ * GET /api/reports/stock-transfers/export
  * Export stock transfers to CSV format
  * Query params: status, destinationLocation, sourceLocation, startDate, endDate
  */
-router.get('/v2/reports/stock-transfers/export', reportingController.exportStockTransfers);
+router.get('/reports/stock-transfers/export', reportingController.exportStockTransfers);
 
 /**
- * GET /api/v2/reports/stock-backorders/export
+ * GET /api/reports/stock-backorders/export
  * Export stock backorders to CSV format
  * Query params: status, destinationLocation, sourceLocation
  */
-router.get('/v2/reports/stock-backorders/export', reportingController.exportStockBackorders);
+router.get('/reports/stock-backorders/export', reportingController.exportStockBackorders);
 
 export default router;
