@@ -159,10 +159,24 @@ const stockTransferSchema = new mongoose.Schema({
   // State machine: approved → in_transit → completed/cancelled/returned
   // Note: 'pending' status removed - transfers now start at 'approved' (created from approved requests)
   // Legacy 'pending' status kept for backward compatibility with existing data
+  // Exception handling statuses: exception_fix_in_progress, exception_escalated, exception_fix_complete, force_completed
   status: {
     type: String,
     required: true,
-    enum: ['pending', 'approved', 'not_started','in_transit', 'rejected', 'completed', 'cancelled', 'returned'],
+    enum: [
+      'pending', 
+      'approved', 
+      'not_started',
+      'in_transit', 
+      'exception_fix_in_progress',
+      'exception_escalated',
+      'exception_fix_complete',
+      'force_completed',
+      'rejected', 
+      'completed', 
+      'cancelled', 
+      'returned'
+    ],
     default: 'approved'
   },
   
@@ -343,7 +357,14 @@ const stockTransferSchema = new mongoose.Schema({
       min: 0.000001
     },
     unit: {
-      type: String
+      type: String,
+      required: true
+    },
+    severity: {
+      type: String,
+      enum: ['low', 'medium', 'high'],
+      default: 'medium',
+      required: true
     },
     description: {
       type: String,
@@ -351,21 +372,73 @@ const stockTransferSchema = new mongoose.Schema({
     },
     reportedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'CompanyUser'
+      ref: 'CompanyUser',
+      required: true
     },
     reportedAt: {
       type: Date,
-      default: Date.now
+      default: Date.now,
+      required: true
     },
     resolved: {
       type: Boolean,
       default: false
+    },
+    resolutionAction: {
+      type: String,
+      enum: ['confirm_damage', 'return_to_source', 'accept_excess', 'reject_excess']
+      // Only required when resolved = true
+    },
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CompanyUser'
+    },
+    resolvedAt: {
+      type: Date
     },
     resolutionNotes: {
       type: String,
       trim: true
     }
   }],
+  
+  // Derived fields for performance optimization (5000+ branches)
+  unresolvedExceptionCount: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+  
+  hasExceptions: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  
+  // Escalation tracking
+  escalatedAt: {
+    type: Date
+  },
+  
+  escalationReason: {
+    type: String,
+    trim: true
+  },
+  
+  // Force completion tracking
+  forceCompletedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CompanyUser'
+  },
+  
+  forceCompletedAt: {
+    type: Date
+  },
+  
+  forceCompletionReason: {
+    type: String,
+    trim: true
+  },
   
   // Soft delete support for compliance
   isArchived: {
@@ -392,6 +465,23 @@ stockTransferSchema.index({ status: 1, requestDate: -1 });
 stockTransferSchema.index({ destinationLocation: 1, sourceLocation: 1, status: 1 });
 stockTransferSchema.index({ transferType: 1 });
 stockTransferSchema.index({ originalRequestId: 1 }); // Link to stock request
+
+// Exception handling indexes for performance at scale (5000+ branches)
+stockTransferSchema.index({ 
+  status: 1, 
+  unresolvedExceptionCount: 1, 
+  companyId: 1 
+});
+stockTransferSchema.index({ 
+  hasExceptions: 1, 
+  status: 1, 
+  companyId: 1 
+});
+stockTransferSchema.index({ 
+  status: 1, 
+  'exceptions.reportedAt': 1, 
+  companyId: 1 
+});
 
 // Compound indexes including companyId for future-proofing (DB merge scenarios)
 // Partial indexes to exclude archived records from operational queries
@@ -428,6 +518,18 @@ stockTransferSchema.index({ 'executionStages.stage': 1, status: 1 });
 stockTransferSchema.index({ destinationLocation: 1, status: 1 });
 stockTransferSchema.index({ sourceLocation: 1, status: 1 });
 stockTransferSchema.index({ requestDate: -1 });
+
+// Pre-save hooks to maintain derived fields
+stockTransferSchema.pre('save', function(next) {
+  if (this.isModified('exceptions')) {
+    // Update derived fields for performance optimization
+    this.hasExceptions = this.exceptions && this.exceptions.length > 0;
+    this.unresolvedExceptionCount = this.exceptions
+      ? this.exceptions.filter(ex => !ex.resolved).length
+      : 0;
+  }
+  next();
+});
 
 export const getStockTransferModel = (companyDB) => {
   return companyDB.model('StockTransfer', stockTransferSchema);

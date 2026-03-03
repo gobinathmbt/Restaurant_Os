@@ -990,3 +990,531 @@ export const getCompletedTransfers = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Record exceptions for a stock transfer
+ * POST /api/v2/stock-transfers/:transferId/exceptions
+ */
+export const recordExceptions = async (req, res, next) => {
+  try {
+    const { companyId, userId } = req.user;
+    const { transferId } = req.params;
+    const { exceptions } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'];
+
+    // Validate request body
+    if (!exceptions || !Array.isArray(exceptions) || exceptions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exceptions array is required and must not be empty'
+      });
+    }
+
+    // Validate each exception has required fields
+    for (const exception of exceptions) {
+      if (!exception.type || !exception.inventoryItem || !exception.quantity || !exception.unit) {
+        return res.status(400).json({
+          success: false,
+          message: 'Each exception must have type, inventoryItem, quantity, and unit'
+        });
+      }
+
+      if (!['damage', 'missing', 'excess'].includes(exception.type)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Exception type must be one of: damage, missing, excess'
+        });
+      }
+
+      if (exception.quantity <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Exception quantity must be positive'
+        });
+      }
+    }
+
+    const result = await stockTransferService.recordException(
+      companyId,
+      transferId,
+      userId,
+      exceptions,
+      idempotencyKey
+    );
+
+    logger.info('Exceptions recorded via API', {
+      transferId,
+      exceptionsCount: exceptions.length,
+      companyId,
+      userId,
+      idempotencyKey
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transfer: result.transfer,
+        exceptionsAdded: result.exceptionsAdded,
+        impactPreview: result.impactPreview
+      }
+    });
+  } catch (error) {
+    logger.error('Record exceptions error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('not destination admin') ||
+        error.message.includes('Only destination location administrators')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('not at GOODS_RECEIVED_CONFIRMED') ||
+        error.message.includes('exceed sent quantity') ||
+        error.message.includes('Invalid exception') ||
+        error.message.includes('already processed')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Idempotency conflict')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Get transfers with exceptions (optimized for super admin dashboard)
+ * GET /api/v2/stock-transfers/exceptions
+ */
+export const getTransfersWithExceptions = async (req, res, next) => {
+  try {
+    const { companyId, role } = req.user;
+    const { status, severity, resolved, page = 1, limit = 20 } = req.query;
+
+    // Validate user is super admin
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only super administrators can access this endpoint'
+      });
+    }
+
+    // Validate pagination parameters
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const parsedLimit = Math.min(parseInt(limit) || 20, 100);
+
+    // Parse resolved filter
+    const resolvedFilter = resolved === 'true' ? true : resolved === 'false' ? false : undefined;
+
+    const result = await stockTransferService.getTransfersWithExceptions(
+      companyId,
+      {
+        status: status || 'exception_fix_in_progress',
+        severity,
+        resolved: resolvedFilter
+      },
+      {
+        page: parsedPage,
+        limit: parsedLimit
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transfers: result.transfers,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          pages: result.pages
+        }
+      }
+    });
+  } catch (error) {
+    logger.error('Get transfers with exceptions error', error);
+    next(error);
+  }
+};
+
+
+/**
+ * Resolve an individual exception
+ * PUT /api/v2/stock-transfers/:transferId/exceptions/:exceptionId
+ */
+export const resolveExceptionEndpoint = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { transferId, exceptionId } = req.params;
+    const { resolutionAction, resolutionNotes } = req.body;
+
+    // Validate user is super admin
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only super administrators can resolve exceptions'
+      });
+    }
+
+    // Validate request body
+    if (!resolutionAction) {
+      return res.status(400).json({
+        success: false,
+        message: 'resolutionAction is required'
+      });
+    }
+
+    const validActions = ['confirm_damage', 'return_to_source', 'accept_excess', 'reject_excess'];
+    if (!validActions.includes(resolutionAction)) {
+      return res.status(400).json({
+        success: false,
+        message: `resolutionAction must be one of: ${validActions.join(', ')}`
+      });
+    }
+
+    const result = await stockTransferService.resolveException(
+      companyId,
+      transferId,
+      exceptionId,
+      userId,
+      resolutionAction,
+      resolutionNotes
+    );
+
+    logger.info('Exception resolved via API', {
+      transferId,
+      exceptionId,
+      resolutionAction,
+      allResolved: result.allResolved,
+      companyId,
+      userId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transfer: result.transfer,
+        exception: result.exception,
+        allResolved: result.allResolved,
+        statusChanged: result.statusChanged,
+        impactPreview: result.impactPreview
+      }
+    });
+  } catch (error) {
+    logger.error('Resolve exception error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Only super administrators')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Invalid resolution action') ||
+        error.message.includes('already resolved')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('already resolved by another user')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Get exceptions for a specific transfer
+ * GET /api/v2/stock-transfers/:transferId/exceptions
+ */
+export const getTransferExceptions = async (req, res, next) => {
+  try {
+    const { companyId, role } = req.user;
+    const { transferId } = req.params;
+
+    // Check if user is super admin or destination admin
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
+
+    const result = await stockTransferService.getTransferExceptions(
+      companyId,
+      transferId,
+      req.user,
+      isSuperAdmin
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transferId: result.transferId,
+        transferNumber: result.transferNumber,
+        exceptions: result.exceptions,
+        summary: result.summary
+      }
+    });
+  } catch (error) {
+    logger.error('Get transfer exceptions error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('not authorized') ||
+        error.message.includes('does not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Escalate unresolved exceptions
+ * POST /api/v2/stock-transfers/:transferId/escalate
+ */
+export const escalateExceptionEndpoint = async (req, res, next) => {
+  try {
+    const { companyId, role } = req.user;
+    const { transferId } = req.params;
+    const { escalationReason } = req.body;
+
+    // Validate user is super admin or automated system
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only super administrators can escalate exceptions'
+      });
+    }
+
+    // Validate request body
+    if (!escalationReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'escalationReason is required'
+      });
+    }
+
+    const result = await stockTransferService.escalateException(
+      companyId,
+      transferId,
+      escalationReason
+    );
+
+    logger.info('Exception escalated via API', {
+      transferId,
+      escalationReason,
+      companyId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transfer: result.transfer,
+        escalatedAt: result.escalatedAt,
+        notificationsSent: result.notificationsSent
+      }
+    });
+  } catch (error) {
+    logger.error('Escalate exception error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Only super administrators')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('not in exception_fix_in_progress') ||
+        error.message.includes('No unresolved exceptions')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Force complete a transfer with unresolved exceptions
+ * POST /api/v2/stock-transfers/:transferId/force-complete
+ */
+export const forceCompleteTransferEndpoint = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { transferId } = req.params;
+    const { overrideReason, applyInventoryAdjustments = true } = req.body;
+
+    // Validate user is super admin
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
+    
+    if (!isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only super administrators can force complete transfers'
+      });
+    }
+
+    // Validate request body
+    if (!overrideReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'overrideReason is required'
+      });
+    }
+
+    const result = await stockTransferService.forceCompleteTransfer(
+      companyId,
+      transferId,
+      userId,
+      overrideReason,
+      applyInventoryAdjustments
+    );
+
+    logger.warn('Transfer force completed via API', {
+      transferId,
+      overrideReason,
+      applyInventoryAdjustments,
+      companyId,
+      userId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transfer: result.transfer,
+        forceCompletedBy: result.forceCompletedBy,
+        forceCompletedAt: result.forceCompletedAt,
+        inventoryAdjustmentsApplied: result.inventoryAdjustmentsApplied
+      }
+    });
+  } catch (error) {
+    logger.error('Force complete transfer error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Only super administrators')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('already completed')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};
+
+
+/**
+ * Get impact preview for a transfer
+ * GET /api/v2/stock-transfers/:transferId/impact-preview
+ */
+export const getImpactPreview = async (req, res, next) => {
+  try {
+    const { companyId, role } = req.user;
+    const { transferId } = req.params;
+
+    // Check if user is super admin or destination admin
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
+
+    const result = await stockTransferService.computeImpactPreview(
+      transferId,
+      companyId,
+      req.user,
+      isSuperAdmin
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    logger.error('Get impact preview error', error);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('not authorized') ||
+        error.message.includes('does not have access')) {
+      return res.status(403).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    next(error);
+  }
+};

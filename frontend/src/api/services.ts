@@ -598,6 +598,23 @@ export const inventoryServices = {
     notes?: string;
   }) => apiClient.post(`/api/v2/backorders/${backorderId}/fulfill`, data),
 
+  // Exception handling endpoints
+  getTransfersWithExceptions: (params?: {
+    status?: string;
+    severity?: string;
+    resolved?: boolean;
+    page?: number;
+    limit?: number;
+  }) => apiClient.get("/api/v2/stock-transfers/exceptions", { params }),
+
+  resolveException: (transferId: string, exceptionId: string, data: {
+    resolutionAction: 'confirm_damage' | 'return_to_source' | 'accept_excess' | 'reject_excess';
+    resolutionNotes?: string;
+  }) => apiClient.put(`/api/v2/stock-transfers/${transferId}/exceptions/${exceptionId}`, data),
+
+  getImpactPreview: (transferId: string) =>
+    apiClient.get(`/api/v2/stock-transfers/${transferId}/impact-preview`),
+
   cancelBackorderV2: (backorderId: string, data: { cancellationReason: string }) =>
     apiClient.post(`/api/v2/backorders/${backorderId}/cancel`, data),
 
@@ -645,6 +662,48 @@ export const inventoryServices = {
 
   getTransferById: (transferId: string) =>
     apiClient.get(`/api/transfers/v2/${transferId}`),
+
+  // Exception Management Endpoints
+  recordExceptions: (transferId: string, data: {
+    exceptions: Array<{
+      type: 'damage' | 'missing' | 'excess';
+      inventoryItem: string;
+      quantity: number;
+      unit: string;
+      severity?: 'low' | 'medium' | 'high';
+      description?: string;
+    }>;
+  }, idempotencyKey?: string) => {
+    const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {};
+    return apiClient.post(`/api/v2/stock-transfers/${transferId}/exceptions`, data, { headers });
+  },
+
+  getTransfersWithExceptions: (params?: {
+    status?: string;
+    severity?: string;
+    resolved?: boolean;
+    page?: number;
+    limit?: number;
+  }) => apiClient.get('/api/v2/stock-transfers/exceptions', { params }),
+
+  resolveException: (transferId: string, exceptionId: string, data: {
+    resolutionAction: 'confirm_damage' | 'return_to_source' | 'accept_excess' | 'reject_excess';
+    resolutionNotes?: string;
+  }) => apiClient.put(`/api/v2/stock-transfers/${transferId}/exceptions/${exceptionId}`, data),
+
+  getTransferExceptions: (transferId: string) =>
+    apiClient.get(`/api/v2/stock-transfers/${transferId}/exceptions`),
+
+  escalateException: (transferId: string, data: { escalationReason: string }) =>
+    apiClient.post(`/api/v2/stock-transfers/${transferId}/escalate`, data),
+
+  forceCompleteTransfer: (transferId: string, data: {
+    overrideReason: string;
+    applyInventoryAdjustments: boolean;
+  }) => apiClient.post(`/api/v2/stock-transfers/${transferId}/force-complete`, data),
+
+  getImpactPreview: (transferId: string) =>
+    apiClient.get(`/api/v2/stock-transfers/${transferId}/impact-preview`),
 };
 
 // Inventory Item Location Services

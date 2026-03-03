@@ -14,6 +14,7 @@ import { logger } from '../utils/logger.js';
 import CompanyUser from '../models/platform/CompanyUser.js';
 import notificationService from './notificationService.js';
 import locationNotificationRouter from './locationNotificationRouter.js';
+import idempotencyService from './idempotencyService.js';
 
 /**
  * Stage transition state machine
@@ -755,154 +756,254 @@ export const updateExecutionStage = async (
  * @param {Object} exceptionData - Exception data (type, inventoryItem, quantity, description)
  * @returns {Promise<Object>} Updated stock transfer
  */
+export /**
+ * Calculate severity based on quantity and item value
+ * @param {number} quantity - Exception quantity
+ * @param {Object} inventoryItem - Inventory item object with unitCost
+ * @returns {string} Severity level: 'low', 'medium', or 'high'
+ */
+const calculateSeverity = (quantity, inventoryItem) => {
+  const value = quantity * (inventoryItem.unitCost || 0);
+  if (value > 1000) return 'high';
+  if (value > 100) return 'medium';
+  return 'low';
+};
+
+/**
+ * Record exception (damage, missing, excess) for a transfer
+ * Enhanced with idempotency and financial integrity validation
+ *
+ * @param {string} companyId - Company ID
+ * @param {string} transferId - Stock transfer ID
+ * @param {string} userId - User ID reporting the exception
+ * @param {Array} exceptions - Array of exception objects
+ * @param {string} idempotencyKey - Optional idempotency key for retry safety
+ * @returns {Promise<Object>} Updated stock transfer with impact preview
+ */
 export const recordException = async (
   companyId,
   transferId,
   userId,
-  exceptionData
+  exceptions,
+  idempotencyKey = null
 ) => {
   try {
-    // Validate exception data
-    if (!exceptionData.type || !['damage', 'missing', 'excess'].includes(exceptionData.type)) {
-      throw new Error('Exception type must be one of: damage, missing, excess');
+    // 0. Check idempotency
+    if (idempotencyKey) {
+      const cached = await idempotencyService.get(idempotencyKey);
+      if (cached) {
+        logger.info(`Returning cached response for idempotency key: ${idempotencyKey}`);
+        return cached;
+      }
     }
-    
-    if (!exceptionData.inventoryItem) {
-      throw new Error('Exception must include inventoryItem');
+
+    // Validate exceptions is an array
+    if (!Array.isArray(exceptions) || exceptions.length === 0) {
+      throw new Error('Exceptions must be a non-empty array');
     }
-    
-    if (!exceptionData.quantity || exceptionData.quantity <= 0) {
-      throw new Error('Exception quantity must be greater than zero');
+
+    // Validate each exception
+    for (const exception of exceptions) {
+      if (!exception.type || !['damage', 'missing', 'excess'].includes(exception.type)) {
+        throw new Error('Exception type must be one of: damage, missing, excess');
+      }
+
+      if (!exception.inventoryItem) {
+        throw new Error('Exception must include inventoryItem');
+      }
+
+      if (!exception.quantity || exception.quantity <= 0) {
+        throw new Error('Exception quantity must be greater than zero');
+      }
     }
-    
+
     // Get user details
     const user = await CompanyUser.findOne({
       _id: userId,
       companyId: companyId,
       isActive: true
     });
-    
+
     if (!user) {
       throw new Error('User not found or inactive');
     }
-    
+
     // Get company database
     const companyDB = await getCompanyDB(companyId);
     const StockTransfer = getStockTransferModel(companyDB);
-    
-    // Get stock transfer
+
+    // Get stock transfer with populated items
     const transfer = await StockTransfer.findOne({
       _id: transferId,
       companyId: companyId
     })
     .populate('destinationLocation')
-    .populate('sourceLocation');
-    
+    .populate('sourceLocation')
+    .populate('items.inventoryItem');
+
     if (!transfer) {
       throw new Error('Stock transfer not found');
     }
-    
-    // Validate user has access to either location
-    const hasAccess = hasLocationAccess(user, transfer.destinationLocation._id) || 
-                      hasLocationAccess(user, transfer.sourceLocation._id);
-    
-    if (!hasAccess && !isSuperAdmin(user)) {
-      throw new Error('User does not have access to this transfer');
+
+    // 1. Validate user is destination admin
+    if (!hasLocationAccess(user, transfer.destinationLocation._id) && !isSuperAdmin(user)) {
+      throw new Error('Only destination location administrators can record exceptions');
     }
-    
-    // Create exception entry
-    const exceptionEntry = {
-      type: exceptionData.type,
-      inventoryItem: exceptionData.inventoryItem,
-      quantity: exceptionData.quantity,
-      unit: exceptionData.unit || '',
-      description: exceptionData.description || '',
-      reportedBy: userId,
-      reportedAt: new Date(),
-      resolved: false
-    };
-    
-    // Update transfer with new exception using optimistic locking
+
+    // 2. Validate transfer is at GOODS_RECEIVED_CONFIRMED stage
+    const currentStage = transfer.executionStages && transfer.executionStages.length > 0
+      ? transfer.executionStages[transfer.executionStages.length - 1].stage
+      : null;
+
+    if (currentStage !== 'GOODS_RECEIVED_CONFIRMED') {
+      throw new Error(
+        `Cannot record exceptions at current stage ${currentStage}. ` +
+        `Transfer must be at GOODS_RECEIVED_CONFIRMED stage.`
+      );
+    }
+
+    // 4. FINANCIAL INTEGRITY CHECK
+    // Validate: sum(damage + missing) <= sentQuantity for each item
+    for (const item of transfer.items) {
+      const itemId = item.inventoryItem._id || item.inventoryItem;
+      const itemExceptions = exceptions.filter(
+        ex => ex.inventoryItem.toString() === itemId.toString()
+      );
+
+      if (itemExceptions.length === 0) continue;
+
+      const totalDamage = itemExceptions
+        .filter(ex => ex.type === 'damage')
+        .reduce((sum, ex) => sum + ex.quantity, 0);
+
+      const totalMissing = itemExceptions
+        .filter(ex => ex.type === 'missing')
+        .reduce((sum, ex) => sum + ex.quantity, 0);
+
+      if (totalDamage + totalMissing > item.sentQuantity) {
+        throw new Error(
+          `Exception quantities exceed sent quantity for item ${item.inventoryItem.name || itemId}. ` +
+          `Sent: ${item.sentQuantity}, Damage: ${totalDamage}, Missing: ${totalMissing}`
+        );
+      }
+    }
+
+    // 5. Calculate severity based on quantity and value
+    const exceptionEntries = exceptions.map(ex => {
+      const item = transfer.items.find(
+        i => (i.inventoryItem._id || i.inventoryItem).toString() === ex.inventoryItem.toString()
+      );
+
+      return {
+        type: ex.type,
+        inventoryItem: ex.inventoryItem,
+        quantity: ex.quantity,
+        unit: ex.unit || item?.unit || '',
+        severity: ex.severity || calculateSeverity(ex.quantity, item?.inventoryItem || {}),
+        description: ex.description || '',
+        reportedBy: userId,
+        reportedAt: new Date(),
+        resolved: false
+      };
+    });
+
+    // 6-8. Update transfer with exceptions and derived fields
     const updateResult = await StockTransfer.updateOne(
       {
         _id: transfer._id,
         version: transfer.version
       },
       {
-        $push: { exceptions: exceptionEntry },
-        $inc: { version: 1 }
+        $push: { exceptions: { $each: exceptionEntries } },
+        $set: {
+          status: 'exception_fix_in_progress',
+          hasExceptions: true
+        },
+        $inc: {
+          version: 1,
+          unresolvedExceptionCount: exceptionEntries.length
+        }
       }
     );
-    
+
     if (updateResult.modifiedCount === 0) {
       throw new Error('Transfer was modified by another user. Please refresh and try again.');
     }
-    
+
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
       .populate('destinationLocation')
       .populate('sourceLocation')
+      .populate('items.inventoryItem')
       .populate('exceptions.inventoryItem');
-    
+
     logger.info(
-      `Exception recorded for transfer ${transfer.transferNumber}: ${exceptionData.type} - ` +
-      `${exceptionData.quantity} units by user ${userId} for company ${companyId}`
+      `${exceptionEntries.length} exception(s) recorded for transfer ${transfer.transferNumber} by user ${userId} for company ${companyId}`
     );
-    
-    // Send notifications to all parties
+
+    // 9. Send notifications to all super admins
     try {
       const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
-      const senderUsers = await locationNotificationRouter.getUsersByLocation(
-        companyId, 
-        transfer.sourceLocation._id.toString()
-      );
-      const destinationUsers = await locationNotificationRouter.getUsersByLocation(
-        companyId, 
-        transfer.destinationLocation._id.toString()
-      );
-      
-      // Combine and deduplicate by userId
-      const allRecipients = [...superAdmins, ...senderUsers, ...destinationUsers];
-      const uniqueRecipients = Array.from(
-        new Map(allRecipients.map(user => [user._id.toString(), user])).values()
-      );
-      
+
       const fromLocationName = transfer.sourceLocation?.name || 'Unknown location';
       const toLocationName = transfer.destinationLocation?.name || 'Unknown location';
       const reporterName = user.name || 'Unknown user';
-      
-      // Send notifications to all unique recipients
-      for (const recipient of uniqueRecipients) {
-        await notificationService.sendToCompanyUser(companyId, recipient._id, {
+
+      // Count exceptions by type
+      const exceptionSummary = exceptionEntries.reduce((acc, ex) => {
+        acc[ex.type] = (acc[ex.type] || 0) + 1;
+        return acc;
+      }, {});
+
+      const exceptionTypes = Object.entries(exceptionSummary)
+        .map(([type, count]) => `${count} ${type}`)
+        .join(', ');
+
+      // Send notifications to all super admins
+      for (const admin of superAdmins) {
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
           category: 'inventory',
-          event: 'stock_transfer_exception',
-          title: 'Stock Transfer Exception Reported',
-          message: `Exception reported for transfer ${transfer.transferNumber}: ${exceptionData.type} - ${exceptionData.quantity} units. Reported by ${reporterName}. From: ${fromLocationName}, To: ${toLocationName}`,
+          event: 'stock_transfer_exceptions_reported',
+          title: 'Stock Transfer Exceptions Reported',
+          message: `${exceptionEntries.length} exception(s) reported for transfer ${transfer.transferNumber}: ${exceptionTypes}. Reported by ${reporterName}. From: ${fromLocationName}, To: ${toLocationName}`,
           data: {
             transferId: transfer._id,
             transferNumber: transfer.transferNumber,
             fromLocationName,
             toLocationName,
-            exceptionType: exceptionData.type,
-            quantity: exceptionData.quantity,
-            reporterName,
-            description: exceptionData.description || ''
+            exceptionCount: exceptionEntries.length,
+            exceptionTypes: exceptionSummary,
+            reporterName
           },
           priority: 'high',
-          actionUrl: `/inventory/stock-transfers/${transfer._id}`
+          actionUrl: `/inventory/stock-transfers/${transfer._id}/exceptions`
         }).catch(error => {
-          logger.error(`Failed to send exception notification to user ${recipient._id}:`, error);
+          logger.error(`Failed to send exception notification to super admin ${admin._id}:`, error);
         });
       }
-      
-      logger.info(`Exception notifications sent for transfer ${transfer.transferNumber}: ${uniqueRecipients.length} recipients`);
+
+      logger.info(`Exception notifications sent for transfer ${transfer.transferNumber}: ${superAdmins.length} super admins notified`);
     } catch (notificationError) {
       // Log but don't fail the exception recording
       logger.error('Error sending exception notifications:', notificationError);
     }
-    
-    return updatedTransfer;
-    
+
+    // Prepare response
+    const result = {
+      success: true,
+      data: {
+        transfer: updatedTransfer,
+        exceptionsAdded: exceptionEntries.length
+      }
+    };
+
+    // 10. Store result in idempotency cache if key provided
+    if (idempotencyKey) {
+      await idempotencyService.set(idempotencyKey, result, 300); // 5 min TTL
+    }
+
+    return result;
+
   } catch (error) {
     logger.error('Error recording exception:', error);
     throw error;
@@ -1517,6 +1618,923 @@ export const getCompletedTransfers = async (companyId, filters = {}, pagination 
     };
   } catch (error) {
     logger.error('Error getting completed transfers:', error);
+    throw error;
+  }
+};
+
+/**
+ * Check if all exceptions in a transfer are resolved
+ * @param {Object} transfer - Transfer document
+ * @returns {Boolean} True if all exceptions resolved
+ */
+export const checkAllExceptionsResolved = (transfer) => {
+  if (!transfer.exceptions || transfer.exceptions.length === 0) {
+    return true;
+  }
+  return transfer.exceptions.every(exception => exception.resolved === true);
+};
+
+/**
+ * Resolve an individual exception with specified action using atomic updates
+ * @param {String} companyId - Company identifier
+ * @param {String} transferId - Transfer identifier
+ * @param {String} exceptionId - Exception identifier
+ * @param {String} userId - Super admin resolving exception
+ * @param {String} resolutionAction - Resolution action to take
+ * @param {String} resolutionNotes - Optional notes
+ * @returns {Promise<Object>} Updated transfer and resolution status
+ */
+export const resolveException = async (companyId, transferId, exceptionId, userId, resolutionAction, resolutionNotes) => {
+  try {
+    // 1. Validate user is super admin
+    const user = await CompanyUser.findOne({ _id: userId, companyId, isActive: true });
+    if (!user || !isSuperAdmin(user)) {
+      throw new Error('Only super administrators can resolve exceptions');
+    }
+    
+    // 2. Get company database
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    // Validate resolutionAction matches exception type (fetch first to validate)
+    const transfer = await StockTransfer.findOne({ _id: transferId, companyId });
+    if (!transfer) {
+      throw new Error('Stock transfer not found');
+    }
+    
+    const exception = transfer.exceptions.id(exceptionId);
+    if (!exception) {
+      throw new Error('Exception not found');
+    }
+    
+    // 3. Validate resolutionAction matches exception type
+    const validActions = {
+      damage: ['confirm_damage'],
+      missing: ['return_to_source'],
+      excess: ['accept_excess', 'reject_excess']
+    };
+    
+    if (!validActions[exception.type].includes(resolutionAction)) {
+      throw new Error(
+        `Invalid resolution action '${resolutionAction}' for exception type '${exception.type}'`
+      );
+    }
+    
+    // 4. ATOMIC UPDATE to prevent concurrency issues
+    const result = await StockTransfer.updateOne(
+      { 
+        _id: transferId,
+        companyId,
+        "exceptions._id": exceptionId, 
+        "exceptions.resolved": false  // Only update if not already resolved
+      },
+      { 
+        $set: { 
+          "exceptions.$.resolved": true,
+          "exceptions.$.resolutionAction": resolutionAction,
+          "exceptions.$.resolvedBy": userId,
+          "exceptions.$.resolvedAt": new Date(),
+          "exceptions.$.resolutionNotes": resolutionNotes || ''
+        },
+        $inc: { unresolvedExceptionCount: -1 }
+      }
+    );
+    
+    // 5. Check modifiedCount to detect already-resolved exceptions
+    if (result.modifiedCount === 0) {
+      throw new Error('Exception already resolved by another user');
+    }
+    
+    // 6. Fetch updated transfer
+    const updatedTransfer = await StockTransfer.findById(transferId)
+      .populate('destinationLocation')
+      .populate('sourceLocation')
+      .populate('items.inventoryItem')
+      .populate('exceptions.inventoryItem');
+    
+    // 7. Check if all exceptions resolved via checkAllExceptionsResolved()
+    const allResolved = checkAllExceptionsResolved(updatedTransfer);
+    
+    // 8. If all resolved, update status to 'exception_fix_complete' and notify destination admin
+    if (allResolved) {
+      updatedTransfer.status = 'exception_fix_complete';
+      await updatedTransfer.save();
+      
+      // Send notification to destination admin
+      try {
+        const destinationUsers = await locationNotificationRouter.getUsersByLocation(
+          companyId,
+          updatedTransfer.destinationLocation._id.toString()
+        );
+        
+        for (const destUser of destinationUsers) {
+          await notificationService.sendToCompanyUser(companyId, destUser._id, {
+            category: 'inventory',
+            event: 'stock_transfer_exceptions_resolved',
+            title: 'Stock Transfer Exceptions Resolved',
+            message: `All exceptions for transfer ${updatedTransfer.transferNumber} have been resolved. You can now complete the transfer.`,
+            data: {
+              transferId: updatedTransfer._id,
+              transferNumber: updatedTransfer.transferNumber
+            },
+            priority: 'normal',
+            actionUrl: `/inventory/stock-transfers/${updatedTransfer._id}`
+          }).catch(error => {
+            logger.error(`Failed to send exceptions resolved notification to user ${destUser._id}:`, error);
+          });
+        }
+      } catch (notificationError) {
+        logger.error('Error sending exceptions resolved notifications:', notificationError);
+      }
+    }
+    
+    logger.info(`Exception ${exceptionId} resolved for transfer ${updatedTransfer.transferNumber} by user ${userId}`);
+    
+    // 9. Return updated transfer and status change flag
+    return {
+      transfer: updatedTransfer,
+      exception: updatedTransfer.exceptions.id(exceptionId),
+      allResolved,
+      statusChanged: allResolved
+    };
+    
+  } catch (error) {
+    logger.error('Error resolving exception:', error);
+    throw error;
+  }
+};
+
+/**
+ * Apply inventory adjustments with ledger entries in a transaction
+ * @param {Object} companyDB - Company database connection
+ * @param {String} locationId - Location ID
+ * @param {Object} adjustments - Adjustments object { inventoryItemId: quantityChange }
+ * @param {String} referenceType - Reference type (e.g., 'stock_transfer')
+ * @param {String} referenceId - Reference ID
+ * @param {String} userId - User ID
+ * @param {Array} ledgerEntries - Ledger entries to create
+ * @returns {Promise<void>}
+ */
+export const applyInventoryAdjustmentsWithLedger = async (
+  companyDB,
+  locationId,
+  adjustments,
+  referenceType,
+  referenceId,
+  userId,
+  ledgerEntries
+) => {
+  const mongoose = (await import('mongoose')).default;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    const InventoryLedger = getInventoryLedgerModel(companyDB);
+    
+    for (const [inventoryItemId, quantityChange] of Object.entries(adjustments)) {
+      if (quantityChange === 0) continue;
+      
+      // Update inventory
+      const inventoryItem = await InventoryItemLocation.findOneAndUpdate(
+        { inventoryItem: inventoryItemId, locationId: locationId },
+        { $inc: { availableQuantity: quantityChange } },
+        { new: true, session }
+      );
+      
+      if (!inventoryItem) {
+        throw new Error(`Inventory item ${inventoryItemId} not found at location ${locationId}`);
+      }
+      
+      // Create ledger entry
+      const ledgerEntry = ledgerEntries.find(
+        e => e.inventoryItemId.toString() === inventoryItemId
+      );
+      
+      await InventoryLedger.create([{
+        inventoryItem: inventoryItemId,
+        locationId,
+        movementType: ledgerEntry?.reason === 'transfer_sent' ? 'transfer_out' : 'transfer_in',
+        quantityDelta: quantityChange,
+        beforeAvailable: inventoryItem.availableQuantity - quantityChange,
+        afterAvailable: inventoryItem.availableQuantity,
+        beforeReserved: 0,
+        afterReserved: 0,
+        beforeInTransit: 0,
+        afterInTransit: 0,
+        referenceType: referenceType.toUpperCase(),
+        referenceId,
+        performedBy: userId,
+        notes: ledgerEntry?.metadata?.notes || `Stock transfer adjustment`,
+        timestamp: new Date()
+      }], { session });
+    }
+    
+    await session.commitTransaction();
+    logger.info('Inventory adjustments applied with ledger entries', {
+      locationId,
+      adjustments,
+      ledgerEntriesCreated: ledgerEntries.length
+    });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    logger.error('Failed to apply inventory adjustments:', {
+      error: error.message,
+      locationId,
+      adjustments
+    });
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
+ * Apply inventory adjustments based on exception resolutions
+ * CRITICAL FIX: Implements per-item reconciliation to avoid double counting
+ * 
+ * @param {Object} transfer - Transfer document with resolved exceptions
+ * @param {Object} companyDB - Company database connection
+ * @param {String} userId - User completing the transfer
+ * @returns {Promise<Object>} Adjustment summary
+ */
+export const applyExceptionInventoryAdjustments = async (transfer, companyDB, userId) => {
+  try {
+    const adjustments = {
+      source: {},      // { inventoryItemId: quantityChange }
+      destination: {}  // { inventoryItemId: quantityChange }
+    };
+    
+    const ledgerEntries = [];
+
+    // Process each item in transfer with per-item reconciliation
+    for (const item of transfer.items) {
+      const itemId = item.inventoryItem._id || item.inventoryItem;
+      const itemIdStr = itemId.toString();
+      
+      // Get all exceptions for this item
+      const itemExceptions = transfer.exceptions.filter(
+        ex => (ex.inventoryItem._id || ex.inventoryItem).toString() === itemIdStr && ex.resolved
+      );
+
+      if (itemExceptions.length === 0) {
+        // NO EXCEPTIONS: Normal transfer
+        // Source: -sentQuantity, Destination: +sentQuantity
+        if (!item.isWarehouseSource) {
+          adjustments.source[itemIdStr] = -(item.sentQuantity);
+          ledgerEntries.push({
+            locationId: transfer.sourceLocation._id || transfer.sourceLocation,
+            inventoryItemId: itemId,
+            delta: -(item.sentQuantity),
+            reason: 'transfer_sent',
+            metadata: { notes: `Stock sent to ${transfer.destinationLocation.name}` }
+          });
+        }
+        
+        adjustments.destination[itemIdStr] = item.sentQuantity;
+        ledgerEntries.push({
+          locationId: transfer.destinationLocation._id || transfer.destinationLocation,
+          inventoryItemId: itemId,
+          delta: item.sentQuantity,
+          reason: 'transfer_received',
+          metadata: { notes: `Stock received from ${transfer.sourceLocation.name}` }
+        });
+        
+      } else {
+        // HAS EXCEPTIONS: Compute net quantities per item
+        
+        // Calculate exception totals
+        let totalDamage = 0;
+        let totalMissing = 0;
+        let totalAcceptedExcess = 0;
+        let totalRejectedExcess = 0;
+        
+        for (const exception of itemExceptions) {
+          switch (exception.resolutionAction) {
+            case 'confirm_damage':
+              totalDamage += exception.quantity;
+              break;
+            case 'return_to_source':
+              totalMissing += exception.quantity;
+              break;
+            case 'accept_excess':
+              totalAcceptedExcess += exception.quantity;
+              break;
+            case 'reject_excess':
+              totalRejectedExcess += exception.quantity;
+              break;
+          }
+        }
+        
+        // CORRECTED MATH: Compute net quantities
+        // What actually left source = sentQuantity + acceptedExcess - rejectedExcess - missing
+        // What actually arrived at destination = sentQuantity - damage - missing + acceptedExcess
+        
+        const netFromSource = item.sentQuantity + totalAcceptedExcess - totalRejectedExcess - totalMissing;
+        const netToDestination = item.sentQuantity - totalDamage - totalMissing + totalAcceptedExcess;
+        
+        // Apply source adjustment (if not warehouse)
+        if (!item.isWarehouseSource && netFromSource !== 0) {
+          adjustments.source[itemIdStr] = -(netFromSource);
+          ledgerEntries.push({
+            locationId: transfer.sourceLocation._id || transfer.sourceLocation,
+            inventoryItemId: itemId,
+            delta: -(netFromSource),
+            reason: 'transfer_sent',
+            metadata: {
+              sentQuantity: item.sentQuantity,
+              totalDamage,
+              totalMissing,
+              totalAcceptedExcess,
+              totalRejectedExcess,
+              notes: `Stock sent to ${transfer.destinationLocation.name} with exceptions`
+            }
+          });
+        }
+        
+        // Apply destination adjustment
+        if (netToDestination !== 0) {
+          adjustments.destination[itemIdStr] = netToDestination;
+          ledgerEntries.push({
+            locationId: transfer.destinationLocation._id || transfer.destinationLocation,
+            inventoryItemId: itemId,
+            delta: netToDestination,
+            reason: 'transfer_received',
+            metadata: {
+              sentQuantity: item.sentQuantity,
+              totalDamage,
+              totalMissing,
+              totalAcceptedExcess,
+              netReceived: netToDestination,
+              notes: `Stock received from ${transfer.sourceLocation.name} with exceptions`
+            }
+          });
+        }
+      }
+    }
+
+    // Apply adjustments to inventory WITH LEDGER ENTRIES
+    const sourceLocationId = transfer.sourceLocation._id || transfer.sourceLocation;
+    const destinationLocationId = transfer.destinationLocation._id || transfer.destinationLocation;
+    
+    if (Object.keys(adjustments.source).length > 0) {
+      await applyInventoryAdjustmentsWithLedger(
+        companyDB,
+        sourceLocationId,
+        adjustments.source,
+        'stock_transfer',
+        transfer._id,
+        userId,
+        ledgerEntries.filter(e => e.locationId.toString() === sourceLocationId.toString())
+      );
+    }
+    
+    if (Object.keys(adjustments.destination).length > 0) {
+      await applyInventoryAdjustmentsWithLedger(
+        companyDB,
+        destinationLocationId,
+        adjustments.destination,
+        'stock_transfer',
+        transfer._id,
+        userId,
+        ledgerEntries.filter(e => e.locationId.toString() === destinationLocationId.toString())
+      );
+    }
+
+    logger.info(`Exception-based inventory adjustments applied for transfer ${transfer.transferNumber}`);
+
+    return {
+      adjustments,
+      ledgerEntriesCreated: ledgerEntries.length
+    };
+    
+  } catch (error) {
+    logger.error('Error applying exception inventory adjustments:', error);
+    throw error;
+  }
+};
+
+/**
+ * Compute projected inventory impact before completing transfer
+ * Shows users what will happen to inventory quantities
+ * 
+ * @param {String} transferId - Transfer identifier
+ * @param {String} companyId - Company identifier
+ * @returns {Promise<Object>} Impact preview with current and projected quantities
+ */
+export const computeImpactPreview = async (transferId, companyId) => {
+  try {
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
+    
+    const transfer = await StockTransfer.findById(transferId)
+      .populate('sourceLocation')
+      .populate('destinationLocation')
+      .populate('items.inventoryItem')
+      .populate('exceptions.inventoryItem');
+    
+    if (!transfer) {
+      throw new Error('Stock transfer not found');
+    }
+    
+    const itemImpacts = [];
+    
+    for (const item of transfer.items) {
+      const itemId = item.inventoryItem._id || item.inventoryItem;
+      const itemIdStr = itemId.toString();
+      
+      // Get current quantities
+      const sourceInventory = await InventoryItemLocation.findOne({
+        inventoryItem: itemId,
+        locationId: transfer.sourceLocation._id
+      });
+      
+      const destInventory = await InventoryItemLocation.findOne({
+        inventoryItem: itemId,
+        locationId: transfer.destinationLocation._id
+      });
+      
+      // Calculate net changes using same logic as applyExceptionInventoryAdjustments
+      const itemExceptions = transfer.exceptions.filter(
+        ex => (ex.inventoryItem._id || ex.inventoryItem).toString() === itemIdStr && ex.resolved
+      );
+      
+      let netSourceChange = 0;
+      let netDestinationChange = 0;
+      
+      if (itemExceptions.length === 0) {
+        // Normal transfer
+        netSourceChange = -(item.sentQuantity);
+        netDestinationChange = item.sentQuantity;
+      } else {
+        // Calculate with exceptions
+        let totalDamage = 0, totalMissing = 0, totalAcceptedExcess = 0, totalRejectedExcess = 0;
+        
+        for (const ex of itemExceptions) {
+          switch (ex.resolutionAction) {
+            case 'confirm_damage': totalDamage += ex.quantity; break;
+            case 'return_to_source': totalMissing += ex.quantity; break;
+            case 'accept_excess': totalAcceptedExcess += ex.quantity; break;
+            case 'reject_excess': totalRejectedExcess += ex.quantity; break;
+          }
+        }
+        
+        const netFromSource = item.sentQuantity + totalAcceptedExcess - totalRejectedExcess - totalMissing;
+        const netToDestination = item.sentQuantity - totalDamage - totalMissing + totalAcceptedExcess;
+        
+        netSourceChange = -(netFromSource);
+        netDestinationChange = netToDestination;
+      }
+      
+      itemImpacts.push({
+        inventoryItem: {
+          _id: item.inventoryItem._id || item.inventoryItem,
+          name: item.inventoryItem.name
+        },
+        sentQuantity: item.sentQuantity,
+        exceptions: itemExceptions.map(ex => ({
+          type: ex.type,
+          quantity: ex.quantity,
+          resolutionAction: ex.resolutionAction
+        })),
+        netSourceChange,
+        netDestinationChange,
+        currentSourceQuantity: sourceInventory?.availableQuantity || 0,
+        currentDestinationQuantity: destInventory?.availableQuantity || 0,
+        projectedSourceQuantity: (sourceInventory?.availableQuantity || 0) + netSourceChange,
+        projectedDestinationQuantity: (destInventory?.availableQuantity || 0) + netDestinationChange
+      });
+    }
+    
+    return {
+      transferId: transfer._id,
+      sourceLocation: {
+        _id: transfer.sourceLocation._id,
+        name: transfer.sourceLocation.name
+      },
+      destinationLocation: {
+        _id: transfer.destinationLocation._id,
+        name: transfer.destinationLocation.name
+      },
+      itemImpacts,
+      summary: {
+        totalSourceReduction: itemImpacts.reduce((sum, i) => sum + Math.abs(i.netSourceChange), 0),
+        totalDestinationAddition: itemImpacts.reduce((sum, i) => sum + i.netDestinationChange, 0),
+        itemsAffected: itemImpacts.length
+      }
+    };
+    
+  } catch (error) {
+    logger.error('Error computing impact preview:', error);
+    throw error;
+  }
+};
+
+/**
+ * Escalate unresolved exceptions that exceed SLA timeout
+ * 
+ * @param {String} companyId - Company identifier
+ * @param {String} transferId - Transfer identifier
+ * @param {String} escalationReason - Reason for escalation
+ * @returns {Promise<Object>} Escalated transfer
+ */
+export const escalateException = async (companyId, transferId, escalationReason) => {
+  try {
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    const transfer = await StockTransfer.findOne({ _id: transferId, companyId });
+    
+    if (!transfer) {
+      throw new Error('Stock transfer not found');
+    }
+    
+    if (transfer.status !== 'exception_fix_in_progress') {
+      throw new Error('Transfer is not in exception_fix_in_progress status');
+    }
+    
+    if (transfer.unresolvedExceptionCount === 0) {
+      throw new Error('No unresolved exceptions to escalate');
+    }
+    
+    // Update status to escalated
+    transfer.status = 'exception_escalated';
+    transfer.escalatedAt = new Date();
+    transfer.escalationReason = escalationReason;
+    await transfer.save();
+    
+    // Send high-priority notifications to super admins (as senior management)
+    try {
+      const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+      
+      for (const admin of superAdmins) {
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'stock_transfer_exception_escalated',
+          title: 'ESCALATED: Stock Transfer Exception',
+          message: `Transfer ${transfer.transferNumber} has ${transfer.unresolvedExceptionCount} unresolved exceptions. Reason: ${escalationReason}`,
+          data: {
+            transferId: transfer._id,
+            transferNumber: transfer.transferNumber,
+            unresolvedCount: transfer.unresolvedExceptionCount,
+            escalationReason
+          },
+          priority: 'critical',
+          actionUrl: `/inventory/stock-transfers/${transferId}/exceptions`
+        }).catch(error => {
+          logger.error(`Failed to send escalation notification to admin ${admin._id}:`, error);
+        });
+      }
+      
+      logger.info(`Escalation notifications sent for transfer ${transfer.transferNumber}: ${superAdmins.length} admins notified`);
+    } catch (notificationError) {
+      logger.error('Error sending escalation notifications:', notificationError);
+    }
+    
+    return {
+      transfer,
+      escalatedAt: transfer.escalatedAt,
+      notificationsSent: (await locationNotificationRouter.getSuperAdmins(companyId)).length
+    };
+    
+  } catch (error) {
+    logger.error('Error escalating exception:', error);
+    throw error;
+  }
+};
+
+/**
+ * Force complete a transfer with unresolved exceptions
+ * Requires super admin authorization and logs override in audit trail
+ * 
+ * @param {String} companyId - Company identifier
+ * @param {String} transferId - Transfer identifier
+ * @param {String} userId - Super admin forcing completion
+ * @param {String} overrideReason - Required reason for override
+ * @param {Boolean} applyInventoryAdjustments - Whether to apply adjustments
+ * @returns {Promise<Object>} Force completed transfer
+ */
+export const forceCompleteTransfer = async (
+  companyId,
+  transferId,
+  userId,
+  overrideReason,
+  applyInventoryAdjustments = true
+) => {
+  try {
+    // Validate user is super admin
+    const user = await CompanyUser.findOne({ _id: userId, companyId, isActive: true });
+    if (!user || !isSuperAdmin(user)) {
+      throw new Error('Only super administrators can force complete transfers');
+    }
+    
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    const transfer = await StockTransfer.findOne({ _id: transferId, companyId })
+      .populate('sourceLocation')
+      .populate('destinationLocation')
+      .populate('items.inventoryItem')
+      .populate('exceptions.inventoryItem');
+    
+    if (!transfer) {
+      throw new Error('Stock transfer not found');
+    }
+    
+    if (transfer.status === 'completed' || transfer.status === 'force_completed') {
+      throw new Error('Transfer already completed');
+    }
+    
+    // Apply inventory adjustments if requested
+    if (applyInventoryAdjustments) {
+      await applyExceptionInventoryAdjustments(transfer, companyDB, userId);
+    }
+    
+    // Update transfer status
+    transfer.status = 'force_completed';
+    transfer.forceCompletedBy = userId;
+    transfer.forceCompletedAt = new Date();
+    transfer.forceCompletionReason = overrideReason;
+    await transfer.save();
+    
+    // Log security event
+    logger.warn('Transfer force completed', {
+      event: 'FORCE_COMPLETION',
+      companyId,
+      transferId,
+      userId,
+      userName: user.name,
+      overrideReason,
+      unresolvedExceptions: transfer.unresolvedExceptionCount,
+      inventoryAdjustmentsApplied: applyInventoryAdjustments
+    });
+    
+    // Notify super admins of override
+    try {
+      const superAdmins = await locationNotificationRouter.getSuperAdmins(companyId);
+      
+      for (const admin of superAdmins) {
+        await notificationService.sendToCompanyUser(companyId, admin._id, {
+          category: 'inventory',
+          event: 'stock_transfer_force_completed',
+          title: 'Transfer Force Completed',
+          message: `Transfer ${transfer.transferNumber} was force completed by ${user.name}. Reason: ${overrideReason}`,
+          data: {
+            transferId: transfer._id,
+            transferNumber: transfer.transferNumber,
+            forceCompletedBy: user.name,
+            overrideReason,
+            inventoryAdjustmentsApplied: applyInventoryAdjustments
+          },
+          priority: 'high',
+          actionUrl: `/inventory/stock-transfers/${transferId}`
+        }).catch(error => {
+          logger.error(`Failed to send force completion notification to admin ${admin._id}:`, error);
+        });
+      }
+    } catch (notificationError) {
+      logger.error('Error sending force completion notifications:', notificationError);
+    }
+    
+    return {
+      transfer,
+      forceCompletedBy: userId,
+      forceCompletedAt: transfer.forceCompletedAt,
+      inventoryAdjustmentsApplied: applyInventoryAdjustments
+    };
+    
+  } catch (error) {
+    logger.error('Error force completing transfer:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Update inventory when transfer is completed (Enhanced for exception handling)
+ * Modified to handle exception-based adjustments with ledger
+ * 
+ * @param {String} companyId - Company ID
+ * @param {String} transferId - Transfer ID
+ * @param {String} userId - User ID performing the update
+ * @param {Object} options - Additional options (ipAddress, deviceInfo)
+ * @returns {Promise<Object>} Completed transfer
+ */
+export const updateInventoryOnCompletionWithExceptions = async (companyId, transferId, userId, options = {}) => {
+  try {
+    const { ipAddress, deviceInfo } = options;
+    
+    // 1. Get transfer with populated exceptions
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    const transfer = await StockTransfer.findOne({ _id: transferId, companyId })
+      .populate('sourceLocation')
+      .populate('destinationLocation')
+      .populate('items.inventoryItem')
+      .populate('exceptions.inventoryItem');
+    
+    if (!transfer) {
+      throw new Error('Stock transfer not found');
+    }
+    
+    // 2. Validate transfer status is 'exception_fix_complete' or ready for completion
+    if (transfer.status !== 'exception_fix_complete' && transfer.status !== 'in_transit') {
+      throw new Error(
+        `Cannot complete transfer with status ${transfer.status}. ` +
+        `Transfer must be in 'exception_fix_complete' or 'in_transit' status.`
+      );
+    }
+    
+    // 3. If exceptions exist, call applyExceptionInventoryAdjustments()
+    if (transfer.exceptions && transfer.exceptions.length > 0) {
+      logger.info(`Applying exception-based inventory adjustments for transfer ${transfer.transferNumber}`);
+      await applyExceptionInventoryAdjustments(transfer, companyDB, userId);
+    } else {
+      // 4. If no exceptions, apply standard inventory adjustments with ledger
+      logger.info(`Applying standard inventory adjustments for transfer ${transfer.transferNumber}`);
+      await updateInventoryOnCompletion(companyDB, transfer, userId);
+    }
+    
+    // 5. Update transfer status to 'completed'
+    transfer.status = 'completed';
+    
+    // 6. Record completedBy, completedDate, completedIpAddress, completedDeviceInfo
+    transfer.completedBy = userId;
+    transfer.completedDate = new Date();
+    transfer.completedIpAddress = ipAddress;
+    transfer.completedDeviceInfo = deviceInfo;
+    
+    // 7. Add PROCESS_COMPLETED to executionStages if not already present
+    const hasProcessCompleted = transfer.executionStages.some(
+      stage => stage.stage === 'PROCESS_COMPLETED'
+    );
+    
+    if (!hasProcessCompleted) {
+      transfer.executionStages.push({
+        stage: 'PROCESS_COMPLETED',
+        timestamp: new Date(),
+        updatedBy: userId,
+        updatedByName: 'System',
+        ipAddress: ipAddress,
+        deviceInfo: deviceInfo,
+        notes: 'Transfer completed with inventory adjustments applied'
+      });
+    }
+    
+    await transfer.save();
+    
+    logger.info(`Transfer ${transfer.transferNumber} completed successfully by user ${userId}`);
+    
+    // 8. Return completed transfer
+    return transfer;
+    
+  } catch (error) {
+    logger.error('Error updating inventory on completion with exceptions:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Get transfers with exceptions (optimized for super admin dashboard)
+ * Uses derived fields for performance at scale (5000+ branches)
+ * 
+ * @param {String} companyId - Company ID
+ * @param {Object} filters - Filter options (status, severity, resolved)
+ * @param {Object} pagination - Pagination options (page, limit)
+ * @returns {Promise<Object>} Transfers with exceptions and pagination metadata
+ */
+export const getTransfersWithExceptions = async (companyId, filters = {}, pagination = {}) => {
+  try {
+    const { status = 'exception_fix_in_progress', severity, resolved } = filters;
+    const { page = 1, limit = 20 } = pagination;
+    
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    // Build optimized query using derived fields
+    const query = {
+      companyId,
+      hasExceptions: true
+    };
+    
+    // Filter by status
+    if (status) {
+      query.status = status;
+    }
+    
+    // Filter by unresolved exceptions using derived field
+    if (resolved === false) {
+      query.unresolvedExceptionCount = { $gt: 0 };
+    } else if (resolved === true) {
+      query.unresolvedExceptionCount = 0;
+    }
+    
+    // Filter by severity (requires scanning exceptions array)
+    if (severity) {
+      query['exceptions.severity'] = severity;
+    }
+    
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
+    // Execute query with population
+    const [transfers, total] = await Promise.all([
+      StockTransfer.find(query)
+        .populate('sourceLocation', '_id name type')
+        .populate('destinationLocation', '_id name type')
+        .populate('exceptions.inventoryItem', '_id name')
+        .populate('exceptions.reportedBy', '_id name')
+        .populate('exceptions.resolvedBy', '_id name')
+        .sort({ 'exceptions.reportedAt': -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      StockTransfer.countDocuments(query)
+    ]);
+    
+    logger.info('Retrieved transfers with exceptions', {
+      companyId,
+      filters,
+      count: transfers.length,
+      total
+    });
+    
+    return {
+      transfers,
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit)
+    };
+    
+  } catch (error) {
+    logger.error('Error getting transfers with exceptions:', error);
+    throw error;
+  }
+};
+
+
+/**
+ * Get exceptions for a specific transfer
+ * 
+ * @param {String} companyId - Company ID
+ * @param {String} transferId - Transfer ID
+ * @param {Object} user - User object for authorization
+ * @param {Boolean} isSuperAdmin - Whether user is super admin
+ * @returns {Promise<Object>} Transfer exceptions with summary
+ */
+export const getTransferExceptions = async (companyId, transferId, user, isSuperAdmin) => {
+  try {
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    const transfer = await StockTransfer.findOne({ _id: transferId, companyId })
+      .populate('exceptions.inventoryItem', '_id name')
+      .populate('exceptions.reportedBy', '_id name')
+      .populate('exceptions.resolvedBy', '_id name')
+      .lean();
+    
+    if (!transfer) {
+      throw new Error('Stock transfer not found');
+    }
+    
+    // Verify user is destination admin or super admin
+    if (!isSuperAdmin && !hasLocationAccess(user, transfer.destinationLocation)) {
+      throw new Error('User does not have access to this transfer');
+    }
+    
+    // Calculate summary statistics
+    const exceptions = transfer.exceptions || [];
+    const summary = {
+      total: exceptions.length,
+      resolved: exceptions.filter(ex => ex.resolved).length,
+      unresolved: exceptions.filter(ex => !ex.resolved).length,
+      byType: {
+        damage: exceptions.filter(ex => ex.type === 'damage').length,
+        missing: exceptions.filter(ex => ex.type === 'missing').length,
+        excess: exceptions.filter(ex => ex.type === 'excess').length
+      }
+    };
+    
+    logger.info('Retrieved transfer exceptions', {
+      companyId,
+      transferId,
+      exceptionsCount: exceptions.length
+    });
+    
+    return {
+      transferId: transfer._id,
+      transferNumber: transfer.transferNumber,
+      exceptions,
+      summary
+    };
+    
+  } catch (error) {
+    logger.error('Error getting transfer exceptions:', error);
     throw error;
   }
 };

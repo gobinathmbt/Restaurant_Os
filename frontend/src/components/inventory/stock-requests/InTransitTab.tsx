@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import StockTransferDetailModal from '../StockTransferDetailModal';
+import TransferStatusBadge from '../TransferStatusBadge';
 
 interface Branch {
   _id: string;
@@ -56,6 +57,13 @@ interface StockTransfer {
   }>;
   requestDate: string;
   expectedDeliveryDate?: string;
+  exceptions?: Array<{
+    _id: string;
+    type: string;
+    severity: 'low' | 'medium' | 'high';
+    resolved: boolean;
+  }>;
+  unresolvedExceptionCount?: number;
 }
 
 interface InTransitTabProps {
@@ -258,6 +266,7 @@ export default function InTransitTab({
       <TableHead>From Location</TableHead>
       <TableHead>To Location</TableHead>
       <TableHead>Current Stage</TableHead>
+      <TableHead>Exception Status</TableHead>
       <TableHead>Priority</TableHead>
       <TableHead>Last Updated</TableHead>
       <TableHead>Items</TableHead>
@@ -286,6 +295,13 @@ export default function InTransitTab({
         </TableCell>
         <TableCell>
           {currentStage ? getStageBadge(currentStage.stage) : '-'}
+        </TableCell>
+        <TableCell>
+          <TransferStatusBadge
+            status={transfer.status}
+            unresolvedExceptionCount={transfer.unresolvedExceptionCount}
+            exceptions={transfer.exceptions}
+          />
         </TableCell>
         <TableCell>{getPriorityBadge(transfer.priority)}</TableCell>
         <TableCell>

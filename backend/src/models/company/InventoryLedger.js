@@ -6,6 +6,11 @@ import mongoose from 'mongoose';
  * Critical for compliance, financial audits, and traceability
  */
 const inventoryLedgerSchema = new mongoose.Schema({
+  companyId: {
+    type: String,
+    required: true,
+    index: true
+  },
   inventoryItem: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'InventoryItem',
@@ -37,7 +42,12 @@ const inventoryLedgerSchema = new mongoose.Schema({
       'consumption',      // Reserved stock consumed
       'damage',           // Stock damaged/written off
       'expiry',           // Stock expired
-      'theft'             // Stock theft/loss
+      'theft',            // Stock theft/loss
+      'exception_damage', // Exception: damaged items
+      'exception_missing', // Exception: missing items
+      'exception_excess_accepted', // Exception: excess items accepted
+      'exception_excess_rejected', // Exception: excess items rejected
+      'force_completion_override' // Force completion by super admin
     ]
   },
   
@@ -111,6 +121,12 @@ const inventoryLedgerSchema = new mongoose.Schema({
     trim: true
   },
   
+  // Additional metadata for exception handling and other contexts
+  metadata: {
+    type: mongoose.Schema.Types.Mixed
+    // Store additional context like exception details, override reason, etc.
+  },
+  
   // Correlation ID for tracking related operations
   correlationId: {
     type: String,
@@ -121,6 +137,13 @@ const inventoryLedgerSchema = new mongoose.Schema({
 });
 
 // Prevent updates and deletes (immutable ledger)
+inventoryLedgerSchema.pre('save', function(next) {
+  if (!this.isNew) {
+    return next(new Error('Inventory ledger entries are immutable and cannot be modified'));
+  }
+  next();
+});
+
 inventoryLedgerSchema.pre('findOneAndUpdate', function(next) {
   next(new Error('Inventory ledger entries are immutable and cannot be updated'));
 });
@@ -138,8 +161,9 @@ inventoryLedgerSchema.pre('deleteMany', function(next) {
 });
 
 // Indexes for ledger queries
-inventoryLedgerSchema.index({ locationId: 1, inventoryItem: 1, createdAt: -1 });
+inventoryLedgerSchema.index({ companyId: 1, locationId: 1, inventoryItem: 1, createdAt: -1 });
 inventoryLedgerSchema.index({ referenceType: 1, referenceId: 1 });
+inventoryLedgerSchema.index({ locationId: 1, inventoryItem: 1, createdAt: -1 });
 inventoryLedgerSchema.index({ movementType: 1, createdAt: -1 });
 inventoryLedgerSchema.index({ createdAt: -1 });
 inventoryLedgerSchema.index({ performedBy: 1, createdAt: -1 });

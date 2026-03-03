@@ -21,7 +21,14 @@ import {
   acceptStock,
   getInTransitTransfers,
   getExceptions,
-  getCompletedTransfers
+  getCompletedTransfers,
+  recordExceptions,
+  getTransfersWithExceptions,
+  resolveExceptionEndpoint,
+  getTransferExceptions,
+  escalateExceptionEndpoint,
+  forceCompleteTransferEndpoint,
+  getImpactPreview
 } from '../controllers/stockTransferController.js';
 import { authenticate } from '../middlewares/auth.js';
 import { idempotencyMiddleware } from '../middlewares/idempotency.js';
@@ -73,6 +80,33 @@ router.get('/v2/exceptions', getExceptions);
 
 // Get completed transfers (location-based filtering applied in controller)
 router.get('/v2/completed', getCompletedTransfers);
+
+// Exception handling endpoints
+
+// Record exceptions for a transfer (Destination Admin only)
+router.post(
+  '/v2/:transferId/exceptions',
+  idempotencyMiddleware('RECORD_EXCEPTIONS'),
+  recordExceptions
+);
+
+// Get all transfers with exceptions (Super Admin only)
+router.get('/v2/exceptions/all', getTransfersWithExceptions);
+
+// Get exceptions for a specific transfer (Destination Admin or Super Admin)
+router.get('/v2/:transferId/exceptions', getTransferExceptions);
+
+// Resolve an individual exception (Super Admin only)
+router.put('/v2/:transferId/exceptions/:exceptionId', resolveExceptionEndpoint);
+
+// Escalate unresolved exceptions (Super Admin only)
+router.post('/v2/:transferId/escalate', escalateExceptionEndpoint);
+
+// Force complete transfer with unresolved exceptions (Super Admin only)
+router.post('/v2/:transferId/force-complete', forceCompleteTransferEndpoint);
+
+// Get impact preview for a transfer (Destination Admin or Super Admin)
+router.get('/v2/:transferId/impact-preview', getImpactPreview);
 
 // Legacy V1 API endpoints (maintained for backward compatibility)
 

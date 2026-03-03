@@ -8,7 +8,22 @@ import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
 import { ArrowRight, Package, RefreshCw, CheckCircle } from 'lucide-react';
 import ExecutionStageTimeline from './ExecutionStageTimeline';
+import ExceptionReportingForm from './ExceptionReportingForm';
+import ExceptionsDisplay from './ExceptionsDisplay';
 import { useAuth } from '@/contexts/AuthContext';
+
+// Generate UUID v4 using crypto API
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older browsers
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
 
 interface ExecutionStage {
   stage: string;
@@ -43,6 +58,31 @@ interface StockTransfer {
     sentQuantity: number;
     unit: string;
     notes?: string;
+  }>;
+  exceptions?: Array<{
+    _id: string;
+    type: 'damage' | 'missing' | 'excess';
+    inventoryItem: {
+      _id: string;
+      name: string;
+    };
+    quantity: number;
+    unit: string;
+    severity?: 'low' | 'medium' | 'high';
+    description?: string;
+    reportedBy: {
+      _id: string;
+      name: string;
+    };
+    reportedAt: string;
+    resolved: boolean;
+    resolutionAction?: 'confirm_damage' | 'return_to_source' | 'accept_excess' | 'reject_excess';
+    resolvedBy?: {
+      _id: string;
+      name: string;
+    };
+    resolvedAt?: string;
+    resolutionNotes?: string;
   }>;
   requestDate: string;
   expectedDeliveryDate?: string;
@@ -93,6 +133,7 @@ export default function StockTransferDetailModal({
   const [showStageUpdate, setShowStageUpdate] = useState(false);
   const [stageNotes, setStageNotes] = useState('');
   const [nextStage, setNextStage] = useState<string | null>(null);
+  const [showExceptionReporting, setShowExceptionReporting] = useState(false);
 
   const isSuperAdmin = ['company_super_admin_primary', 'company_super_admin_secondary'].includes(user?.role || '');
 
@@ -101,10 +142,50 @@ export default function StockTransferDetailModal({
       setShowStageUpdate(false);
       setStageNotes('');
       setNextStage(null);
+      setShowExceptionReporting(false);
     }
   }, [transfer, open]);
 
   if (!transfer) return null;
+
+  const isDestinationAdmin = (): boolean => {
+    const userLocationIds = [
+      ...(user?.branchIds || []),
+      ...(user?.warehouseIds || [])
+    ];
+    return userLocationIds.includes(transfer.destinationLocation._id);
+  };
+
+  const canReportExceptions = (): boolean => {
+    const currentStage = getCurrentStage();
+    return (
+      currentStage?.stage === 'GOODS_RECEIVED_CONFIRMED' &&
+      isDestinationAdmin() &&
+      !transfer.exceptions?.length // Only show if no exceptions reported yet
+    );
+  };
+
+  const handleSubmitExceptions = async (exceptions: any[]) => {
+    try {
+      const idempotencyKey = generateUUID();
+      await inventoryServices.recordExceptions(
+        transfer._id,
+        { exceptions },
+        idempotencyKey
+      );
+
+      toast({
+        title: 'Success',
+        description: 'Exceptions reported successfully',
+        variant: 'success'
+      });
+
+      setShowExceptionReporting(false);
+      onSuccess(); // Refresh transfer data
+    } catch (error: any) {
+      throw error; // Let ExceptionReportingForm handle the error
+    }
+  };
 
   const canAcceptTransfer = (): boolean => {
     // Can accept if status is not_started (no stages yet)
@@ -332,6 +413,53 @@ export default function StockTransferDetailModal({
               sourceLocationId={transfer.sourceLocation._id}
               onStageUpdate={onSuccess}
             />
+
+            {/* Exception Reporting Section */}
+            {canReportExceptions() && !showExceptionReporting && (
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-yellow-900">Report Exceptions</p>
+                    <p className="text-sm text-yellow-700">
+                      Report any discrepancies found during goods receipt verification
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setShowExceptionReporting(true)}
+                    className="bg-yellow-600 hover:bg-yellow-700"
+                  >
+                    <Package className="h-4 w-4 mr-2" />
+                    Report Exceptions
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Exception Reporting Form */}
+            {showExceptionReporting && (
+              <div className="p-4 border-2 border-yellow-300 rounded-lg bg-yellow-50">
+                <ExceptionReportingForm
+                  transferId={transfer._id}
+                  transferItems={transfer.items}
+                  onSubmitExceptions={handleSubmitExceptions}
+                />
+                <div className="mt-4 flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowExceptionReporting(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Exceptions Display */}
+            {transfer.exceptions && transfer.exceptions.length > 0 && (
+              <div className="p-4 border rounded-lg">
+                <ExceptionsDisplay exceptions={transfer.exceptions} readOnly={!isSuperAdmin} />
+              </div>
+            )}
 
             {/* Stage Update Section */}
             {canAcceptTransfer() && (
