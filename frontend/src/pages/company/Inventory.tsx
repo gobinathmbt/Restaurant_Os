@@ -112,7 +112,7 @@ export default function Inventory() {
 
   const tabTriggerClass = isWarehouseAdmin ? 'flex-1 text-center' : '';
 
-  if (!selectedBranch && !isSingleBranchAdmin) {
+  if (!selectedBranch && !isSingleBranchAdmin && !isSuperAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] p-8">
         <Package className="h-16 w-16 text-muted-foreground mb-4" />
