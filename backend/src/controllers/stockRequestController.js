@@ -362,7 +362,8 @@ export const listRequests = async (req, res, next) => {
       if (request.createdTransferId) {
         try {
           const transfer = await StockTransfer.findById(request.createdTransferId)
-            .select('executionStages status')
+            .select('executionStages status unresolvedExceptionCount exceptions')
+            .populate('exceptions.inventoryItem', 'name')
             .lean();
           if (transfer) {
             request.createdTransferId = transfer;
@@ -393,8 +394,8 @@ export const listRequests = async (req, res, next) => {
           // Show only if transfer status is 'not_started'
           return transferStatus === 'not_started';
         } else if (filters.executionStatus === 'in_progress') {
-          // Show only if transfer status is 'in_progress'
-          return transferStatus === 'in_progress';
+          // Show if transfer status is 'in_progress', 'exception_fix_in_progress', or 'exception_fix_complete'
+          return ['in_progress', 'exception_fix_in_progress', 'exception_fix_complete'].includes(transferStatus);
         }
         
         return true;
@@ -1037,7 +1038,8 @@ export const getRequestsToMe = async (req, res, next) => {
         if (filters.executionStatus === 'not_started') {
           return transferStatus === 'not_started';
         } else if (filters.executionStatus === 'in_progress') {
-          return transferStatus === 'in_progress';
+          // Include in_progress, exception_fix_in_progress, and exception_fix_complete
+          return ['in_progress', 'exception_fix_in_progress', 'exception_fix_complete'].includes(transferStatus);
         }
         
         return true;

@@ -1474,6 +1474,119 @@ export const forceCompleteTransferEndpoint = async (req, res, next) => {
 
 
 /**
+ * Confirm completion of transfer after exceptions are resolved
+ * POST /api/stock-transfers/:transferId/confirm-completion
+ * Branch admin confirms that exception fixes are acceptable and transfer can be completed
+ */
+export const confirmCompletionEndpoint = async (req, res, next) => {
+  try {
+    const { companyId, userId, role } = req.user;
+    const { transferId } = req.params;
+    const { notes } = req.body;
+
+    // Get transfer to check status and permissions
+    const companyDB = req.companyDB;
+    const StockTransfer = companyDB.model('StockTransfer');
+    
+    const transfer = await StockTransfer.findOne({
+      _id: transferId,
+      companyId: companyId
+    })
+    .populate('destinationLocation')
+    .populate('sourceLocation');
+
+    if (!transfer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transfer not found'
+      });
+    }
+
+    // Verify status is exception_fix_complete
+    if (transfer.status !== 'exception_fix_complete') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot confirm completion. Transfer status is ${transfer.status}, must be exception_fix_complete`
+      });
+    }
+
+    // Verify user is destination admin (branch receiving the stock)
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
+    
+    const user = req.user;
+    const userLocationIds = [
+      ...(user.branchIds || []),
+      ...(user.warehouseIds || [])
+    ];
+    
+    const isDestinationAdmin = userLocationIds.includes(transfer.destinationLocation._id.toString());
+
+    if (!isSuperAdmin && !isDestinationAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only destination location administrators can confirm completion'
+      });
+    }
+
+    // Add PROCESS_COMPLETED stage
+    const processCompletedStage = {
+      stage: 'PROCESS_COMPLETED',
+      timestamp: new Date(),
+      updatedBy: userId,
+      updatedByName: user.name || 'Unknown',
+      notes: notes || 'Branch admin confirmed exception fixes - transfer completed'
+    };
+
+    await StockTransfer.updateOne(
+      { _id: transfer._id },
+      {
+        $push: { executionStages: processCompletedStage },
+        $set: { 
+          status: 'completed',
+          completedBy: userId,
+          completedDate: new Date()
+        }
+      }
+    );
+
+    // Update inventory at destination and source
+    const { updateInventoryOnCompletion } = await import('../services/stockTransferService.js');
+    await updateInventoryOnCompletion(companyDB, transfer, userId);
+
+    // Update stock request status to completed
+    if (transfer.originalRequestId) {
+      const StockRequest = companyDB.model('StockRequest');
+      await StockRequest.updateOne(
+        { _id: transfer.originalRequestId },
+        {
+          $set: {
+            status: 'completed',
+            completedBy: userId,
+            completedDate: new Date()
+          }
+        }
+      );
+    }
+
+    logger.info(`Transfer ${transfer.transferNumber} confirmed and completed by branch admin ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Transfer completed successfully',
+      data: {
+        transferId: transfer._id,
+        transferNumber: transfer.transferNumber,
+        status: 'completed'
+      }
+    });
+  } catch (error) {
+    logger.error('Confirm completion error', error);
+    next(error);
+  }
+};
+
+/**
  * Get impact preview for a transfer
  * GET /api/stock-transfers/:transferId/impact-preview
  */

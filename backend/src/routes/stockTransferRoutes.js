@@ -28,6 +28,7 @@ import {
   getTransferExceptions,
   escalateExceptionEndpoint,
   forceCompleteTransferEndpoint,
+  confirmCompletionEndpoint,
   getImpactPreview
 } from '../controllers/stockTransferController.js';
 import { authenticate, requireCompanyDB } from '../middlewares/auth.js';
@@ -106,6 +107,9 @@ router.put('/:transferId/exceptions/:exceptionId', resolveExceptionEndpoint);
 
 // Escalate unresolved exceptions (Super Admin only)
 router.post('/:transferId/escalate', escalateExceptionEndpoint);
+
+// Confirm completion after exceptions are resolved (Branch Admin)
+router.post('/:transferId/confirm-completion', confirmCompletionEndpoint);
 
 // Force complete transfer with unresolved exceptions (Super Admin only)
 router.post('/:transferId/force-complete', forceCompleteTransferEndpoint);

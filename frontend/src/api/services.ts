@@ -684,6 +684,9 @@ export const inventoryServices = {
   escalateException: (transferId: string, data: { escalationReason: string }) =>
     apiClient.post(`/api/stock-transfers/${transferId}/escalate`, data),
 
+  confirmCompletion: (transferId: string, data?: { notes?: string }) =>
+    apiClient.post(`/api/stock-transfers/${transferId}/confirm-completion`, data || {}),
+
   forceCompleteTransfer: (transferId: string, data: {
     overrideReason: string;
     applyInventoryAdjustments: boolean;

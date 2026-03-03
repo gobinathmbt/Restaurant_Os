@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, RefreshCw, Truck, Package } from 'lucide-react';
+import { Eye, RefreshCw, Truck, Package, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -9,6 +9,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { TableHead, TableCell, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { inventoryServices } from '@/api/services';
@@ -118,6 +126,8 @@ export default function InTransitTab({
   const [totalPages, setTotalPages] = useState(0);
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmingTransfer, setConfirmingTransfer] = useState<StockTransfer | null>(null);
 
   // Active execution stages (excluding PROCESS_STARTED and PROCESS_COMPLETED)
   const activeStages = [
@@ -157,7 +167,8 @@ export default function InTransitTab({
         transferNumber: request.requestNumber,
         destinationLocation: request.destinationLocation, // Branch receiving stock (requester)
         sourceLocation: request.sourceLocation, // Warehouse sending stock (supplier)
-        status: request.status,
+        status: request.createdTransferId?.status || 'in_progress', // Transfer status, not request status
+        requestStatus: request.status, // Keep request status for reference
         priority: request.priority,
         executionStages: request.createdTransferId?.executionStages || [],
         items: request.items.map((item: any) => ({
@@ -166,7 +177,9 @@ export default function InTransitTab({
           unit: item.unit
         })),
         requestDate: request.requestDate,
-        expectedDeliveryDate: request.expectedDeliveryDate
+        expectedDeliveryDate: request.expectedDeliveryDate,
+        unresolvedExceptionCount: request.createdTransferId?.unresolvedExceptionCount || 0,
+        exceptions: request.createdTransferId?.exceptions || []
       }));
 
       // Apply stage filter if set
@@ -278,6 +291,37 @@ export default function InTransitTab({
     setIsDetailModalOpen(true);
   };
 
+  const handleConfirmCompletion = async (transfer: StockTransfer) => {
+    setConfirmingTransfer(transfer);
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmCompletionSubmit = async () => {
+    if (!confirmingTransfer) return;
+
+    try {
+      await inventoryServices.confirmCompletion(confirmingTransfer._id, {
+        notes: 'Branch admin confirmed exception fixes are acceptable'
+      });
+
+      toast({
+        title: "Success",
+        description: "Transfer completed successfully",
+        variant: "success",
+      });
+
+      setShowConfirmModal(false);
+      setConfirmingTransfer(null);
+      fetchInTransitTransfers();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to confirm completion",
+        variant: "destructive",
+      });
+    }
+  };
+
   const tableHeaders = (
     <>
       <TableHead className="w-16">S.No</TableHead>
@@ -333,6 +377,18 @@ export default function InTransitTab({
         </TableCell>
         <TableCell className="text-right">
           <div className="flex items-center justify-end gap-2">
+            {transfer.status === 'exception_fix_complete' && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => handleConfirmCompletion(transfer)}
+                title="Confirm Completion"
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Confirm
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -434,6 +490,64 @@ export default function InTransitTab({
           fetchInTransitTransfers();
         }}
       />
+
+      {/* Confirm Completion Modal */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+              Confirm Transfer Completion
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to confirm that all exception fixes are acceptable and complete this transfer?
+            </DialogDescription>
+          </DialogHeader>
+          
+          {confirmingTransfer && (
+            <div className="py-4 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Transfer Number:</span>
+                <span className="font-medium">{confirmingTransfer.transferNumber}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">From:</span>
+                <span className="font-medium">{confirmingTransfer.sourceLocation?.name}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">To:</span>
+                <span className="font-medium">{confirmingTransfer.destinationLocation?.name}</span>
+              </div>
+              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  This action will mark the transfer as completed and update inventory levels. This cannot be undone.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowConfirmModal(false);
+                setConfirmingTransfer(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmCompletionSubmit}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Confirm Completion
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

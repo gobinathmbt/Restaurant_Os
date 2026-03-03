@@ -343,7 +343,7 @@ export const validateStageTransition = (transfer, newStage, user) => {
  * @param {Object} transfer - Stock transfer object
  * @param {string} userId - User ID performing the update
  */
-const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
+export const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
   try {
     const InventoryItemLocation = getInventoryItemLocationModel(companyDB);
     const InventoryLedger = getInventoryLedgerModel(companyDB);
@@ -406,6 +406,7 @@ const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
 
       // Create ledger entry for destination (RECEIVE)
       await InventoryLedger.create({
+        companyId: transfer.companyId,
         inventoryItem: inventoryItemId,
         locationId: destinationLocationId,
         movementType: 'transfer_in',
@@ -487,6 +488,7 @@ const updateInventoryOnCompletion = async (companyDB, transfer, userId) => {
 
           // Create ledger entry for source (SEND)
           await InventoryLedger.create({
+            companyId: transfer.companyId,
             inventoryItem: inventoryItemId,
             locationId: sourceLocationId,
             movementType: 'transfer_out',
@@ -820,17 +822,21 @@ export const recordException = async (
       throw new Error('Only destination location administrators can record exceptions');
     }
 
-    // 2. Validate transfer is at GOODS_RECEIVED_CONFIRMED stage
+    // 2. Validate transfer is at GOODS_RECEIVED_CONFIRMED or PROCESS_COMPLETED stage
     const currentStage = transfer.executionStages && transfer.executionStages.length > 0
       ? transfer.executionStages[transfer.executionStages.length - 1].stage
       : null;
 
-    if (currentStage !== 'GOODS_RECEIVED_CONFIRMED') {
+    const allowedStages = ['GOODS_RECEIVED_CONFIRMED', 'PROCESS_COMPLETED'];
+    if (!allowedStages.includes(currentStage)) {
       throw new Error(
         `Cannot record exceptions at current stage ${currentStage}. ` +
-        `Transfer must be at GOODS_RECEIVED_CONFIRMED stage.`
+        `Transfer must be at GOODS_RECEIVED_CONFIRMED or PROCESS_COMPLETED stage.`
       );
     }
+
+    // Check if transfer is already completed - if so, skip completion logic later
+    const isAlreadyCompleted = currentStage === 'PROCESS_COMPLETED';
 
     // 4. FINANCIAL INTEGRITY CHECK
     // Validate: sum(damage + missing) <= sentQuantity for each item
@@ -967,46 +973,57 @@ export const recordException = async (
       }
     };
 
-    // 10. Complete the transfer after exception reporting
-    // Add PROCESS_COMPLETED stage and update inventory
-    const processCompletedStage = {
-      stage: 'PROCESS_COMPLETED',
-      timestamp: new Date(),
-      updatedBy: userId,
-      updatedByName: user.name || 'Unknown',
-      notes: exceptionEntries.length > 0 
-        ? `Transfer completed with ${exceptionEntries.length} exception(s) reported`
-        : 'Transfer completed - all items verified with no exceptions'
-    };
+    // 10. Update transfer status based on exceptions
+    // If exceptions were added, set status to 'exception_fix_in_progress'
+    // Transfer stays at GOODS_RECEIVED_CONFIRMED stage until all exceptions are resolved
+    if (exceptionEntries.length > 0) {
+      await StockTransfer.updateOne(
+        { _id: transfer._id },
+        { $set: { status: 'exception_fix_in_progress' } }
+      );
+      logger.info(`Transfer ${transfer.transferNumber} status updated to exception_fix_in_progress with ${exceptionEntries.length} exception(s)`);
+    } else {
+      // No exceptions - transfer can be completed immediately
+      // This happens when user confirms "no exceptions" during verification
+      
+      // Add PROCESS_COMPLETED stage
+      const processCompletedStage = {
+        stage: 'PROCESS_COMPLETED',
+        timestamp: new Date(),
+        updatedBy: userId,
+        updatedByName: user.name || 'Unknown',
+        notes: 'Transfer completed - all items verified with no exceptions'
+      };
 
-    await StockTransfer.updateOne(
-      { _id: transfer._id },
-      {
-        $push: { executionStages: processCompletedStage },
-        $set: { status: exceptionEntries.length > 0 ? 'exception_fix_in_progress' : 'completed' }
-      }
-    );
-
-    // Update inventory at destination and source
-    await updateInventoryOnCompletion(companyDB, transfer, userId);
-
-    // Update stock request status to completed
-    if (transfer.originalRequestId) {
-      const StockRequest = companyDB.model('StockRequest');
-      await StockRequest.updateOne(
-        { _id: transfer.originalRequestId },
+      await StockTransfer.updateOne(
+        { _id: transfer._id },
         {
-          $set: {
-            status: 'completed',
-            completedBy: userId,
-            completedDate: new Date()
-          }
+          $push: { executionStages: processCompletedStage },
+          $set: { status: 'completed' }
         }
       );
-      logger.info(`Stock request ${transfer.originalRequestId} marked as completed`);
-    }
 
-    logger.info(`Transfer ${transfer.transferNumber} completed with ${exceptionEntries.length} exception(s)`);
+      // Update inventory at destination and source
+      await updateInventoryOnCompletion(companyDB, transfer, userId);
+
+      // Update stock request status to completed
+      if (transfer.originalRequestId) {
+        const StockRequest = companyDB.model('StockRequest');
+        await StockRequest.updateOne(
+          { _id: transfer.originalRequestId },
+          {
+            $set: {
+              status: 'completed',
+              completedBy: userId,
+              completedDate: new Date()
+            }
+          }
+        );
+        logger.info(`Stock request ${transfer.originalRequestId} marked as completed`);
+      }
+
+      logger.info(`Transfer ${transfer.transferNumber} completed with no exceptions`);
+    }
 
     // 11. Store result in idempotency cache if key provided
     if (idempotencyKey) {
@@ -2450,20 +2467,69 @@ export const getExceptions = async (companyId, accessControl = {}, pagination = 
     // Calculate pagination
     const skip = (page - 1) * limit;
     
-    // Execute query with population
+    // Execute query with population (excluding CompanyUser fields)
     const [transfers, total] = await Promise.all([
       StockTransfer.find(query)
         .populate('sourceLocation', '_id name type')
         .populate('destinationLocation', '_id name type')
         .populate('exceptions.inventoryItem', '_id name')
-        .populate('exceptions.reportedBy', '_id name')
-        .populate('exceptions.resolvedBy', '_id name')
         .sort({ 'exceptions.reportedAt': -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
       StockTransfer.countDocuments(query)
     ]);
+    
+    // Manually populate CompanyUser fields in exceptions
+    if (transfers.length > 0) {
+      // Collect all unique user IDs from exceptions
+      const userIds = new Set();
+      transfers.forEach(transfer => {
+        if (transfer.exceptions && transfer.exceptions.length > 0) {
+          transfer.exceptions.forEach(exception => {
+            if (exception.reportedBy) {
+              userIds.add(exception.reportedBy.toString());
+            }
+            if (exception.resolvedBy) {
+              userIds.add(exception.resolvedBy.toString());
+            }
+          });
+        }
+      });
+
+      if (userIds.size > 0) {
+        // Fetch all users in one query
+        const users = await CompanyUser.find({
+          _id: { $in: Array.from(userIds) },
+          companyId: companyId,
+          isActive: true
+        })
+        .select('_id name email role')
+        .lean();
+
+        // Create a map for quick lookup
+        const userMap = new Map();
+        users.forEach(user => {
+          userMap.set(user._id.toString(), user);
+        });
+
+        // Populate user fields in exceptions
+        transfers.forEach(transfer => {
+          if (transfer.exceptions && transfer.exceptions.length > 0) {
+            transfer.exceptions.forEach(exception => {
+              if (exception.reportedBy) {
+                const userId = exception.reportedBy.toString();
+                exception.reportedBy = userMap.get(userId) || { _id: exception.reportedBy, name: 'Unknown User' };
+              }
+              if (exception.resolvedBy) {
+                const userId = exception.resolvedBy.toString();
+                exception.resolvedBy = userMap.get(userId) || { _id: exception.resolvedBy, name: 'Unknown User' };
+              }
+            });
+          }
+        });
+      }
+    }
     
     logger.info('Retrieved transfers with exceptions', {
       companyId,
@@ -2529,20 +2595,69 @@ export const getTransfersWithExceptions = async (companyId, filters = {}, pagina
     // Calculate pagination
     const skip = (page - 1) * limit;
     
-    // Execute query with population
+    // Execute query with population (excluding CompanyUser fields)
     const [transfers, total] = await Promise.all([
       StockTransfer.find(query)
         .populate('sourceLocation', '_id name type')
         .populate('destinationLocation', '_id name type')
         .populate('exceptions.inventoryItem', '_id name')
-        .populate('exceptions.reportedBy', '_id name')
-        .populate('exceptions.resolvedBy', '_id name')
         .sort({ 'exceptions.reportedAt': -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
       StockTransfer.countDocuments(query)
     ]);
+    
+    // Manually populate CompanyUser fields in exceptions
+    if (transfers.length > 0) {
+      // Collect all unique user IDs from exceptions
+      const userIds = new Set();
+      transfers.forEach(transfer => {
+        if (transfer.exceptions && transfer.exceptions.length > 0) {
+          transfer.exceptions.forEach(exception => {
+            if (exception.reportedBy) {
+              userIds.add(exception.reportedBy.toString());
+            }
+            if (exception.resolvedBy) {
+              userIds.add(exception.resolvedBy.toString());
+            }
+          });
+        }
+      });
+
+      if (userIds.size > 0) {
+        // Fetch all users in one query
+        const users = await CompanyUser.find({
+          _id: { $in: Array.from(userIds) },
+          companyId: companyId,
+          isActive: true
+        })
+        .select('_id name email role')
+        .lean();
+
+        // Create a map for quick lookup
+        const userMap = new Map();
+        users.forEach(user => {
+          userMap.set(user._id.toString(), user);
+        });
+
+        // Populate user fields in exceptions
+        transfers.forEach(transfer => {
+          if (transfer.exceptions && transfer.exceptions.length > 0) {
+            transfer.exceptions.forEach(exception => {
+              if (exception.reportedBy) {
+                const userId = exception.reportedBy.toString();
+                exception.reportedBy = userMap.get(userId) || { _id: exception.reportedBy, name: 'Unknown User' };
+              }
+              if (exception.resolvedBy) {
+                const userId = exception.resolvedBy.toString();
+                exception.resolvedBy = userMap.get(userId) || { _id: exception.resolvedBy, name: 'Unknown User' };
+              }
+            });
+          }
+        });
+      }
+    }
     
     logger.info('Retrieved transfers with exceptions', {
       companyId,
