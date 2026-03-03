@@ -895,7 +895,15 @@ export const getInTransitTransfers = async (req, res, next) => {
 export const getExceptions = async (req, res, next) => {
   try {
     const { companyId } = req.user;
-    const { resolved, page = 1, limit = 10 } = req.query;
+    const { status, resolved, page = 1, limit = 10 } = req.query;
+
+    logger.debug('getExceptions controller called', {
+      queryParams: req.query,
+      status,
+      resolved,
+      page,
+      limit
+    });
 
     // Validate pagination parameters
     const parsedPage = Math.max(parseInt(page) || 1, 1);
@@ -912,6 +920,7 @@ export const getExceptions = async (req, res, next) => {
       {
         isUnrestricted,
         locationIds,
+        status, // Pass status filter
         resolved: resolvedFilter
       },
       {
@@ -1107,6 +1116,15 @@ export const getTransfersWithExceptions = async (req, res, next) => {
     const { companyId, role } = req.user;
     const { status, severity, resolved, page = 1, limit = 20 } = req.query;
 
+    logger.debug('getTransfersWithExceptions controller called', {
+      queryParams: req.query,
+      status,
+      severity,
+      resolved,
+      page,
+      limit
+    });
+
     // Validate user is super admin
     const isSuperAdmin = role === 'company_super_admin_primary' || 
                          role === 'company_super_admin_secondary';
@@ -1125,10 +1143,18 @@ export const getTransfersWithExceptions = async (req, res, next) => {
     // Parse resolved filter
     const resolvedFilter = resolved === 'true' ? true : resolved === 'false' ? false : undefined;
 
+    const statusFilter = status || 'exception_fix_in_progress';
+    
+    logger.debug('Calling service with filters', {
+      statusFilter,
+      severity,
+      resolvedFilter
+    });
+
     const result = await stockTransferService.getTransfersWithExceptions(
       companyId,
       {
-        status: status || 'exception_fix_in_progress',
+        status: statusFilter,
         severity,
         resolved: resolvedFilter
       },

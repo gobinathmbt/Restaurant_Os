@@ -59,7 +59,7 @@ const STAGE_TRANSITIONS = {
   },
   PROCESS_COMPLETED: {
     next: [], // Terminal state
-    roles: []
+    roles: ['destination'] // Destination admins can complete the transfer (when no exceptions)
   }
 };
 
@@ -88,12 +88,22 @@ const hasLocationAccess = (user, locationId) => {
   // Handle populated location object (has _id property)
   const locationIdStr = (locationId?._id || locationId).toString();
   
-  const hasBranchAccess = user.branchIds && user.branchIds.some(
-    id => id.toString() === locationIdStr
-  );
-  const hasWarehouseAccess = user.warehouseIds && user.warehouseIds.some(
-    id => id.toString() === locationIdStr
-  );
+  // Convert user's location IDs to strings for comparison
+  const userBranchIdsStr = (user.branchIds || []).map(id => id.toString());
+  const userWarehouseIdsStr = (user.warehouseIds || []).map(id => id.toString());
+  
+  const hasBranchAccess = userBranchIdsStr.includes(locationIdStr);
+  const hasWarehouseAccess = userWarehouseIdsStr.includes(locationIdStr);
+  
+  logger.debug('hasLocationAccess check', {
+    userId: user._id,
+    locationIdStr,
+    userBranchIdsStr,
+    userWarehouseIdsStr,
+    hasBranchAccess,
+    hasWarehouseAccess,
+    result: hasBranchAccess || hasWarehouseAccess
+  });
   
   return hasBranchAccess || hasWarehouseAccess;
 };
@@ -305,6 +315,20 @@ export const validateStageTransition = (transfer, newStage, user) => {
       return true;
     }
     
+    // Debug logging for permission check
+    logger.debug('Validating stage transition permissions', {
+      userId: user._id,
+      userRole: user.role,
+      userBranchIds: user.branchIds,
+      userWarehouseIds: user.warehouseIds,
+      newStage,
+      requiredRoles,
+      sourceLocationId: transfer.sourceLocation?._id || transfer.sourceLocation,
+      destinationLocationId: transfer.destinationLocation?._id || transfer.destinationLocation,
+      hasSourceAccess: hasLocationAccess(user, transfer.sourceLocation),
+      hasDestinationAccess: hasLocationAccess(user, transfer.destinationLocation)
+    });
+    
     // Field naming (CORRECTED):
     // - transfer.sourceLocation = actual SOURCE (warehouse sending stock)
     // - transfer.destinationLocation = actual DESTINATION (branch receiving stock)
@@ -312,6 +336,7 @@ export const validateStageTransition = (transfer, newStage, user) => {
     // Check sender role permission (source location - warehouse/branch sending stock)
     if (requiredRoles.includes('sender')) {
       if (hasLocationAccess(user, transfer.sourceLocation)) {
+        logger.debug('Permission granted: user has sender (source) location access');
         return true;
       }
     }
@@ -319,11 +344,22 @@ export const validateStageTransition = (transfer, newStage, user) => {
     // Check destination role permission (destination location - branch receiving stock)
     if (requiredRoles.includes('destination')) {
       if (hasLocationAccess(user, transfer.destinationLocation)) {
+        logger.debug('Permission granted: user has destination location access');
         return true;
       }
     }
     
     // User doesn't have required permissions
+    logger.error('Permission denied for stage transition', {
+      userId: user._id,
+      newStage,
+      requiredRoles,
+      userBranchIds: user.branchIds,
+      userWarehouseIds: user.warehouseIds,
+      sourceLocationId: transfer.sourceLocation?._id || transfer.sourceLocation,
+      destinationLocationId: transfer.destinationLocation?._id || transfer.destinationLocation
+    });
+    
     throw new Error(
       `User does not have permission to transition to stage ${newStage}. ` +
       `Required: ${requiredRoles.join(' or ')} location access`
@@ -434,19 +470,19 @@ export const updateInventoryOnCompletion = async (companyDB, transfer, userId) =
         sourceLocationId,
         sourceLocationType,
         inventoryItemId,
-        quantity,
-        isWarehouseSource: item.isWarehouseSource
+        quantity
       });
 
-      // Deduct from source location for all transfer types (branch-to-branch, warehouse-to-branch, etc.)
-      // Skip only if explicitly marked as warehouse source without inventory tracking
-      const shouldDeductFromSource = sourceLocationType !== 'warehouse' || !item.isWarehouseSource;
+      // Deduct from source location for all transfer types
+      // - If source is a branch: always deduct (branch-to-branch transfers)
+      // - If source is a warehouse: always deduct (warehouse-to-branch transfers)
+      // This ensures proper inventory tracking across all location types
+      const shouldDeductFromSource = true; // Always deduct from source
       
       console.log('🔍 [TRANSFER COMPLETION DEBUG] Source deduction decision', {
         shouldDeductFromSource,
-        reason: shouldDeductFromSource ? 
-          'Will deduct from source (branch or tracked warehouse)' : 
-          'Skipping deduction (untracked warehouse)'
+        sourceLocationType,
+        reason: 'Deducting from source location (branch or warehouse)'
       });
 
       if (shouldDeductFromSource) {
@@ -514,12 +550,6 @@ export const updateInventoryOnCompletion = async (companyDB, transfer, userId) =
           });
           logger.warn(`Source inventory not found for item ${inventoryItemId} at location ${sourceLocationId}`);
         }
-      } else {
-        console.log('ℹ️ [TRANSFER COMPLETION INFO] Skipping source deduction for untracked warehouse', {
-          sourceLocationId,
-          sourceLocationType,
-          isWarehouseSource: item.isWarehouseSource
-        });
       }
     }
 
@@ -567,6 +597,14 @@ export const updateExecutionStage = async (
       logger.error('User not found in updateExecutionStage', { userId, companyId });
       throw new Error('User not found or inactive');
     }
+    
+    logger.debug('User fetched for stage transition', {
+      userId: user._id,
+      role: user.role,
+      branchIds: user.branchIds,
+      warehouseIds: user.warehouseIds,
+      name: user.name
+    });
     
     // Get company database
     const companyDB = await getCompanyDB(companyId);
@@ -636,6 +674,13 @@ export const updateExecutionStage = async (
       updateData.$set = {
         status: 'in_progress'
       };
+    } else if (newStage === 'PROCESS_COMPLETED') {
+      // Transfer completed - update status and completion details
+      updateData.$set = {
+        status: 'completed',
+        completedBy: userId,
+        completedDate: new Date()
+      };
     }
   
     const updateResult = await StockTransfer.updateOne(
@@ -653,7 +698,32 @@ export const updateExecutionStage = async (
     // Get updated transfer
     const updatedTransfer = await StockTransfer.findById(transfer._id)
       .populate('destinationLocation')
-      .populate('sourceLocation');
+      .populate('sourceLocation')
+      .populate('items.inventoryItem');
+    
+    // If stage is PROCESS_COMPLETED, update inventory and stock request
+    if (newStage === 'PROCESS_COMPLETED') {
+      logger.info(`Processing inventory updates for completed transfer ${transfer.transferNumber}`);
+      
+      // Update inventory at destination and source
+      await updateInventoryOnCompletion(companyDB, updatedTransfer, userId);
+      
+      // Update stock request status to completed if exists
+      if (updatedTransfer.originalRequestId) {
+        const StockRequest = companyDB.model('StockRequest');
+        await StockRequest.updateOne(
+          { _id: updatedTransfer.originalRequestId },
+          {
+            $set: {
+              status: 'completed',
+              completedBy: userId,
+              completedDate: new Date()
+            }
+          }
+        );
+        logger.info(`Stock request ${updatedTransfer.originalRequestId} marked as completed`);
+      }
+    }
     
     logger.info(
       `Stock transfer ${transfer.transferNumber} stage updated to ${newStage} by user ${userId} for company ${companyId}`
@@ -2436,7 +2506,7 @@ export const updateInventoryOnCompletionWithExceptions = async (companyId, trans
  */
 export const getExceptions = async (companyId, accessControl = {}, pagination = {}) => {
   try {
-    const { isUnrestricted, locationIds, resolved } = accessControl;
+    const { isUnrestricted, locationIds, status, resolved } = accessControl;
     const { page = 1, limit = 10 } = pagination;
     
     const companyDB = await getCompanyDB(companyId);
@@ -2445,9 +2515,23 @@ export const getExceptions = async (companyId, accessControl = {}, pagination = 
     // Build query with location-based filtering
     const query = {
       companyId,
-      hasExceptions: true,
-      status: { $in: ['exception_fix_in_progress', 'completed'] }
+      hasExceptions: true
     };
+    
+    // Filter by status - if provided, use it; otherwise default to exception_fix_in_progress only
+    if (status) {
+      query.status = status;
+    } else {
+      query.status = 'exception_fix_in_progress';
+    }
+    
+    logger.debug('getExceptions service query', {
+      companyId,
+      status: query.status,
+      hasExceptions: true,
+      isUnrestricted,
+      locationIds
+    });
     
     // Apply location-based access control
     if (!isUnrestricted && locationIds && locationIds.length > 0) {
@@ -2572,13 +2656,17 @@ export const getTransfersWithExceptions = async (companyId, filters = {}, pagina
     // Build optimized query using derived fields
     const query = {
       companyId,
-      hasExceptions: true
+      hasExceptions: true,
+      status: status // Always filter by status (defaults to 'exception_fix_in_progress')
     };
     
-    // Filter by status
-    if (status) {
-      query.status = status;
-    }
+    logger.debug('getTransfersWithExceptions query', {
+      companyId,
+      status,
+      hasExceptions: true,
+      severity,
+      resolved
+    });
     
     // Filter by unresolved exceptions using derived field
     if (resolved === false) {
