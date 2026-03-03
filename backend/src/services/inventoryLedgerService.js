@@ -72,6 +72,7 @@ export const recordLedgerEntry = async (entryData, companyId) => {
 
     // Create ledger entry
     const ledgerEntry = new InventoryLedger({
+      companyId: companyId, // Add companyId field
       inventoryItem: entryData.inventoryItem,
       locationId: entryData.locationId,
       batchNumber: entryData.batchNumber,

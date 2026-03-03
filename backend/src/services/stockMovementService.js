@@ -94,6 +94,7 @@ export const atomicStockDeduction = async (itemId, locationId, quantity, options
 
     // Create immutable ledger entry
     const ledgerEntry = new InventoryLedger({
+      companyId: companyId, // Add companyId field
       inventoryItem: updateResult.inventoryItem._id,
       locationId: updateResult.locationId._id || updateResult.locationId,
       movementType,
@@ -195,6 +196,7 @@ export const atomicStockAddition = async (itemId, locationId, quantity, options)
 
     // Create ledger entry
     const ledgerEntry = new InventoryLedger({
+      companyId: companyId, // Add companyId field
       inventoryItem: updateResult.inventoryItem._id,
       locationId: updateResult.locationId._id || updateResult.locationId,
       movementType,
