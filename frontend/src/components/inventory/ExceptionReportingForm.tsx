@@ -61,24 +61,18 @@ export default function ExceptionReportingForm({
   };
 
   const handleSubmit = async () => {
-    if (exceptions.length === 0) {
-      setError('Please add at least one exception before submitting');
-      return;
-    }
-
     try {
       setLoading(true);
       setError('');
 
-      // Generate idempotency key for retry safety
-      const idempotencyKey = generateUUID();
-
-      // Call the API with idempotency key
+      // Allow submission with zero exceptions (means everything is correct)
       await onSubmitExceptions(exceptions);
 
       toast({
         title: 'Success',
-        description: `${exceptions.length} exception(s) reported successfully`,
+        description: exceptions.length > 0 
+          ? `${exceptions.length} exception(s) reported successfully`
+          : 'Goods received and verified - no exceptions',
         variant: 'success'
       });
 
@@ -135,6 +129,21 @@ export default function ExceptionReportingForm({
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+
+      {/* No Exceptions Message */}
+      {exceptions.length === 0 && (
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-start gap-2">
+            <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+            <div className="flex-1">
+              <h4 className="font-semibold text-green-900 mb-1">No Exceptions</h4>
+              <p className="text-sm text-green-700">
+                If all items are received correctly with no discrepancies, click "Confirm Receipt" to complete the verification.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Exception Summary */}
@@ -206,6 +215,7 @@ export default function ExceptionReportingForm({
           <ItemVerificationRow
             key={item.inventoryItem._id}
             item={item}
+            allItems={transferItems}
             onReportException={handleAddException}
           />
         ))}
@@ -216,17 +226,23 @@ export default function ExceptionReportingForm({
         <Button
           type="button"
           onClick={handleSubmit}
-          disabled={loading || exceptions.length === 0}
+          disabled={loading}
           className="min-w-[200px]"
+          variant={exceptions.length === 0 ? "default" : "destructive"}
         >
           {loading ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
               Submitting...
             </>
-          ) : (
+          ) : exceptions.length === 0 ? (
             <>
               <CheckCircle className="h-4 w-4 mr-2" />
+              Confirm Receipt (No Exceptions)
+            </>
+          ) : (
+            <>
+              <AlertCircle className="h-4 w-4 mr-2" />
               Submit {exceptions.length} Exception(s)
             </>
           )}

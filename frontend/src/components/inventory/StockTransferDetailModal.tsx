@@ -288,6 +288,7 @@ export default function StockTransferDetailModal({
     try {
       setLoading(true);
 
+      // Update the stage first
       await inventoryServices.updateTransferStage(transfer._id, {
         stage: nextStage,
         notes: stageNotes.trim() || undefined
@@ -302,7 +303,14 @@ export default function StockTransferDetailModal({
       setShowStageUpdate(false);
       setStageNotes('');
       setNextStage(null);
-      onSuccess();
+
+      // If moved to GOODS_RECEIVED_CONFIRMED, refresh and show exception reporting
+      if (nextStage === 'GOODS_RECEIVED_CONFIRMED') {
+        await onSuccess(); // Refresh transfer data
+        setShowExceptionReporting(true);
+      } else {
+        onSuccess();
+      }
     } catch (error: any) {
       toast({
         title: "Error",

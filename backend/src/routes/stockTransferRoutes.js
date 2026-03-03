@@ -30,13 +30,14 @@ import {
   forceCompleteTransferEndpoint,
   getImpactPreview
 } from '../controllers/stockTransferController.js';
-import { authenticate } from '../middlewares/auth.js';
+import { authenticate, requireCompanyDB } from '../middlewares/auth.js';
 import { idempotencyMiddleware } from '../middlewares/idempotency.js';
 
 const router = express.Router();
 
-// All routes require authentication
+// All routes require authentication and company database context
 router.use(authenticate);
+router.use(requireCompanyDB);
 
 // V2 API endpoints with location-based access control
 

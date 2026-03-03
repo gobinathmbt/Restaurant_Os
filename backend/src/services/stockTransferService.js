@@ -612,37 +612,9 @@ export const updateExecutionStage = async (
       });
     }
     
-    // Auto-transition: GOODS_RECEIVED_CONFIRMED → PROCESS_COMPLETED
-    if (newStage === 'GOODS_RECEIVED_CONFIRMED') {
-      stagesToUpdate.push({
-        stage: 'PROCESS_COMPLETED',
-        timestamp: new Date(),
-        updatedBy: userId,
-        updatedByName: 'System',
-        ipAddress: ipAddress,
-        deviceInfo: deviceInfo,
-        notes: 'Auto-transitioned to PROCESS_COMPLETED after goods confirmation'
-      });
-      
-      // Update inventory at destination and source
-      await updateInventoryOnCompletion(companyDB, transfer, userId);
-      
-      // Update stock request status to completed
-      if (transfer.originalRequestId) {
-        const StockRequest = companyDB.model('StockRequest');
-        await StockRequest.updateOne(
-          { _id: transfer.originalRequestId },
-          {
-            $set: {
-              status: 'completed',
-              completedBy: userId,
-              completedDate: new Date()
-            }
-          }
-        );
-        logger.info(`Stock request ${transfer.originalRequestId} marked as completed`);
-      }
-    }
+    // NOTE: GOODS_RECEIVED_CONFIRMED does NOT auto-transition to PROCESS_COMPLETED
+    // The transfer stays at GOODS_RECEIVED_CONFIRMED to allow exception reporting
+    // Exception recording API will handle the final completion
     
     // Update transfer with new stage(s) using optimistic locking
     // Also update status based on stage
@@ -658,14 +630,12 @@ export const updateExecutionStage = async (
         status: 'in_progress'
       };
     } else if (newStage === 'GOODS_RECEIVED_CONFIRMED') {
-      // When goods are received, set status to completed
+      // Keep status as 'in_progress' - waiting for exception reporting
       updateData.$set = {
-        status: 'completed',
-        completedBy: userId,
-        completedDate: new Date()
+        status: 'in_progress'
       };
     }
-    
+  
     const updateResult = await StockTransfer.updateOne(
       {
         _id: transfer._id,
@@ -997,7 +967,48 @@ export const recordException = async (
       }
     };
 
-    // 10. Store result in idempotency cache if key provided
+    // 10. Complete the transfer after exception reporting
+    // Add PROCESS_COMPLETED stage and update inventory
+    const processCompletedStage = {
+      stage: 'PROCESS_COMPLETED',
+      timestamp: new Date(),
+      updatedBy: userId,
+      updatedByName: user.name || 'Unknown',
+      notes: exceptionEntries.length > 0 
+        ? `Transfer completed with ${exceptionEntries.length} exception(s) reported`
+        : 'Transfer completed - all items verified with no exceptions'
+    };
+
+    await StockTransfer.updateOne(
+      { _id: transfer._id },
+      {
+        $push: { executionStages: processCompletedStage },
+        $set: { status: exceptionEntries.length > 0 ? 'exception_fix_in_progress' : 'completed' }
+      }
+    );
+
+    // Update inventory at destination and source
+    await updateInventoryOnCompletion(companyDB, transfer, userId);
+
+    // Update stock request status to completed
+    if (transfer.originalRequestId) {
+      const StockRequest = companyDB.model('StockRequest');
+      await StockRequest.updateOne(
+        { _id: transfer.originalRequestId },
+        {
+          $set: {
+            status: 'completed',
+            completedBy: userId,
+            completedDate: new Date()
+          }
+        }
+      );
+      logger.info(`Stock request ${transfer.originalRequestId} marked as completed`);
+    }
+
+    logger.info(`Transfer ${transfer.transferNumber} completed with ${exceptionEntries.length} exception(s)`);
+
+    // 11. Store result in idempotency cache if key provided
     if (idempotencyKey) {
       await idempotencyService.set(idempotencyKey, result, 300); // 5 min TTL
     }
