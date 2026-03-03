@@ -648,7 +648,7 @@ export const inventoryServices = {
   updateTransferStage: (transferId: string, data: {
     stage: string;
     notes?: string;
-  }) => apiClient.patch(`/api/transfers/${transferId}/stage`, data),
+  }) => apiClient.patch(`/api/stock-transfers/${transferId}/stage`, data),
 
   acceptStock: (transferId: string, data: {
     exceptions?: Array<{
@@ -658,10 +658,10 @@ export const inventoryServices = {
       notes?: string;
     }>;
     notes?: string;
-  }) => apiClient.post(`/api/transfers/${transferId}/accept`, data),
+  }) => apiClient.post(`/api/stock-transfers/${transferId}/accept`, data),
 
   getTransferById: (transferId: string) =>
-    apiClient.get(`/api/transfers/${transferId}`),
+    apiClient.get(`/api/stock-transfers/${transferId}`),
 
   // Exception Management Endpoints
   recordExceptions: (transferId: string, data: {
