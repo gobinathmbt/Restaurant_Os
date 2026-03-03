@@ -2399,6 +2399,83 @@ export const updateInventoryOnCompletionWithExceptions = async (companyId, trans
 
 
 /**
+ * Get transfers with exceptions with location-based access control
+ * 
+ * @param {String} companyId - Company ID
+ * @param {Object} accessControl - Access control options (isUnrestricted, locationIds, resolved)
+ * @param {Object} pagination - Pagination options (page, limit)
+ * @returns {Promise<Object>} Transfers with exceptions and pagination metadata
+ */
+export const getExceptions = async (companyId, accessControl = {}, pagination = {}) => {
+  try {
+    const { isUnrestricted, locationIds, resolved } = accessControl;
+    const { page = 1, limit = 10 } = pagination;
+    
+    const companyDB = await getCompanyDB(companyId);
+    const StockTransfer = getStockTransferModel(companyDB);
+    
+    // Build query with location-based filtering
+    const query = {
+      companyId,
+      hasExceptions: true,
+      status: { $in: ['exception_fix_in_progress', 'completed'] }
+    };
+    
+    // Apply location-based access control
+    if (!isUnrestricted && locationIds && locationIds.length > 0) {
+      query.$or = [
+        { sourceLocation: { $in: locationIds } },
+        { destinationLocation: { $in: locationIds } }
+      ];
+    }
+    
+    // Filter by resolved status
+    if (resolved === true) {
+      query.unresolvedExceptionCount = 0;
+    } else if (resolved === false) {
+      query.unresolvedExceptionCount = { $gt: 0 };
+    }
+    
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
+    // Execute query with population
+    const [transfers, total] = await Promise.all([
+      StockTransfer.find(query)
+        .populate('sourceLocation', '_id name type')
+        .populate('destinationLocation', '_id name type')
+        .populate('exceptions.inventoryItem', '_id name')
+        .populate('exceptions.reportedBy', '_id name')
+        .populate('exceptions.resolvedBy', '_id name')
+        .sort({ 'exceptions.reportedAt': -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      StockTransfer.countDocuments(query)
+    ]);
+    
+    logger.info('Retrieved transfers with exceptions', {
+      companyId,
+      accessControl,
+      count: transfers.length,
+      total
+    });
+    
+    return {
+      transfers,
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit)
+    };
+    
+  } catch (error) {
+    logger.error('Error getting transfers with exceptions:', error);
+    throw error;
+  }
+};
+
+/**
  * Get transfers with exceptions (optimized for super admin dashboard)
  * Uses derived fields for performance at scale (5000+ branches)
  * 

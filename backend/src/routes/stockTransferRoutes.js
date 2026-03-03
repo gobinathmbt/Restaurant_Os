@@ -40,16 +40,32 @@ router.use(authenticate);
 
 // V2 API endpoints with location-based access control
 
+// Get in-transit transfers (location-based filtering applied in controller)
+// MUST come before /:transferId to avoid route collision
+router.get('/in-transit', getInTransitTransfers);
+
+// Get transfers with exceptions (location-based filtering applied in controller)
+// MUST come before /:transferId to avoid route collision
+router.get('/exceptions', getExceptions);
+
+// Get all transfers with exceptions (Super Admin only)
+// MUST come before /:transferId to avoid route collision
+router.get('/exceptions/all', getTransfersWithExceptions);
+
+// Get completed transfers (location-based filtering applied in controller)
+// MUST come before /:transferId to avoid route collision
+router.get('/completed', getCompletedTransfers);
+
 // List stock transfers with cursor pagination (location-based filtering applied in controller)
-router.get('/v2', listTransfers);
+router.get('/', listTransfers);
 
 // Get a single transfer by ID
-router.get('/v2/:transferId', getTransferById);
+router.get('/:transferId', getTransferById);
 
 // Ship a stock transfer (Warehouse Admin marks as shipped)
 // Location-based access control is validated in the service layer (destinationLocation)
 router.post(
-  '/v2/:transferId/ship',
+  '/:transferId/ship',
   idempotencyMiddleware('TRANSFER_SHIP'),
   shipTransfer
 );
@@ -57,56 +73,44 @@ router.post(
 // Receive a stock transfer (Branch Admin marks as received)
 // Location-based access control is validated in the service layer (sourceLocation)
 router.post(
-  '/v2/:transferId/receive',
+  '/:transferId/receive',
   idempotencyMiddleware('TRANSFER_RECEIVE'),
   receiveTransfer
 );
 
 // Update execution stage of a stock transfer
-router.patch('/v2/:transferId/stage', updateExecutionStage);
+router.patch('/:transferId/stage', updateExecutionStage);
 
 // Accept stock with exception recording
 router.post(
-  '/v2/:transferId/accept',
+  '/:transferId/accept',
   idempotencyMiddleware('TRANSFER_ACCEPT'),
   acceptStock
 );
-
-// Get in-transit transfers (location-based filtering applied in controller)
-router.get('/v2/in-transit', getInTransitTransfers);
-
-// Get transfers with exceptions (location-based filtering applied in controller)
-router.get('/v2/exceptions', getExceptions);
-
-// Get completed transfers (location-based filtering applied in controller)
-router.get('/v2/completed', getCompletedTransfers);
 
 // Exception handling endpoints
 
 // Record exceptions for a transfer (Destination Admin only)
 router.post(
-  '/v2/:transferId/exceptions',
+  '/:transferId/exceptions',
   idempotencyMiddleware('RECORD_EXCEPTIONS'),
   recordExceptions
 );
 
-// Get all transfers with exceptions (Super Admin only)
-router.get('/v2/exceptions/all', getTransfersWithExceptions);
-
 // Get exceptions for a specific transfer (Destination Admin or Super Admin)
-router.get('/v2/:transferId/exceptions', getTransferExceptions);
+router.get('/:transferId/exceptions', getTransferExceptions);
 
 // Resolve an individual exception (Super Admin only)
-router.put('/v2/:transferId/exceptions/:exceptionId', resolveExceptionEndpoint);
+router.put('/:transferId/exceptions/:exceptionId', resolveExceptionEndpoint);
 
 // Escalate unresolved exceptions (Super Admin only)
-router.post('/v2/:transferId/escalate', escalateExceptionEndpoint);
+router.post('/:transferId/escalate', escalateExceptionEndpoint);
 
 // Force complete transfer with unresolved exceptions (Super Admin only)
-router.post('/v2/:transferId/force-complete', forceCompleteTransferEndpoint);
+router.post('/:transferId/force-complete', forceCompleteTransferEndpoint);
 
 // Get impact preview for a transfer (Destination Admin or Super Admin)
-router.get('/v2/:transferId/impact-preview', getImpactPreview);
+router.get('/:transferId/impact-preview', getImpactPreview);
 
 // Legacy V1 API endpoints (maintained for backward compatibility)
 

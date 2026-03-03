@@ -764,10 +764,14 @@ export const cancelRequest = async (req, res, next) => {
  */
 export const getMyRequests = async (req, res, next) => {
   try {
-    const { companyId, userId } = req.user;
+    const { companyId, userId, role } = req.user;
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit) || 10, 100);
     const skip = (page - 1) * limit;
+
+    // Check if user is super admin
+    const isSuperAdmin = role === 'company_super_admin_primary' || 
+                         role === 'company_super_admin_secondary';
 
     // Extract filter parameters
     const filters = {
@@ -827,19 +831,46 @@ export const getMyRequests = async (req, res, next) => {
                       filters.sortBy === 'status' ? 'status' : 'requestDate';
     const sortDirection = filters.sortOrder === 'asc' ? 1 : -1;
 
-    // Get total count
-    const total = await StockRequest.countDocuments(query);
-    const pages = Math.ceil(total / limit);
-
-    // Execute query with pagination
-    const requests = await StockRequest.find(query)
+    // Execute query with pagination and populate the transfer
+    let requests = await StockRequest.find(query)
       .sort({ [sortField]: sortDirection, requestNumber: -1 })
       .skip(skip)
       .limit(limit)
       .populate('destinationLocation', 'name type')
       .populate('sourceLocation', 'name type')
       .populate('items.inventoryItem', 'name code')
+      .populate('createdTransferId', 'status') // Populate transfer to check execution status
       .lean();
+
+    // For non-super admins, filter out requests where transfer execution has started
+    if (!isSuperAdmin) {
+      requests = requests.filter(request => {
+        // If no transfer created yet, include it
+        if (!request.createdTransferId) {
+          return true;
+        }
+        // Only include if transfer status is 'not_started'
+        return request.createdTransferId.status === 'not_started';
+      });
+    }
+
+    // Get total count (need to recalculate after filtering for non-super admins)
+    let total;
+    if (!isSuperAdmin) {
+      // For non-super admins, we need to count with the same filter logic
+      const allRequests = await StockRequest.find(query)
+        .populate('createdTransferId', 'status')
+        .lean();
+      const filteredCount = allRequests.filter(request => {
+        if (!request.createdTransferId) return true;
+        return request.createdTransferId.status === 'not_started';
+      }).length;
+      total = filteredCount;
+    } else {
+      total = await StockRequest.countDocuments(query);
+    }
+    
+    const pages = Math.ceil(total / limit);
 
     // Manually populate CompanyUser fields (platform model)
     const populatedRequests = await populateCompanyUsers(requests, companyId, ['requestedBy', 'approvedBy']);
@@ -847,6 +878,7 @@ export const getMyRequests = async (req, res, next) => {
     logger.info('My requests listed via API', {
       companyId,
       userId,
+      isSuperAdmin,
       count: populatedRequests.length,
       page,
       total

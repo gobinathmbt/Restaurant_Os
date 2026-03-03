@@ -59,9 +59,28 @@ interface StockTransfer {
   expectedDeliveryDate?: string;
   exceptions?: Array<{
     _id: string;
-    type: string;
+    type: 'damage' | 'missing' | 'excess';
+    inventoryItem: {
+      _id: string;
+      name: string;
+    };
+    quantity: number;
+    unit: string;
     severity: 'low' | 'medium' | 'high';
+    description?: string;
+    reportedBy: {
+      _id: string;
+      name: string;
+    };
+    reportedAt: string;
     resolved: boolean;
+    resolutionAction?: 'confirm_damage' | 'return_to_source' | 'accept_excess' | 'reject_excess';
+    resolvedBy?: {
+      _id: string;
+      name: string;
+    };
+    resolvedAt?: string;
+    resolutionNotes?: string;
   }>;
   unresolvedExceptionCount?: number;
 }
