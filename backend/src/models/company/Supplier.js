@@ -196,10 +196,8 @@ supplierSchema.index({ categoryIds: 1 });
 supplierSchema.index({ subcategoryIds: 1 });
 supplierSchema.index({ branchIds: 1 });
 supplierSchema.index({ name: 'text', contactPerson: 'text' });
-// Additional indexes for category-branch consistency
-supplierSchema.index({ categoryIds: 1, branchIds: 1 });
-supplierSchema.index({ subcategoryIds: 1, branchIds: 1 });
-supplierSchema.index({ branchIds: 1, categoryIds: 1, subcategoryIds: 1 });
+// Note: Cannot create compound indexes on multiple array fields (parallel arrays)
+// MongoDB limitation - queries on multiple array fields will use single-field indexes
 
 export const getSupplierModel = (companyDB) => {
   return companyDB.model('Supplier', supplierSchema);
