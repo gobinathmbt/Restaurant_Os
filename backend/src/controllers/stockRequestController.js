@@ -261,21 +261,17 @@ export const listRequests = async (req, res, next) => {
 
     // Handle branchId parameter (used by frontend tabs)
     if (filters.branchId && filters.branchId !== 'all') {
-      // Determine context based on status filter
-      if (filters.status === 'approved') {
-        // Incoming Requests tab: show requests where this branch is the SOURCE
-        query.sourceLocation = filters.branchId;
-        // Auto-apply execution status filter: only show not started
-        if (!filters.executionStatus) {
-          filters.executionStatus = 'not_started';
-        }
-      } else {
-        // My Requests tab: show requests where this branch is the DESTINATION
-        query.destinationLocation = filters.branchId;
-        // Auto-apply execution status filter: only show not started
-        if (!filters.executionStatus) {
-          filters.executionStatus = 'not_started';
-        }
+      // For all statuses, show requests where this branch is involved
+      // Either as destination (requesting) or source (fulfilling)
+      // The frontend context determines which perspective to show
+      query.$or = [
+        { destinationLocation: filters.branchId },
+        { sourceLocation: filters.branchId }
+      ];
+      
+      // Auto-apply execution status filter for approved requests: only show not started by default
+      if (filters.status === 'approved' && !filters.executionStatus) {
+        filters.executionStatus = 'not_started';
       }
     }
 
