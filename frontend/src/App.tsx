@@ -25,6 +25,7 @@ const Inventory = lazy(() => import("@/pages/company/Inventory"));
 const Recipes = lazy(() => import("@/pages/company/Recipes"));
 const Suppliers = lazy(() => import("@/pages/company/Suppliers"));
 const Menu = lazy(() => import("@/pages/company/Menu"));
+const Locations = lazy(() => import("@/pages/company/Locations"));
 
 const queryClient = new QueryClient();
 
@@ -127,6 +128,14 @@ const App = () => {
                   />
                   <Route path="customers" element={<div className="p-8">Customers Page Coming Soon</div>} />
                   <Route path="staff" element={<Staff />} />
+                  <Route 
+                    path="locations" 
+                    element={
+                      <Suspense fallback={<div className="p-8">Loading...</div>}>
+                        <Locations />
+                      </Suspense>
+                    } 
+                  />
                   <Route path="reports" element={<div className="p-8">Reports Page Coming Soon</div>} />
                   <Route path="billing" element={<div className="p-8">Billing Page Coming Soon</div>} />
                   <Route path="settings" element={<CompanySettings />} />

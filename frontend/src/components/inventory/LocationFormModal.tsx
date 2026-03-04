@@ -54,7 +54,16 @@ const locationSchema = z.object({
     street: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
-    postalCode: z.string().optional(),
+    postalCode: z.string()
+      .optional()
+      .refine(
+        (postalCode) => {
+          if (!postalCode) return true; // Allow empty
+          // Validate 6-digit Indian PIN code
+          return /^\d{6}$/.test(postalCode);
+        },
+        'Postal code must be a valid 6-digit Indian PIN code'
+      ),
     country: z.string().optional(),
   }).optional(),
   contact: z.object({
@@ -341,10 +350,12 @@ export default function LocationFormModal({
       // Handle validation errors with field-level details
       if (status === 400 && errorData?.errors && Array.isArray(errorData.errors)) {
         const fieldErrors: Record<string, string> = {};
+        const errorMessages: string[] = [];
         
         errorData.errors.forEach((err: any) => {
           if (err.field) {
             fieldErrors[err.field] = err.message || 'Validation error';
+            errorMessages.push(`${err.field}: ${err.message}`);
           }
         });
         
@@ -352,7 +363,7 @@ export default function LocationFormModal({
         
         toast({
           title: 'Validation Error',
-          description: 'Please check the form for errors',
+          description: errorMessages.join('\n'),
           variant: 'destructive',
         });
       } else if (status === 409) {
@@ -597,7 +608,9 @@ export default function LocationFormModal({
                           <Label htmlFor="postalCode">Postal Code</Label>
                           <Input
                             id="postalCode"
-                            {...register('address.postalCode')}
+                            {...register('address.postalCode', {
+                              onChange: () => clearBackendError('address.postalCode'),
+                            })}
                             placeholder="400001"
                           />
                         </div>

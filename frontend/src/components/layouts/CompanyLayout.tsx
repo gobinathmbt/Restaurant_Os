@@ -22,6 +22,7 @@ import {
   PackageOpen,
   BookOpen,
   Truck,
+  MapPin,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -119,6 +120,12 @@ const menuItems: MenuItem[] = [
     title: 'Staff',
     href: '/staff',
     icon: Users,
+    roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+  },
+  {
+    title: 'Locations',
+    href: '/locations',
+    icon: MapPin,
     roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
   },
   {

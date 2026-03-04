@@ -16,7 +16,6 @@ import CategoriesTab from '@/components/inventory/CategoriesTab';
 import GRNTab from '@/components/inventory/GRNTab';
 import StockAdjustmentsTab from '@/components/inventory/StockAdjustmentsTab';
 import StockTransfersTab from '@/components/inventory/StockTransfersTab';
-import LocationsTab from '@/components/inventory/LocationsTab';
 import { STORAGE_KEYS } from '@/utils/storage';
 import { useTabStorage } from '@/hooks/useStorage';
 
@@ -108,7 +107,7 @@ export default function Inventory() {
   // compute layout classes early (non-hooks)
   const tabListClass = isWarehouseAdmin
     ? 'mx-6 mt-6 mb-0 flex w-full'
-    : 'mx-6 mt-6 mb-0 grid w-full grid-cols-6 lg:w-auto flex-shrink-0';
+    : 'mx-6 mt-6 mb-0 grid w-full grid-cols-5 lg:w-auto flex-shrink-0';
 
   const tabTriggerClass = isWarehouseAdmin ? 'flex-1 text-center' : '';
 
@@ -156,7 +155,6 @@ export default function Inventory() {
         <TabsList className={tabListClass}>
           {isTabVisible('items') && <TabsTrigger className={tabTriggerClass} value="items">Items</TabsTrigger>}
           {isTabVisible('categories') && <TabsTrigger className={tabTriggerClass} value="categories">Categories</TabsTrigger>}
-          {isTabVisible('locations') && <TabsTrigger className={tabTriggerClass} value="locations">Locations</TabsTrigger>}
           {isTabVisible('grn') && <TabsTrigger className={tabTriggerClass} value="grn">GRN</TabsTrigger>}
           {isTabVisible('adjustments') && <TabsTrigger className={tabTriggerClass} value="adjustments">Adjustments</TabsTrigger>}
           {isTabVisible('transfers') && <TabsTrigger className={tabTriggerClass} value="transfers">Request for Stock</TabsTrigger>}
@@ -183,12 +181,6 @@ export default function Inventory() {
               isSuperAdmin={isSuperAdmin}
               isMultiBranchAdmin={isMultiBranchAdmin}
             />
-          </TabsContent>
-        )}
-
-        {isTabVisible('locations') && (
-          <TabsContent value="locations" className="m-0 flex-1 min-h-0 overflow-hidden">
-            <LocationsTab />
           </TabsContent>
         )}
 

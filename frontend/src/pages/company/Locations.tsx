@@ -30,7 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import { locationServices } from '@/api/services';
 import DataTableLayout from '@/components/common/DataTableLayout';
 import { getStorage, setStorage } from '@/utils/storage';
-import LocationFormModal from './LocationFormModal';
+import LocationFormModal from '@/components/inventory/LocationFormModal';
 
 interface Location {
   _id: string;
@@ -565,6 +565,8 @@ export default function LocationsTab() {
 
   return (
     <>
+        <div className="h-[calc(100vh-4rem)] -m-6 flex flex-col overflow-hidden">
+
       <DataTableLayout
         statChips={statChips}
         actionButtons={actionButtons}
@@ -629,6 +631,7 @@ export default function LocationsTab() {
         locationId={selectedLocationId}
         onSuccess={handleFormSuccess}
       />
+      </div>
     </>
   );
 }
