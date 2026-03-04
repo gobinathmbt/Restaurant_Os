@@ -85,6 +85,12 @@ const menuItems: MenuItem[] = [
     roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
   },
   {
+    title: 'Customers',
+    href: '/customers',
+    icon: Users,
+    roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
+  },
+  {
     title: 'Inventory',
     icon: Package,
     roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin', 'warehouse_admin'],
@@ -108,12 +114,6 @@ const menuItems: MenuItem[] = [
         roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
       },
     ],
-  },
-  {
-    title: 'Customers',
-    href: '/customers',
-    icon: Users,
-    roles: ['company_super_admin_primary', 'company_super_admin_secondary', 'company_admin'],
   },
   {
     title: 'Staff',
