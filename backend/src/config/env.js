@@ -126,6 +126,10 @@ export const ENV = {
   // Database URIs (from environment only - not in database)
   PLATFORM_DB_URI: "mongodb://localhost:27017/ros_platform",
   COMPANY_DB_BASE_URI: "mongodb://localhost:27017/<dbname>",
+
+  //DEV
+  // PLATFORM_DB_URI: "mongodb+srv://gobinathwebdev_db_user:2UbZds35r8jivCXl@restaurant-os.hm4za5r.mongodb.net/ros_platform",
+  // COMPANY_DB_BASE_URI: "mongodb+srv://gobinathwebdev_db_user:2UbZds35r8jivCXl@restaurant-os.hm4za5r.mongodb.net/<dbname>",
   
   // Frontend URL (from environment only - not in database)
   FRONTEND_URL:  'http://localhost:5173',
